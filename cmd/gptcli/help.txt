@@ -1,0 +1,14 @@
+
+gptcli - A CLI based interface to OpenAI's GPT API
+
+Available Commands:
+  help                           This help screen
+  config                         Set gptcli configuration (e.g. sets OpenAI key)
+  upgrade                        Upgrade to the latest version of gptcli
+  version                        Print gptcli's version string
+  new                            Create a new thread(conversation) with GPT
+  delete <thread#>               Delete a previously created thread(conversation)
+  ls                             List available threads(conversations)
+  thread <thread#>               Switch to a previously created thread
+  exit                           Exit gptcli
+

@@ -1,0 +1,716 @@
+/* Copyright © 2023 Mike Brown. All Rights Reserved.
+ *
+ * See LICENSE file at the root of this package for license terms
+ */
+package main
+
+import (
+	"bufio"
+	"context"
+	_ "embed"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"hash/crc32"
+	"io"
+	"io/ioutil"
+	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/fatih/color"
+	"github.com/sashabaranov/go-openai"
+)
+
+const (
+	CommandName    = "gptcli"
+	KeyFile        = ".openai.key"
+	ThreadsDir     = "threads"
+	CodeBlockDelim = "```"
+)
+
+const SystemMsg = `You are gptcli, a CLI based utility that otherwise acts
+exactly like ChatGPT. All subsequent user messages you receive are input from a
+CLI interface and your responses will be displayed on a CLI interface. Your
+source code is available at https://github.com/mikeb26/gptcli.`
+
+var subCommandTab = map[string]func(ctx context.Context,
+	gptCliCtx *GptCliContext, args []string) error{
+
+	"help":    helpMain,
+	"version": versionMain,
+	"upgrade": upgradeMain,
+	"config":  configMain,
+	"ls":      lsThreadsMain,
+	"thread":  threadSwitchMain,
+	"new":     newThreadMain,
+	"delete":  deleteThreadMain,
+	"exit":    exitMain,
+	"quit":    exitMain,
+}
+
+type GptCliThread struct {
+	Name       string                         `json:"name"`
+	CreateTime time.Time                      `json:"ctime"`
+	AccessTime time.Time                      `json:"atime"`
+	ModTime    time.Time                      `json:"mtime"`
+	Dialogue   []openai.ChatCompletionMessage `json:"dialogue"`
+
+	filePath string
+}
+
+type GptCliContext struct {
+	client       *openai.Client
+	input        *bufio.Reader
+	needConfig   bool
+	curThreadNum int
+	totThreads   int
+	threads      []*GptCliThread
+}
+
+func NewGptCliContext() *GptCliContext {
+	var clientLocal *openai.Client
+	needConfigLocal := false
+	keyText, err := loadKey()
+	if err != nil {
+		keyText = ""
+		needConfigLocal = true
+	} else {
+		clientLocal = openai.NewClient(keyText)
+	}
+
+	return &GptCliContext{
+		client:       clientLocal,
+		input:        bufio.NewReader(os.Stdin),
+		needConfig:   needConfigLocal,
+		curThreadNum: 0,
+		totThreads:   0,
+		threads:      make([]*GptCliThread, 0),
+	}
+}
+
+func (gptCliCtx *GptCliContext) loadThreads() error {
+	tDir, err := getThreadsDir()
+	if err != nil {
+		return err
+	}
+	dEntries, err := os.ReadDir(tDir)
+	if err != nil {
+		return fmt.Errorf("Failed to read dir %v: %w", tDir, err)
+	}
+
+	for _, dEnt := range dEntries {
+		fullpath := filepath.Join(tDir, dEnt.Name())
+		threadFileText, err := ioutil.ReadFile(fullpath)
+		if err != nil {
+			return fmt.Errorf("Failed to read %v: %w", fullpath, err)
+		}
+
+		var thread GptCliThread
+		err = json.Unmarshal(threadFileText, &thread)
+		if err != nil {
+			return fmt.Errorf("Failed to parse %v: %w", fullpath, err)
+		}
+		fileName := fmt.Sprintf("%v.json",
+			strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(thread.Name))), 16))
+		filePath := filepath.Join(tDir, fileName)
+		thread.filePath = filePath
+
+		gptCliCtx.threads = append(gptCliCtx.threads, &thread)
+		gptCliCtx.totThreads++
+	}
+
+	return nil
+}
+
+func (thread *GptCliThread) save() error {
+	threadFileContent, err := json.Marshal(thread)
+	if err != nil {
+		return fmt.Errorf("Failed to save thread %v: %w", thread.Name, err)
+	}
+
+	err = ioutil.WriteFile(thread.filePath, threadFileContent, 0600)
+	if err != nil {
+		return fmt.Errorf("Failed to save thread %v: %w", thread.Name, err)
+	}
+
+	return nil
+}
+
+//go:embed help.txt
+var helpText string
+
+func helpMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) error {
+	fmt.Printf(helpText)
+
+	return nil
+}
+
+func exitMain(ctx context.Context, gptCliCtx *GptCliContext,
+	args []string) error {
+
+	if gptCliCtx.curThreadNum == 0 {
+		return io.EOF
+	}
+
+	gptCliCtx.curThreadNum = 0
+
+	return nil
+}
+
+//go:embed version.txt
+var versionText string
+
+const DevVersionText = "v0.devbuild"
+
+func versionMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) error {
+	fmt.Printf("gptcli-%v\n", versionText)
+
+	return nil
+}
+
+func upgradeMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) error {
+	if versionText == DevVersionText {
+		fmt.Fprintf(os.Stderr, "Skipping gptcli upgrade on development version\n")
+		return nil
+	}
+	latestVer, err := getLatestVersion()
+	if err != nil {
+		return err
+	}
+	if latestVer == versionText {
+		fmt.Printf("gptcli %v is already the latest version\n",
+			versionText)
+		return nil
+	}
+
+	fmt.Printf("A new version of gptcli is available (%v). Upgrade? (Y/N) [Y]: ",
+		latestVer)
+	shouldUpgrade, err := gptCliCtx.input.ReadString('\n')
+
+	shouldUpgrade = strings.ToUpper(strings.TrimSpace(shouldUpgrade))
+	if err != nil {
+		return err
+	}
+	if shouldUpgrade[0] != 'Y' {
+		return nil
+	}
+
+	fmt.Printf("Upgrading gptcli from %v to %v...\n", versionText,
+		latestVer)
+
+	err = upgradeViaGithub(latestVer)
+	if err != nil {
+		return err
+	}
+
+	return io.EOF
+}
+
+func getLatestVersion() (string, error) {
+	const LatestReleaseUrl = "https://api.github.com/repos/mikeb26/gptcli/releases/latest"
+
+	client := http.Client{
+		Timeout: time.Second * 30,
+	}
+
+	resp, err := client.Get(LatestReleaseUrl)
+	if err != nil {
+		return "", err
+	}
+
+	releaseJsonDoc, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	var releaseDoc map[string]any
+	err = json.Unmarshal(releaseJsonDoc, &releaseDoc)
+	if err != nil {
+		return "", err
+	}
+
+	latestRelease, ok := releaseDoc["tag_name"].(string)
+	if !ok {
+		return "", fmt.Errorf("Could not parse %v", LatestReleaseUrl)
+	}
+
+	return latestRelease, nil
+}
+
+func upgradeViaGithub(latestVer string) error {
+	const LatestDownloadFmt = "https://github.com/mikeb26/gptcli/releases/download/%v/gptcli"
+
+	client := http.Client{
+		Timeout: time.Second * 30,
+	}
+
+	resp, err := client.Get(fmt.Sprintf(LatestDownloadFmt, latestVer))
+	if err != nil {
+		return fmt.Errorf("Failed to download version %v: %w", versionText, err)
+
+	}
+
+	tmpFile, err := os.CreateTemp("", "gptcli-*")
+	if err != nil {
+		return fmt.Errorf("Failed to create temp file: %w", err)
+	}
+	binaryContent, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("Failed to download version %v: %w", versionText, err)
+	}
+	_, err = tmpFile.Write(binaryContent)
+	if err != nil {
+		return fmt.Errorf("Failed to download version %v: %w", versionText, err)
+	}
+	err = tmpFile.Chmod(0755)
+	if err != nil {
+		return fmt.Errorf("Failed to download version %v: %w", versionText, err)
+	}
+	err = tmpFile.Close()
+	if err != nil {
+		return fmt.Errorf("Failed to download version %v: %w", versionText, err)
+	}
+	myBinaryPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("Could not determine path to gptcli: %w", err)
+	}
+	myBinaryPath, err = filepath.EvalSymlinks(myBinaryPath)
+	if err != nil {
+		return fmt.Errorf("Could not determine path to gptcli: %w", err)
+	}
+
+	myBinaryPathBak := myBinaryPath + ".bak"
+	err = os.Rename(myBinaryPath, myBinaryPathBak)
+	if err != nil {
+		return fmt.Errorf("Could not replace existing %v; do you need to be root?: %w",
+			myBinaryPath, err)
+	}
+	err = os.Rename(tmpFile.Name(), myBinaryPath)
+	if errors.Is(err, syscall.EXDEV) {
+		// invalid cross device link occurs when rename() is attempted aross
+		// different filesystems; copy instead
+		err = ioutil.WriteFile(myBinaryPath, binaryContent, 0755)
+		_ = os.Remove(tmpFile.Name())
+	}
+	if err != nil {
+		err := fmt.Errorf("Could not replace existing %v; do you need to be root?: %w",
+			myBinaryPath, err)
+		_ = os.Rename(myBinaryPathBak, myBinaryPath)
+		return err
+	}
+	_ = os.Remove(myBinaryPathBak)
+
+	fmt.Printf("Upgrade %v to %v complete\n", myBinaryPath, latestVer)
+
+	return nil
+}
+
+func checkAndPrintUpgradeWarning() bool {
+	if versionText == DevVersionText {
+		return false
+	}
+	latestVer, err := getLatestVersion()
+	if err != nil {
+		return false
+	}
+	if latestVer == versionText {
+		return false
+	}
+
+	fmt.Fprintf(os.Stderr, "*WARN*: A new version of gptcli is available (%v). Please upgrade via 'upgrade'.\n\n",
+		latestVer)
+
+	return true
+}
+
+func isToday(t time.Time) bool {
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	dateToCheck := t.UTC().Truncate(24 * time.Hour)
+
+	return today.Equal(dateToCheck)
+}
+
+func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
+	args []string) error {
+
+	if gptCliCtx.totThreads == 0 {
+		fmt.Printf("You haven't created any threads yet. To create a thread use the 'new' command.")
+		return nil
+	}
+
+	rowFmt := "| %8v | %-16v | %-16v | %-16v | %-16v\n"
+	rowSpacer := "--------------------------------------------------------------------------------------------\n"
+	fmt.Printf(rowSpacer)
+	fmt.Printf(rowFmt, "Thread#", "Last Accessed", "Last Modified",
+		"Created", "Name")
+	fmt.Printf(rowSpacer)
+
+	for idx, t := range gptCliCtx.threads {
+		cTime := t.CreateTime.Format("1/2/2006 3:04pm")
+		aTime := t.AccessTime.Format("1/2/2006 3:04pm")
+		mTime := t.ModTime.Format("1/2/2006 3:04pm")
+		today := time.Now().UTC().Truncate(24 * time.Hour).Format("1/2/2006")
+		cTime = strings.ReplaceAll(cTime, today, "Today")
+		aTime = strings.ReplaceAll(aTime, today, "Today")
+		mTime = strings.ReplaceAll(mTime, today, "Today")
+
+		fmt.Printf(rowFmt, idx+1, aTime, mTime, cTime, t.Name)
+	}
+
+	fmt.Printf(rowSpacer)
+
+	return nil
+}
+
+func threadSwitchMain(ctx context.Context, gptCliCtx *GptCliContext,
+	args []string) error {
+
+	if len(args) != 2 {
+		return fmt.Errorf("Syntax is 'thread <thread#>' e.g. 'thread 1'\n")
+	}
+	threadNum, err := strconv.ParseUint(args[1], 10, 64)
+	if err != nil || threadNum > uint64(gptCliCtx.totThreads) || threadNum == 0 {
+		return fmt.Errorf("Thread %v does not exist. To list threads try 'ls'.\n",
+			args[1])
+	}
+
+	gptCliCtx.curThreadNum = int(threadNum)
+	gptCliCtx.threads[gptCliCtx.curThreadNum-1].AccessTime = time.Now()
+	err = gptCliCtx.threads[gptCliCtx.curThreadNum-1].save()
+	if err != nil {
+		return err
+	}
+
+	printCurThread(ctx, gptCliCtx)
+
+	return nil
+}
+
+func printCurThread(ctx context.Context, gptCliCtx *GptCliContext) {
+	for _, msg := range gptCliCtx.threads[gptCliCtx.curThreadNum-1].Dialogue {
+		if msg.Role == openai.ChatMessageRoleSystem {
+			continue
+		}
+
+		if msg.Role == openai.ChatMessageRoleAssistant {
+			blocks := splitBlocks(msg.Content)
+			for idx, b := range blocks {
+				if idx%2 == 0 {
+					color.Cyan("%v", b)
+				} else {
+					color.Green("%v", b)
+				}
+			}
+			continue
+		}
+
+		// should be msg.Role == openai.ChatMessageRoleUser
+		fmt.Printf("gptcli/%v> %v\n",
+			gptCliCtx.threads[gptCliCtx.curThreadNum-1].Name, msg.Content)
+	}
+}
+
+func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
+	args []string) error {
+
+	if gptCliCtx.needConfig {
+		return fmt.Errorf("You must run 'config' before creating a thread.\n")
+	}
+
+	threadsDir, err := getThreadsDir()
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Enter new thread's name: ")
+	name, err := gptCliCtx.input.ReadString('\n')
+	if err != nil {
+		return err
+	}
+	name = strings.TrimSpace(name)
+	fileName := fmt.Sprintf("%v.json",
+		strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(name))), 16))
+	filePath := filepath.Join(threadsDir, fileName)
+
+	dialogue := []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleSystem, Content: SystemMsg},
+	}
+
+	curThread := &GptCliThread{
+		Name:       name,
+		CreateTime: time.Now(),
+		AccessTime: time.Now(),
+		ModTime:    time.Now(),
+		Dialogue:   dialogue,
+		filePath:   filePath,
+	}
+	gptCliCtx.curThreadNum = gptCliCtx.totThreads + 1
+	gptCliCtx.totThreads++
+	gptCliCtx.threads = append(gptCliCtx.threads, curThread)
+
+	return nil
+}
+
+func deleteThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
+	args []string) error {
+
+	if len(args) != 2 {
+		return fmt.Errorf("Syntax is 'thread <thread#>' e.g. 'thread 1'\n")
+	}
+	threadNum, err := strconv.ParseUint(args[1], 10, 64)
+	if err != nil || threadNum > uint64(gptCliCtx.totThreads) || threadNum == 0 {
+		return fmt.Errorf("Thread %v does not exist. To list threads try 'ls'.\n",
+			args[1])
+	}
+
+	deletedName := gptCliCtx.threads[threadNum-1].Name
+	err = os.Remove(gptCliCtx.threads[threadNum-1].filePath)
+	if err != nil {
+		return fmt.Errorf("Failed to delete thread %v: %w", threadNum, err)
+	}
+	oldCurThreadNum := gptCliCtx.curThreadNum
+
+	gptCliCtx.curThreadNum = 0
+	gptCliCtx.totThreads = 0
+	gptCliCtx.threads = make([]*GptCliThread, 0)
+	err = gptCliCtx.loadThreads()
+	if err != nil {
+		return err
+	}
+
+	if threadNum > uint64(oldCurThreadNum) {
+		gptCliCtx.curThreadNum = oldCurThreadNum
+	} else if threadNum < uint64(oldCurThreadNum) {
+		gptCliCtx.curThreadNum = oldCurThreadNum - 1
+	}
+
+	fmt.Printf("gptcli: Deleted thread %v(%v). Remaining threads renumbered.\n",
+		threadNum, deletedName)
+
+	return nil
+}
+
+func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) error {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return err
+	}
+	err = os.MkdirAll(configDir, 0700)
+	if err != nil {
+		return fmt.Errorf("Could not create config directory %v: %w",
+			configDir, err)
+	}
+	keyPath := path.Join(configDir, KeyFile)
+	_, err = os.Stat(keyPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("Could not open OpenAI API key file %v: %w", keyPath, err)
+	}
+	fmt.Printf("Enter your OpenAI API key: ")
+	key, err := gptCliCtx.input.ReadString('\n')
+	if err != nil {
+		return err
+	}
+	key = strings.TrimSpace(key)
+	err = ioutil.WriteFile(keyPath, []byte(key), 0600)
+	if err != nil {
+		return fmt.Errorf("Could not write OpenAI API key file %v: %w", keyPath, err)
+	}
+	threadsPath := path.Join(configDir, ThreadsDir)
+	err = os.MkdirAll(threadsPath, 0700)
+	if err != nil {
+		return fmt.Errorf("Could not create threads directory %v: %w",
+			threadsPath, err)
+	}
+
+	gptCliCtx.client = openai.NewClient(key)
+	gptCliCtx.needConfig = false
+
+	return nil
+}
+
+func getConfigDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("Could not find user home directory: %w", err)
+	}
+
+	return filepath.Join(homeDir, ".config", CommandName), nil
+}
+
+func getKeyPath() (string, error) {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, KeyFile), nil
+}
+
+func getThreadsDir() (string, error) {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, ThreadsDir), nil
+}
+
+func loadKey() (string, error) {
+	keyPath, err := getKeyPath()
+	if err != nil {
+		return "", fmt.Errorf("Could not load OpenAI API key: %w", err)
+	}
+	data, err := ioutil.ReadFile(keyPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("Could not load OpenAI API key: "+
+				"run `%v config` to configure", CommandName)
+		}
+		return "", fmt.Errorf("Could not load OpenAI API key: %w", err)
+	}
+	return string(data), nil
+}
+
+func getCmdOrPrompt(gptCliCtx *GptCliContext) (string, error) {
+	var cmdOrPrompt string
+	var err error
+	for len(cmdOrPrompt) == 0 {
+		if gptCliCtx.curThreadNum == 0 {
+			fmt.Printf("gptcli> ")
+		} else {
+			fmt.Printf("gptcli/%v> ",
+				gptCliCtx.threads[gptCliCtx.curThreadNum-1].Name)
+		}
+		cmdOrPrompt, err = gptCliCtx.input.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		cmdOrPrompt = strings.TrimSpace(cmdOrPrompt)
+	}
+
+	return cmdOrPrompt, nil
+}
+
+func interactiveThreadWork(ctx context.Context,
+	gptCliCtx *GptCliContext, prompt string) error {
+
+	msg := openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleUser,
+		Content: prompt,
+	}
+	dialogue := append(gptCliCtx.threads[gptCliCtx.curThreadNum-1].Dialogue, msg)
+
+	resp, err := gptCliCtx.client.CreateChatCompletion(ctx,
+		openai.ChatCompletionRequest{
+			Model:    openai.GPT4TurboPreview,
+			Messages: dialogue,
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	if len(resp.Choices) != 1 {
+		return fmt.Errorf("gptcli: BUG: Expected 1 response, got %v",
+			len(resp.Choices))
+	}
+	blocks := splitBlocks(resp.Choices[0].Message.Content)
+	for idx, b := range blocks {
+		if idx%2 == 0 {
+			color.Cyan("%v", b)
+		} else {
+			color.Green("%v", b)
+		}
+	}
+
+	msg = openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleAssistant,
+		Content: resp.Choices[0].Message.Content,
+	}
+	gptCliCtx.threads[gptCliCtx.curThreadNum-1].Dialogue = append(dialogue, msg)
+	gptCliCtx.threads[gptCliCtx.curThreadNum-1].ModTime = time.Now()
+	gptCliCtx.threads[gptCliCtx.curThreadNum-1].AccessTime = time.Now()
+	err = gptCliCtx.threads[gptCliCtx.curThreadNum-1].save()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func splitBlocks(text string) []string {
+	blocks := make([]string, 0)
+
+	inBlock := false
+	idx := strings.Index(text, CodeBlockDelim)
+	numBlocks := 0
+	for ; idx != -1; idx = strings.Index(text, CodeBlockDelim) {
+		appendText := text[0:idx]
+		if inBlock {
+			appendText = CodeBlockDelim + appendText
+		} else if numBlocks != 0 {
+			blocks[numBlocks-1] = blocks[numBlocks-1] + CodeBlockDelim
+		}
+		blocks = append(blocks, appendText)
+		text = text[idx+len(CodeBlockDelim):]
+		inBlock = !inBlock
+		numBlocks++
+	}
+	if len(text) > 0 {
+		if inBlock {
+			text = text + CodeBlockDelim
+		} else if numBlocks != 0 {
+			blocks[numBlocks-1] = blocks[numBlocks-1] + CodeBlockDelim
+		}
+		blocks = append(blocks, text)
+	}
+
+	return blocks
+}
+
+func main() {
+	ctx := context.Background()
+	gptCliCtx := NewGptCliContext()
+
+	err := gptCliCtx.loadThreads()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gptcli: Failed to load threads: %v\n", err)
+		os.Exit(1)
+	}
+
+	var fullCmdOrPrompt string
+	var cmdOrPrompt string
+	for true {
+		fullCmdOrPrompt, err = getCmdOrPrompt(gptCliCtx)
+		if err != nil {
+			break
+		}
+		cmdArgs := strings.Split(fullCmdOrPrompt, " ")
+		cmdOrPrompt = cmdArgs[0]
+		subCmdFunc, ok := subCommandTab[cmdOrPrompt]
+		if !ok {
+			if gptCliCtx.curThreadNum == 0 {
+				fmt.Fprintf(os.Stderr, "gptcli: Unknown command %v. Try	'help'.\n",
+					cmdOrPrompt)
+				continue
+			} // else we're already in a thread
+			err = interactiveThreadWork(ctx, gptCliCtx, fullCmdOrPrompt)
+		} else {
+			err = subCmdFunc(ctx, gptCliCtx, cmdArgs)
+		}
+
+		if err != nil {
+			break
+		}
+	}
+
+	if err != nil && !errors.Is(err, io.EOF) {
+		fmt.Fprintf(os.Stderr, "gptcli: %v. quitting.\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("gptcli: quitting.\n")
+}

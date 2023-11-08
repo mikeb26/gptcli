@@ -1,0 +1,59 @@
+# https://circleci.com/docs/2.0/configuration-reference
+version: 2.1
+
+# https://circleci.com/docs/2.0/configuration-reference/#jobs
+jobs:
+  build:
+    working_directory: ~/repo
+    # https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
+    docker:
+      - image: cimg/go:1.21
+    # https://circleci.com/docs/2.0/configuration-reference/#steps
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - go-mod-v4-{{ checksum "go.sum" }}
+      - run:
+          name: Install Dependencies
+          command: make vendor
+      - save_cache:
+          key: go-mod-v4-{{ checksum "go.sum" }}
+          paths:
+            - "/go/pkg/mod"
+      - run:
+          name: Build
+          command: |
+            if [ "$CIRCLE_TAG" != "" ]
+            then
+                rm cmd/gptcli/version.txt
+                make cmd/gptcli/version.txt
+            fi          
+            make build
+      - store_artifacts:
+          path: gptcli
+      - run:
+          name: Github release
+          command: |
+            go install github.com/tcnksm/ghr@latest
+            PATH=$PATH:$HOME/go/bin
+            if [ "$CIRCLE_TAG" != "" ]
+            then
+                ghr -name "gptcli ($CIRCLE_TAG)" $CIRCLE_TAG gptcli
+            else
+                echo "Not releasing untagged commit"
+            fi
+
+# https://circleci.com/docs/2.0/configuration-reference/#workflows
+workflows:
+  version: 2
+  build-and-release:
+    jobs:
+      - build:
+          context:
+            - global
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              only: main
