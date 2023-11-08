@@ -5,7 +5,7 @@ export GOFLAGS=-mod=vendor
 build: cmd/gptcli
 
 cmd/gptcli: vendor FORCE
-	go build -o gptcli cmd/gptcli/*.go
+	CGO_ENABLED=0 go build -o gptcli cmd/gptcli/*.go
 
 vendor: go.mod
 	go mod download
