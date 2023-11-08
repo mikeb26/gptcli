@@ -16,7 +16,6 @@ wget $GPTCLI
 chmod 755 gptcli
 mv gptcli $HOME/bin
 # add $HOME/bin to your $PATH if not already present
-gptcli config
 ```
 ## Contributing
 Pull requests are welcome at https://github.com/mikeb26/gptcli
