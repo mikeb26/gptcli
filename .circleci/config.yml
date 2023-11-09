@@ -30,6 +30,11 @@ jobs:
                 make cmd/gptcli/version.txt
             fi          
             make build
+      - run:
+          name: Run tests
+          command: make unit-tests.xml
+      - store_test_results:
+          path: unit-tests.xml
       - store_artifacts:
           path: gptcli
       - run:

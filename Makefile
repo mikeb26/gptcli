@@ -15,9 +15,22 @@ cmd/gptcli/version.txt:
 	git describe --tags > cmd/gptcli/version.txt
 	truncate -s -1 cmd/gptcli/version.txt
 
+.PHONY: mocks
+mocks:
+	cd internal; go generate
+
+TESTPKGS=github.com/mikeb26/gptcli/cmd/gptcli
+
+.PHONY: test
+test: mocks
+	go test $(TESTPKGS)
+
+unit-tests.xml: FORCE
+	gotestsum --junitfile unit-tests.xml $(TESTPKGS)
+
 .PHONY: clean
 clean:
-	rm -f gptcli unit-tests.xml
+	rm -f gptcli unit-tests.xml internal/openai_client_mock.go
 
 .PHONY: deps
 deps:

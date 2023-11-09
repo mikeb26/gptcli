@@ -24,14 +24,16 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/mikeb26/gptcli/internal"
 	"github.com/sashabaranov/go-openai"
 )
 
 const (
-	CommandName    = "gptcli"
-	KeyFile        = ".openai.key"
-	ThreadsDir     = "threads"
-	CodeBlockDelim = "```"
+	CommandName           = "gptcli"
+	KeyFile               = ".openai.key"
+	ThreadsDir            = "threads"
+	CodeBlockDelim        = "```"
+	CodeBlockDelimNewline = "```\n"
 )
 
 const SystemMsg = `You are gptcli, a CLI based utility that otherwise acts
@@ -65,7 +67,7 @@ type GptCliThread struct {
 }
 
 type GptCliContext struct {
-	client       *openai.Client
+	client       internal.OpenAIClient
 	input        *bufio.Reader
 	needConfig   bool
 	curThreadNum int
@@ -339,7 +341,7 @@ func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
 	if gptCliCtx.totThreads == 0 {
-		fmt.Printf("You haven't created any threads yet. To create a thread use the 'new' command.")
+		fmt.Printf("You haven't created any threads yet. To create a thread use the 'new' command.\n")
 		return nil
 	}
 
@@ -574,6 +576,25 @@ func loadKey() (string, error) {
 	return string(data), nil
 }
 
+func getMultiLineInputRemainder(gptCliCtx *GptCliContext) (string, error) {
+	var ret string
+	var tmp string
+	var err error
+
+	for !strings.HasSuffix(tmp, CodeBlockDelim) &&
+		!strings.HasSuffix(tmp, CodeBlockDelimNewline) {
+
+		tmp, err = gptCliCtx.input.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+
+		ret = fmt.Sprintf("%v%v", ret, tmp)
+	}
+
+	return ret, nil
+}
+
 func getCmdOrPrompt(gptCliCtx *GptCliContext) (string, error) {
 	var cmdOrPrompt string
 	var err error
@@ -589,6 +610,13 @@ func getCmdOrPrompt(gptCliCtx *GptCliContext) (string, error) {
 			return "", err
 		}
 		cmdOrPrompt = strings.TrimSpace(cmdOrPrompt)
+		if strings.HasSuffix(cmdOrPrompt, CodeBlockDelim) {
+			text2append, err := getMultiLineInputRemainder(gptCliCtx)
+			if err != nil {
+				return "", err
+			}
+			cmdOrPrompt = fmt.Sprintf("%v\n%v", cmdOrPrompt, text2append)
+		}
 	}
 
 	return cmdOrPrompt, nil
@@ -602,6 +630,8 @@ func interactiveThreadWork(ctx context.Context,
 		Content: prompt,
 	}
 	dialogue := append(gptCliCtx.threads[gptCliCtx.curThreadNum-1].Dialogue, msg)
+
+	fmt.Printf("gptcli: processing...\n")
 
 	resp, err := gptCliCtx.client.CreateChatCompletion(ctx,
 		openai.ChatCompletionRequest{
