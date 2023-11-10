@@ -25,7 +25,7 @@ TESTPKGS=github.com/mikeb26/gptcli/cmd/gptcli
 test: mocks
 	go test $(TESTPKGS)
 
-unit-tests.xml: FORCE
+unit-tests.xml: mocks FORCE
 	gotestsum --junitfile unit-tests.xml $(TESTPKGS)
 
 .PHONY: clean
