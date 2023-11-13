@@ -31,6 +31,10 @@ jobs:
             fi          
             make build
       - run:
+          name: Install mockgen
+          command: |
+              go get github.com/golang/mock/mockgen@latest
+      - run:
           name: Run tests
           command: make unit-tests.xml
       - store_test_results:
