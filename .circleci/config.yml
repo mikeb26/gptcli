@@ -33,11 +33,14 @@ jobs:
       - run:
           name: Install mockgen
           command: |
-              go get github.com/golang/mock/mockgen@latest
+              mkdir -p $HOME/go/bin
+              go install github.com/golang/mock/mockgen@latest
+	      ls $HOME/go/bin
       - run:
           name: Run tests
           command: |
             PATH=$PATH:$HOME/go/bin
+            ls $HOME/go/bin
             make unit-tests.xml
       - store_test_results:
           path: unit-tests.xml
