@@ -36,7 +36,9 @@ jobs:
               go get github.com/golang/mock/mockgen@latest
       - run:
           name: Run tests
-          command: make unit-tests.xml
+          command: |
+            PATH=$PATH:$HOME/go/bin
+            make unit-tests.xml
       - store_test_results:
           path: unit-tests.xml
       - store_artifacts:
