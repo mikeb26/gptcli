@@ -35,7 +35,7 @@ jobs:
           command: |
               mkdir -p $HOME/go/bin
               go install github.com/golang/mock/mockgen@latest
-	      ls $HOME/go/bin
+              ls $HOME/go/bin
       - run:
           name: Run tests
           command: |
