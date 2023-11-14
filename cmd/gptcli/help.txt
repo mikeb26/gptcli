@@ -11,4 +11,4 @@ Available Commands:
   ls                             List available threads(conversations)
   thread <thread#>               Switch to a previously created thread
   exit                           Exit gptcli
-
+  billing                        Show billing/daily usage information

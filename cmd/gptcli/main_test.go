@@ -210,3 +210,70 @@ func TestGetCmdOrPrompt(t *testing.T) {
 		})
 	}
 }
+
+func TestThreadSwitchMain(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockOpenAIClient := internal.NewMockOpenAIClient(ctrl)
+
+	tmpFile, err := os.CreateTemp("", "gptcli.testThreadSwitch.*")
+	assert.Nil(t, err)
+	tmpFile.Close()
+	defer os.Remove(tmpFile.Name())
+
+	now := time.Now()
+	gptCliCtx := GptCliContext{
+		client:       mockOpenAIClient,
+		totThreads:   1,
+		needConfig:   false,
+		curThreadNum: 1,
+		threads: []*GptCliThread{
+			{
+				Dialogue:   nil,
+				filePath:   tmpFile.Name(),
+				ModTime:    now,
+				AccessTime: now,
+			},
+		},
+	}
+
+	tests := []struct {
+		name      string
+		args      []string
+		wantErr   bool
+		errMsg    string
+		newThread int
+	}{
+		{
+			name:      "successful thread switch",
+			args:      []string{"thread", "1"},
+			wantErr:   false,
+			errMsg:    "",
+			newThread: 1,
+		},
+		{
+			name:      "non-existent thread switch",
+			args:      []string{"thread", "2"},
+			wantErr:   true,
+			errMsg:    "Thread 2 does not exist. To list threads try 'ls'.\n",
+			newThread: 1, // No change expected
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := threadSwitchMain(context.Background(), &gptCliCtx, tt.args)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			// Verify the current thread number has been set correctly
+			assert.Equal(t, tt.newThread, gptCliCtx.curThreadNum)
+		})
+	}
+}

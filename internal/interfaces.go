@@ -6,6 +6,7 @@ package internal
 
 import (
 	"context"
+	"time"
 
 	"github.com/sashabaranov/go-openai"
 )
@@ -13,4 +14,5 @@ import (
 //go:generate mockgen --build_flags=--mod=mod -destination=openai_client_mock.go -package=$GOPACKAGE github.com/mikeb26/gptcli/internal OpenAIClient
 type OpenAIClient interface {
 	CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (response openai.ChatCompletionResponse, err error)
+	GetBillingUsage(ctx context.Context, startDate time.Time, endDate time.Time) (response openai.BillingUsageResponse, err error)
 }

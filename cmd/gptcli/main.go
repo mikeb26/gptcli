@@ -31,6 +31,7 @@ import (
 const (
 	CommandName           = "gptcli"
 	KeyFile               = ".openai.key"
+	SessionFile           = ".openai.session"
 	ThreadsDir            = "threads"
 	CodeBlockDelim        = "```"
 	CodeBlockDelimNewline = "```\n"
@@ -54,6 +55,7 @@ var subCommandTab = map[string]func(ctx context.Context,
 	"delete":  deleteThreadMain,
 	"exit":    exitMain,
 	"quit":    exitMain,
+	"billing": billingMain,
 }
 
 type GptCliThread struct {
@@ -68,11 +70,13 @@ type GptCliThread struct {
 
 type GptCliContext struct {
 	client       internal.OpenAIClient
+	sessClient   internal.OpenAIClient
 	input        *bufio.Reader
 	needConfig   bool
 	curThreadNum int
 	totThreads   int
 	threads      []*GptCliThread
+	haveSess     bool
 }
 
 func NewGptCliContext() *GptCliContext {
@@ -85,6 +89,13 @@ func NewGptCliContext() *GptCliContext {
 	} else {
 		clientLocal = openai.NewClient(keyText)
 	}
+	var sessClientLocal *openai.Client
+	haveSessLocal := false
+	sessText, err := loadSess()
+	if err == nil {
+		sessClientLocal = openai.NewClient(sessText)
+		haveSessLocal = true
+	}
 
 	return &GptCliContext{
 		client:       clientLocal,
@@ -93,6 +104,8 @@ func NewGptCliContext() *GptCliContext {
 		curThreadNum: 0,
 		totThreads:   0,
 		threads:      make([]*GptCliThread, 0),
+		haveSess:     haveSessLocal,
+		sessClient:   sessClientLocal,
 	}
 }
 
@@ -165,6 +178,43 @@ func exitMain(ctx context.Context, gptCliCtx *GptCliContext,
 	return nil
 }
 
+func billingMain(ctx context.Context, gptCliCtx *GptCliContext,
+	args []string) error {
+
+	if !gptCliCtx.haveSess {
+		return fmt.Errorf("A session key must first be configured to use the billing feature. try 'config'")
+	}
+	endDate := time.Now().Add(24 * time.Hour)
+	startDate := endDate.Add(-(30 * 24 * time.Hour))
+	resp, err := gptCliCtx.sessClient.GetBillingUsage(ctx, startDate, endDate)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Usage from %v - %v:\n", startDate.Format(time.DateOnly),
+		endDate.Format(time.DateOnly))
+
+	var printedDate bool
+	for _, d := range resp.DailyCosts {
+		printedDate = false
+		for _, li := range d.LineItems {
+			if li.Cost == 0 {
+				continue
+			}
+
+			if !printedDate {
+				fmt.Printf("%v:\n", d.Time.Format(time.DateOnly))
+				printedDate = true
+			}
+			fmt.Printf("\t%v: $%.2f\n", li.Name, li.Cost*0.01)
+		}
+	}
+
+	fmt.Printf("\nTotal: $%.2f\n", resp.TotalUsage*0.01)
+
+	return nil
+}
+
 //go:embed version.txt
 var versionText string
 
@@ -194,10 +244,13 @@ func upgradeMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) e
 	fmt.Printf("A new version of gptcli is available (%v). Upgrade? (Y/N) [Y]: ",
 		latestVer)
 	shouldUpgrade, err := gptCliCtx.input.ReadString('\n')
-
-	shouldUpgrade = strings.ToUpper(strings.TrimSpace(shouldUpgrade))
 	if err != nil {
 		return err
+	}
+
+	shouldUpgrade = strings.ToUpper(strings.TrimSpace(shouldUpgrade))
+	if len(shouldUpgrade) == 0 {
+		shouldUpgrade = "Y"
 	}
 	if shouldUpgrade[0] != 'Y' {
 		return nil
@@ -345,18 +398,18 @@ func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 		return nil
 	}
 
-	rowFmt := "| %8v | %-16v | %-16v | %-16v | %-16v\n"
-	rowSpacer := "--------------------------------------------------------------------------------------------\n"
+	rowFmt := "| %8v | %17v | %17v | %17v | %-17v\n"
+	rowSpacer := "-------------------------------------------------------------------------------------------------\n"
 	fmt.Printf(rowSpacer)
 	fmt.Printf(rowFmt, "Thread#", "Last Accessed", "Last Modified",
 		"Created", "Name")
 	fmt.Printf(rowSpacer)
 
 	for idx, t := range gptCliCtx.threads {
-		cTime := t.CreateTime.Format("1/2/2006 3:04pm")
-		aTime := t.AccessTime.Format("1/2/2006 3:04pm")
-		mTime := t.ModTime.Format("1/2/2006 3:04pm")
-		today := time.Now().UTC().Truncate(24 * time.Hour).Format("1/2/2006")
+		cTime := t.CreateTime.Format("1/02/2006 3:04pm")
+		aTime := t.AccessTime.Format("1/02/2006 3:04pm")
+		mTime := t.ModTime.Format("1/02/2006 3:04pm")
+		today := time.Now().UTC().Truncate(24 * time.Hour).Format("1/02/2006")
 		cTime = strings.ReplaceAll(cTime, today, "Today")
 		aTime = strings.ReplaceAll(aTime, today, "Today")
 		mTime = strings.ReplaceAll(mTime, today, "Today")
@@ -522,6 +575,26 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 	if err != nil {
 		return fmt.Errorf("Could not write OpenAI API key file %v: %w", keyPath, err)
 	}
+	sessPath := path.Join(configDir, SessionFile)
+	_, err = os.Stat(sessPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("Could not open OpenAI Session file %v: %w", keyPath, err)
+	}
+	fmt.Printf("Enter your OpenAI Session key (optional): ")
+	sess, err := gptCliCtx.input.ReadString('\n')
+	if err != nil {
+		return err
+	}
+	sess = strings.TrimSpace(sess)
+	if len(sess) != 0 {
+		err = ioutil.WriteFile(sessPath, []byte(sess), 0600)
+		if err != nil {
+			return fmt.Errorf("Could not write OpenAI Session file %v: %w", keyPath, err)
+		}
+		gptCliCtx.haveSess = true
+	} else {
+		gptCliCtx.haveSess = false
+	}
 	threadsPath := path.Join(configDir, ThreadsDir)
 	err = os.MkdirAll(threadsPath, 0700)
 	if err != nil {
@@ -530,6 +603,9 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 	}
 
 	gptCliCtx.client = openai.NewClient(key)
+	if gptCliCtx.haveSess {
+		gptCliCtx.sessClient = openai.NewClient(sess)
+	}
 	gptCliCtx.needConfig = false
 
 	return nil
@@ -552,6 +628,14 @@ func getKeyPath() (string, error) {
 	return filepath.Join(configDir, KeyFile), nil
 }
 
+func getSessPath() (string, error) {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, SessionFile), nil
+}
+
 func getThreadsDir() (string, error) {
 	configDir, err := getConfigDir()
 	if err != nil {
@@ -572,6 +656,22 @@ func loadKey() (string, error) {
 				"run `%v config` to configure", CommandName)
 		}
 		return "", fmt.Errorf("Could not load OpenAI API key: %w", err)
+	}
+	return string(data), nil
+}
+
+func loadSess() (string, error) {
+	sessPath, err := getSessPath()
+	if err != nil {
+		return "", fmt.Errorf("Could not load OpenAI Session: %w", err)
+	}
+	data, err := ioutil.ReadFile(sessPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("Could not load OpenAI Session: "+
+				"run `%v config` to configure", CommandName)
+		}
+		return "", fmt.Errorf("Could not load OpenAI Session: %w", err)
 	}
 	return string(data), nil
 }
@@ -702,6 +802,8 @@ func splitBlocks(text string) []string {
 }
 
 func main() {
+	checkAndPrintUpgradeWarning()
+
 	ctx := context.Background()
 	gptCliCtx := NewGptCliContext()
 
