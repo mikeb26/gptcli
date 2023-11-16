@@ -2,7 +2,7 @@ module github.com/mikeb26/gptcli
 
 go 1.21.4
 
-replace github.com/sashabaranov/go-openai => github.com/mikeb26/sashabaranov-go-openai v1.17.7-0.20231114224213-3c451cc966bc
+replace github.com/sashabaranov/go-openai => github.com/mikeb26/sashabaranov-go-openai v1.17.7-0.20231116215528-e16ad3f7d34e
 
 require (
 	github.com/fatih/color v1.16.0
