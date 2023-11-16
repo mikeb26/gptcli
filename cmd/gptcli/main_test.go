@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -276,4 +277,85 @@ func TestThreadSwitchMain(t *testing.T) {
 			assert.Equal(t, tt.newThread, gptCliCtx.curThreadNum)
 		})
 	}
+}
+
+func TestSummarizeDialogue(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := internal.NewMockOpenAIClient(ctrl)
+	gptCliCtx := GptCliContext{
+		client: mockClient,
+	}
+
+	initialDialogue := []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleUser, Content: "Hello!"},
+		{Role: openai.ChatMessageRoleAssistant, Content: "Hi! How can I assist you today?"},
+	}
+
+	expectedSummaryContent := "User greeted and asked for assistance."
+	expectedSummaryMessage := openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleAssistant,
+		Content: expectedSummaryContent,
+	}
+
+	expectedModel := openai.GPT3Dot5Turbo
+	expectedRequest := openai.ChatCompletionRequest{
+		Model: expectedModel,
+		Messages: append(initialDialogue, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: SummarizeMsg,
+		}),
+	}
+
+	mockClient.EXPECT().
+		CreateChatCompletion(gomock.Any(), gomock.Eq(expectedRequest)).
+		Return(openai.ChatCompletionResponse{
+			Choices: []openai.ChatCompletionChoice{{
+				Message: expectedSummaryMessage,
+			}},
+		}, nil).Times(1)
+
+	summaryDialogue, err := summarizeDialogue(context.Background(), &gptCliCtx, initialDialogue)
+
+	assert.NoError(t, err)
+	assert.Len(t, summaryDialogue, 2)
+	assert.Equal(t, expectedSummaryContent, summaryDialogue[1].Content)
+}
+
+func TestDeleteThreadMain(t *testing.T) {
+	threadsDirLocal, err := os.MkdirTemp("", "gptcli_test_*")
+	assert.Nil(t, err)
+	defer os.RemoveAll(threadsDirLocal)
+
+	threadNum := 1
+	threadName := "TestThread"
+	threadFilePath := threadsDirLocal + "/" + strconv.Itoa(threadNum) + ".json"
+	err = os.WriteFile(threadFilePath, []byte("{}"), 0644)
+	assert.Nil(t, err)
+
+	now := time.Now()
+	gptCliCtx := GptCliContext{
+		curThreadNum: threadNum,
+		totThreads:   threadNum,
+		threads: []*GptCliThread{
+			{
+				Name:       threadName,
+				CreateTime: now,
+				AccessTime: now,
+				ModTime:    now,
+				Dialogue:   []openai.ChatCompletionMessage{},
+				filePath:   threadFilePath,
+			},
+		},
+		threadsDir: threadsDirLocal,
+	}
+
+	args := []string{"delete", strconv.Itoa(threadNum)}
+	err = deleteThreadMain(context.Background(), &gptCliCtx, args)
+
+	assert.Nil(t, err)
+	assert.Equal(t, 0, gptCliCtx.totThreads)
+	_, err = os.Stat(threadFilePath)
+	assert.True(t, os.IsNotExist(err))
 }

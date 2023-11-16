@@ -32,6 +32,7 @@ const (
 	CommandName           = "gptcli"
 	KeyFile               = ".openai.key"
 	SessionFile           = ".openai.session"
+	PrefsFile             = "prefs.json"
 	ThreadsDir            = "threads"
 	CodeBlockDelim        = "```"
 	CodeBlockDelimNewline = "```\n"
@@ -41,6 +42,11 @@ const SystemMsg = `You are gptcli, a CLI based utility that otherwise acts
 exactly like ChatGPT. All subsequent user messages you receive are input from a
 CLI interface and your responses will be displayed on a CLI interface. Your
 source code is available at https://github.com/mikeb26/gptcli.`
+
+const SummarizeMsg = `Please summarize the entire prior conversation
+history. The resulting summary should be optimized for consumption by a more
+recent version of GPT than yourself. The purpose of the summary is to reduce the
+costs of using GPT by reducing token counts.`
 
 var subCommandTab = map[string]func(ctx context.Context,
 	gptCliCtx *GptCliContext, args []string) error{
@@ -59,13 +65,18 @@ var subCommandTab = map[string]func(ctx context.Context,
 }
 
 type GptCliThread struct {
-	Name       string                         `json:"name"`
-	CreateTime time.Time                      `json:"ctime"`
-	AccessTime time.Time                      `json:"atime"`
-	ModTime    time.Time                      `json:"mtime"`
-	Dialogue   []openai.ChatCompletionMessage `json:"dialogue"`
+	Name            string                         `json:"name"`
+	CreateTime      time.Time                      `json:"ctime"`
+	AccessTime      time.Time                      `json:"atime"`
+	ModTime         time.Time                      `json:"mtime"`
+	Dialogue        []openai.ChatCompletionMessage `json:"dialogue"`
+	SummaryDialogue []openai.ChatCompletionMessage `json:"summary_dialogue,omitempty"`
 
 	filePath string
+}
+
+type Prefs struct {
+	SummarizePrior bool `json:"summarize_prior"`
 }
 
 type GptCliContext struct {
@@ -77,6 +88,8 @@ type GptCliContext struct {
 	totThreads   int
 	threads      []*GptCliThread
 	haveSess     bool
+	prefs        Prefs
+	threadsDir   string
 }
 
 func NewGptCliContext() *GptCliContext {
@@ -97,6 +110,11 @@ func NewGptCliContext() *GptCliContext {
 		haveSessLocal = true
 	}
 
+	threadsDirLocal, err := getThreadsDir()
+	if err != nil {
+		threadsDirLocal = "/tmp"
+	}
+
 	return &GptCliContext{
 		client:       clientLocal,
 		input:        bufio.NewReader(os.Stdin),
@@ -106,21 +124,34 @@ func NewGptCliContext() *GptCliContext {
 		threads:      make([]*GptCliThread, 0),
 		haveSess:     haveSessLocal,
 		sessClient:   sessClientLocal,
+		prefs: Prefs{
+			SummarizePrior: false,
+		},
+		threadsDir: threadsDirLocal,
 	}
 }
 
-func (gptCliCtx *GptCliContext) loadThreads() error {
-	tDir, err := getThreadsDir()
+func (gptCliCtx *GptCliContext) load() error {
+	err := gptCliCtx.loadThreads()
 	if err != nil {
 		return err
 	}
-	dEntries, err := os.ReadDir(tDir)
+
+	return gptCliCtx.loadPrefs()
+}
+
+func (gptCliCtx *GptCliContext) loadThreads() error {
+	if gptCliCtx.needConfig {
+		return nil
+	}
+
+	dEntries, err := os.ReadDir(gptCliCtx.threadsDir)
 	if err != nil {
-		return fmt.Errorf("Failed to read dir %v: %w", tDir, err)
+		return fmt.Errorf("Failed to read dir %v: %w", gptCliCtx.threadsDir, err)
 	}
 
 	for _, dEnt := range dEntries {
-		fullpath := filepath.Join(tDir, dEnt.Name())
+		fullpath := filepath.Join(gptCliCtx.threadsDir, dEnt.Name())
 		threadFileText, err := ioutil.ReadFile(fullpath)
 		if err != nil {
 			return fmt.Errorf("Failed to read %v: %w", fullpath, err)
@@ -133,11 +164,50 @@ func (gptCliCtx *GptCliContext) loadThreads() error {
 		}
 		fileName := fmt.Sprintf("%v.json",
 			strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(thread.Name))), 16))
-		filePath := filepath.Join(tDir, fileName)
+		filePath := filepath.Join(gptCliCtx.threadsDir, fileName)
 		thread.filePath = filePath
 
 		gptCliCtx.threads = append(gptCliCtx.threads, &thread)
 		gptCliCtx.totThreads++
+	}
+
+	return nil
+}
+
+func (gptCliCtx *GptCliContext) loadPrefs() error {
+	if gptCliCtx.needConfig {
+		return nil
+	}
+
+	filePath, err := getPrefsPath()
+	if err != nil {
+		return fmt.Errorf("Failed to get prefs path: %w", err)
+	}
+	prefsFileContent, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("Failed to read prefs: %w", err)
+	}
+	err = json.Unmarshal(prefsFileContent, &gptCliCtx.prefs)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (gptCliCtx *GptCliContext) savePrefs() error {
+	prefsFileContent, err := json.Marshal(gptCliCtx.prefs)
+	if err != nil {
+		return fmt.Errorf("Failed to marshal prefs: %w", err)
+	}
+
+	filePath, err := getPrefsPath()
+	if err != nil {
+		return fmt.Errorf("Failed to get prefs path: %w", err)
+	}
+	err = ioutil.WriteFile(filePath, prefsFileContent, 0600)
+	if err != nil {
+		return fmt.Errorf("Failed to save prefs: %w", err)
 	}
 
 	return nil
@@ -178,8 +248,21 @@ func exitMain(ctx context.Context, gptCliCtx *GptCliContext,
 	return nil
 }
 
+func centsToDollarString(cents float64) string {
+	ret := fmt.Sprintf("$%.2f", cents*0.01)
+	if ret == "$0.00" {
+		ret = "<$0.01"
+	}
+
+	return ret
+}
+
 func billingMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
+
+	if gptCliCtx.needConfig {
+		return fmt.Errorf("You must run 'config' before querying billing usage history.\n")
+	}
 
 	if !gptCliCtx.haveSess {
 		return fmt.Errorf("A session key must first be configured to use the billing feature. try 'config'")
@@ -206,11 +289,11 @@ func billingMain(ctx context.Context, gptCliCtx *GptCliContext,
 				fmt.Printf("%v:\n", d.Time.Format(time.DateOnly))
 				printedDate = true
 			}
-			fmt.Printf("\t%v: $%.2f\n", li.Name, li.Cost*0.01)
+			fmt.Printf("\t%v: %v\n", li.Name, centsToDollarString(li.Cost))
 		}
 	}
 
-	fmt.Printf("\nTotal: $%.2f\n", resp.TotalUsage*0.01)
+	fmt.Printf("\nTotal: %v\n", centsToDollarString(resp.TotalUsage))
 
 	return nil
 }
@@ -477,11 +560,6 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 		return fmt.Errorf("You must run 'config' before creating a thread.\n")
 	}
 
-	threadsDir, err := getThreadsDir()
-	if err != nil {
-		return err
-	}
-
 	fmt.Printf("Enter new thread's name: ")
 	name, err := gptCliCtx.input.ReadString('\n')
 	if err != nil {
@@ -490,19 +568,20 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	name = strings.TrimSpace(name)
 	fileName := fmt.Sprintf("%v.json",
 		strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(name))), 16))
-	filePath := filepath.Join(threadsDir, fileName)
+	filePath := filepath.Join(gptCliCtx.threadsDir, fileName)
 
 	dialogue := []openai.ChatCompletionMessage{
 		{Role: openai.ChatMessageRoleSystem, Content: SystemMsg},
 	}
 
 	curThread := &GptCliThread{
-		Name:       name,
-		CreateTime: time.Now(),
-		AccessTime: time.Now(),
-		ModTime:    time.Now(),
-		Dialogue:   dialogue,
-		filePath:   filePath,
+		Name:            name,
+		CreateTime:      time.Now(),
+		AccessTime:      time.Now(),
+		ModTime:         time.Now(),
+		Dialogue:        dialogue,
+		SummaryDialogue: make([]openai.ChatCompletionMessage, 0),
+		filePath:        filePath,
 	}
 	gptCliCtx.curThreadNum = gptCliCtx.totThreads + 1
 	gptCliCtx.totThreads++
@@ -601,6 +680,7 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 		return fmt.Errorf("Could not create threads directory %v: %w",
 			threadsPath, err)
 	}
+	gptCliCtx.threadsDir = threadsPath
 
 	gptCliCtx.client = openai.NewClient(key)
 	if gptCliCtx.haveSess {
@@ -608,7 +688,19 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 	}
 	gptCliCtx.needConfig = false
 
-	return nil
+	fmt.Printf("Summarize dialogue when continuing threads? (reduces costs for less precise replies from OpenAI) [N]: ")
+	shouldSummarize, err := gptCliCtx.input.ReadString('\n')
+	if err != nil {
+		return err
+	}
+
+	shouldSummarize = strings.ToUpper(strings.TrimSpace(shouldSummarize))
+	if len(shouldSummarize) == 0 {
+		shouldSummarize = "N"
+	}
+	gptCliCtx.prefs.SummarizePrior = (shouldSummarize[0] == 'Y')
+
+	return gptCliCtx.savePrefs()
 }
 
 func getConfigDir() (string, error) {
@@ -626,6 +718,14 @@ func getKeyPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(configDir, KeyFile), nil
+}
+
+func getPrefsPath() (string, error) {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, PrefsFile), nil
 }
 
 func getSessPath() (string, error) {
@@ -722,6 +822,48 @@ func getCmdOrPrompt(gptCliCtx *GptCliContext) (string, error) {
 	return cmdOrPrompt, nil
 }
 
+// in order to reduce costs, summarize the prior dialogue history with
+// the GPT3Dot5Turbo when resending the thread to OpenAI
+func summarizeDialogue(ctx context.Context, gptCliCtx *GptCliContext,
+	dialogue []openai.ChatCompletionMessage) ([]openai.ChatCompletionMessage,
+	error) {
+
+	summaryDialogue := []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleSystem, Content: SystemMsg},
+	}
+
+	msg := openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleSystem,
+		Content: SummarizeMsg,
+	}
+	dialogue = append(dialogue, msg)
+
+	fmt.Printf("gptcli: summarizing...\n")
+	resp, err := gptCliCtx.client.CreateChatCompletion(ctx,
+		openai.ChatCompletionRequest{
+			Model:    openai.GPT3Dot5Turbo,
+			Messages: dialogue,
+		},
+	)
+	if err != nil {
+		return summaryDialogue, err
+	}
+	if len(resp.Choices) != 1 {
+		return summaryDialogue, fmt.Errorf("gptcli: BUG: Expected 1 response, got %v",
+			len(resp.Choices))
+	}
+
+	msg = openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleAssistant,
+		Content: resp.Choices[0].Message.Content,
+	}
+	summaryDialogue = append(summaryDialogue, msg)
+
+	fmt.Fprintf(os.Stderr, "** SUMMARY is %v\n", msg.Content)
+
+	return summaryDialogue, nil
+}
+
 func interactiveThreadWork(ctx context.Context,
 	gptCliCtx *GptCliContext, prompt string) error {
 
@@ -729,14 +871,33 @@ func interactiveThreadWork(ctx context.Context,
 		Role:    openai.ChatMessageRoleUser,
 		Content: prompt,
 	}
-	dialogue := append(gptCliCtx.threads[gptCliCtx.curThreadNum-1].Dialogue, msg)
+
+	dialogue := gptCliCtx.threads[gptCliCtx.curThreadNum-1].Dialogue
+	summaryDialogue := dialogue
+
+	dialogue = append(dialogue, msg)
+	dialogue2Send := dialogue
+
+	var err error
+	if gptCliCtx.prefs.SummarizePrior {
+		if len(gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue) > 1 {
+			summaryDialogue =
+				gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue
+		}
+		summaryDialogue, err = summarizeDialogue(ctx, gptCliCtx, summaryDialogue)
+		if err != nil {
+			return err
+		}
+		summaryDialogue = append(summaryDialogue, msg)
+		dialogue2Send = summaryDialogue
+	}
 
 	fmt.Printf("gptcli: processing...\n")
 
 	resp, err := gptCliCtx.client.CreateChatCompletion(ctx,
 		openai.ChatCompletionRequest{
 			Model:    openai.GPT4TurboPreview,
-			Messages: dialogue,
+			Messages: dialogue2Send,
 		},
 	)
 	if err != nil {
@@ -763,6 +924,11 @@ func interactiveThreadWork(ctx context.Context,
 	gptCliCtx.threads[gptCliCtx.curThreadNum-1].Dialogue = append(dialogue, msg)
 	gptCliCtx.threads[gptCliCtx.curThreadNum-1].ModTime = time.Now()
 	gptCliCtx.threads[gptCliCtx.curThreadNum-1].AccessTime = time.Now()
+	if gptCliCtx.prefs.SummarizePrior {
+		gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue =
+			append(summaryDialogue, msg)
+	}
+
 	err = gptCliCtx.threads[gptCliCtx.curThreadNum-1].save()
 	if err != nil {
 		return err
@@ -807,9 +973,9 @@ func main() {
 	ctx := context.Background()
 	gptCliCtx := NewGptCliContext()
 
-	err := gptCliCtx.loadThreads()
+	err := gptCliCtx.load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "gptcli: Failed to load threads: %v\n", err)
+		fmt.Fprintf(os.Stderr, "gptcli: Failed to load: %v\n", err)
 		os.Exit(1)
 	}
 
