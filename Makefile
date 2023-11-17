@@ -28,6 +28,10 @@ test: mocks
 unit-tests.xml: mocks FORCE
 	gotestsum --junitfile unit-tests.xml $(TESTPKGS)
 
+.PHONY: lint
+lint:
+	golangci-lint run ./...
+
 .PHONY: clean
 clean:
 	rm -f gptcli unit-tests.xml internal/openai_client_mock.go

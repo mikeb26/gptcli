@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"testing"
@@ -125,7 +124,7 @@ func TestInteractiveThreadWork(t *testing.T) {
 	assert.Less(t, now, gptCliCtx.threads[0].AccessTime)
 	assert.Less(t, now, gptCliCtx.threads[0].ModTime)
 
-	threadFileText, err := ioutil.ReadFile(tmpFile.Name())
+	threadFileText, err := os.ReadFile(tmpFile.Name())
 	assert.Nil(t, err)
 	var threadFromFile GptCliThread
 	err = json.Unmarshal(threadFileText, &threadFromFile)
@@ -179,13 +178,15 @@ func TestGetCmdOrPrompt(t *testing.T) {
 		},
 	}
 
+	var err error
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			go func() {
 				if tt.wantErr {
 					pw.Close()
 				} else {
-					pw.Write([]byte(tt.input))
+					_, err = pw.Write([]byte(tt.input))
+					assert.NoError(t, err)
 				}
 			}()
 

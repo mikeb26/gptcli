@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
@@ -97,7 +96,6 @@ func NewGptCliContext() *GptCliContext {
 	needConfigLocal := false
 	keyText, err := loadKey()
 	if err != nil {
-		keyText = ""
 		needConfigLocal = true
 	} else {
 		clientLocal = openai.NewClient(keyText)
@@ -152,7 +150,7 @@ func (gptCliCtx *GptCliContext) loadThreads() error {
 
 	for _, dEnt := range dEntries {
 		fullpath := filepath.Join(gptCliCtx.threadsDir, dEnt.Name())
-		threadFileText, err := ioutil.ReadFile(fullpath)
+		threadFileText, err := os.ReadFile(fullpath)
 		if err != nil {
 			return fmt.Errorf("Failed to read %v: %w", fullpath, err)
 		}
@@ -183,7 +181,7 @@ func (gptCliCtx *GptCliContext) loadPrefs() error {
 	if err != nil {
 		return fmt.Errorf("Failed to get prefs path: %w", err)
 	}
-	prefsFileContent, err := ioutil.ReadFile(filePath)
+	prefsFileContent, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("Failed to read prefs: %w", err)
 	}
@@ -205,7 +203,7 @@ func (gptCliCtx *GptCliContext) savePrefs() error {
 	if err != nil {
 		return fmt.Errorf("Failed to get prefs path: %w", err)
 	}
-	err = ioutil.WriteFile(filePath, prefsFileContent, 0600)
+	err = os.WriteFile(filePath, prefsFileContent, 0600)
 	if err != nil {
 		return fmt.Errorf("Failed to save prefs: %w", err)
 	}
@@ -219,7 +217,7 @@ func (thread *GptCliThread) save() error {
 		return fmt.Errorf("Failed to save thread %v: %w", thread.Name, err)
 	}
 
-	err = ioutil.WriteFile(thread.filePath, threadFileContent, 0600)
+	err = os.WriteFile(thread.filePath, threadFileContent, 0600)
 	if err != nil {
 		return fmt.Errorf("Failed to save thread %v: %w", thread.Name, err)
 	}
@@ -231,7 +229,7 @@ func (thread *GptCliThread) save() error {
 var helpText string
 
 func helpMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) error {
-	fmt.Printf(helpText)
+	fmt.Print(helpText)
 
 	return nil
 }
@@ -362,7 +360,7 @@ func getLatestVersion() (string, error) {
 		return "", err
 	}
 
-	releaseJsonDoc, err := ioutil.ReadAll(resp.Body)
+	releaseJsonDoc, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
@@ -397,7 +395,7 @@ func upgradeViaGithub(latestVer string) error {
 	if err != nil {
 		return fmt.Errorf("Failed to create temp file: %w", err)
 	}
-	binaryContent, err := ioutil.ReadAll(resp.Body)
+	binaryContent, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("Failed to download version %v: %w", versionText, err)
 	}
@@ -432,7 +430,7 @@ func upgradeViaGithub(latestVer string) error {
 	if errors.Is(err, syscall.EXDEV) {
 		// invalid cross device link occurs when rename() is attempted aross
 		// different filesystems; copy instead
-		err = ioutil.WriteFile(myBinaryPath, binaryContent, 0755)
+		err = os.WriteFile(myBinaryPath, binaryContent, 0755)
 		_ = os.Remove(tmpFile.Name())
 	}
 	if err != nil {
@@ -466,13 +464,6 @@ func checkAndPrintUpgradeWarning() bool {
 	return true
 }
 
-func isToday(t time.Time) bool {
-	today := time.Now().UTC().Truncate(24 * time.Hour)
-	dateToCheck := t.UTC().Truncate(24 * time.Hour)
-
-	return today.Equal(dateToCheck)
-}
-
 func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
@@ -483,10 +474,10 @@ func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 
 	rowFmt := "| %8v | %17v | %17v | %17v | %-17v\n"
 	rowSpacer := "-------------------------------------------------------------------------------------------------\n"
-	fmt.Printf(rowSpacer)
+	fmt.Print(rowSpacer)
 	fmt.Printf(rowFmt, "Thread#", "Last Accessed", "Last Modified",
 		"Created", "Name")
-	fmt.Printf(rowSpacer)
+	fmt.Print(rowSpacer)
 
 	for idx, t := range gptCliCtx.threads {
 		cTime := t.CreateTime.Format("1/02/2006 3:04pm")
@@ -500,7 +491,7 @@ func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 		fmt.Printf(rowFmt, idx+1, aTime, mTime, cTime, t.Name)
 	}
 
-	fmt.Printf(rowSpacer)
+	fmt.Print(rowSpacer)
 
 	return nil
 }
@@ -650,7 +641,7 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 		return err
 	}
 	key = strings.TrimSpace(key)
-	err = ioutil.WriteFile(keyPath, []byte(key), 0600)
+	err = os.WriteFile(keyPath, []byte(key), 0600)
 	if err != nil {
 		return fmt.Errorf("Could not write OpenAI API key file %v: %w", keyPath, err)
 	}
@@ -666,7 +657,7 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 	}
 	sess = strings.TrimSpace(sess)
 	if len(sess) != 0 {
-		err = ioutil.WriteFile(sessPath, []byte(sess), 0600)
+		err = os.WriteFile(sessPath, []byte(sess), 0600)
 		if err != nil {
 			return fmt.Errorf("Could not write OpenAI Session file %v: %w", keyPath, err)
 		}
@@ -749,7 +740,7 @@ func loadKey() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("Could not load OpenAI API key: %w", err)
 	}
-	data, err := ioutil.ReadFile(keyPath)
+	data, err := os.ReadFile(keyPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", fmt.Errorf("Could not load OpenAI API key: "+
@@ -765,7 +756,7 @@ func loadSess() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("Could not load OpenAI Session: %w", err)
 	}
-	data, err := ioutil.ReadFile(sessPath)
+	data, err := os.ReadFile(sessPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", fmt.Errorf("Could not load OpenAI Session: "+
@@ -981,7 +972,7 @@ func main() {
 
 	var fullCmdOrPrompt string
 	var cmdOrPrompt string
-	for true {
+	for {
 		fullCmdOrPrompt, err = getCmdOrPrompt(gptCliCtx)
 		if err != nil {
 			break
