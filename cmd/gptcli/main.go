@@ -850,8 +850,6 @@ func summarizeDialogue(ctx context.Context, gptCliCtx *GptCliContext,
 	}
 	summaryDialogue = append(summaryDialogue, msg)
 
-	fmt.Fprintf(os.Stderr, "** SUMMARY is %v\n", msg.Content)
-
 	return summaryDialogue, nil
 }
 
@@ -871,7 +869,7 @@ func interactiveThreadWork(ctx context.Context,
 
 	var err error
 	if gptCliCtx.prefs.SummarizePrior {
-		if len(gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue) > 1 {
+		if len(gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue) > 2 {
 			summaryDialogue =
 				gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue
 		}
