@@ -868,8 +868,8 @@ func interactiveThreadWork(ctx context.Context,
 	dialogue2Send := dialogue
 
 	var err error
-	if gptCliCtx.prefs.SummarizePrior {
-		if len(gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue) > 2 {
+	if gptCliCtx.prefs.SummarizePrior && len(dialogue) > 2 {
+		if len(gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue) > 0 {
 			summaryDialogue =
 				gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue
 		}
