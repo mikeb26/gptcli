@@ -1,14 +1,14 @@
 module github.com/mikeb26/gptcli
 
-go 1.21.6
+go 1.22.0
 
-replace github.com/sashabaranov/go-openai => github.com/mikeb26/sashabaranov-go-openai v1.17.7-0.20240129171446-ffd8a2d71b79
+replace github.com/sashabaranov/go-openai => github.com/mikeb26/sashabaranov-go-openai v1.17.7-0.20240304204754-24eaaf5202f6
 
 require (
 	github.com/fatih/color v1.16.0
 	github.com/golang/mock v1.6.0
 	github.com/sashabaranov/go-openai v0.0.0-00010101000000-000000000000
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 )
 
 require (
