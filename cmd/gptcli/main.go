@@ -885,7 +885,7 @@ func interactiveThreadWork(ctx context.Context,
 
 	resp, err := gptCliCtx.client.CreateChatCompletion(ctx,
 		openai.ChatCompletionRequest{
-			Model:    openai.GPT4TurboPreview,
+			Model:    openai.GPT4o,
 			Messages: dialogue2Send,
 		},
 	)
