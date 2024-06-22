@@ -324,14 +324,19 @@ func TestSummarizeDialogue(t *testing.T) {
 	assert.Equal(t, expectedSummaryContent, summaryDialogue[1].Content)
 }
 
-func TestDeleteThreadMain(t *testing.T) {
+func TestArchiveThreadMain(t *testing.T) {
 	threadsDirLocal, err := os.MkdirTemp("", "gptcli_test_*")
 	assert.Nil(t, err)
 	defer os.RemoveAll(threadsDirLocal)
 
+	archiveDirLocal, err := os.MkdirTemp("", "gptcli_atest_*")
+	assert.Nil(t, err)
+	defer os.RemoveAll(archiveDirLocal)
+
 	threadNum := 1
 	threadName := "TestThread"
 	threadFilePath := threadsDirLocal + "/" + strconv.Itoa(threadNum) + ".json"
+	archiveFilePath := archiveDirLocal + "/" + strconv.Itoa(threadNum) + ".json"
 	err = os.WriteFile(threadFilePath, []byte("{}"), 0644)
 	assert.Nil(t, err)
 
@@ -341,22 +346,26 @@ func TestDeleteThreadMain(t *testing.T) {
 		totThreads:   threadNum,
 		threads: []*GptCliThread{
 			{
-				Name:       threadName,
-				CreateTime: now,
-				AccessTime: now,
-				ModTime:    now,
-				Dialogue:   []openai.ChatCompletionMessage{},
-				filePath:   threadFilePath,
+				Name:            threadName,
+				CreateTime:      now,
+				AccessTime:      now,
+				ModTime:         now,
+				Dialogue:        []openai.ChatCompletionMessage{},
+				filePath:        threadFilePath,
+				archiveFilePath: archiveFilePath,
 			},
 		},
 		threadsDir: threadsDirLocal,
+		archiveDir: archiveDirLocal,
 	}
 
-	args := []string{"delete", strconv.Itoa(threadNum)}
-	err = deleteThreadMain(context.Background(), &gptCliCtx, args)
+	args := []string{"archive", strconv.Itoa(threadNum)}
+	err = archiveThreadMain(context.Background(), &gptCliCtx, args)
 
 	assert.Nil(t, err)
 	assert.Equal(t, 0, gptCliCtx.totThreads)
 	_, err = os.Stat(threadFilePath)
 	assert.True(t, os.IsNotExist(err))
+	_, err = os.Stat(archiveFilePath)
+	assert.Nil(t, err)
 }

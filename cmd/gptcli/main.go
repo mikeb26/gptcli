@@ -33,6 +33,7 @@ const (
 	SessionFile           = ".openai.session"
 	PrefsFile             = "prefs.json"
 	ThreadsDir            = "threads"
+	ArchiveDir            = "archive_threads"
 	CodeBlockDelim        = "```"
 	CodeBlockDelimNewline = "```\n"
 )
@@ -57,7 +58,7 @@ var subCommandTab = map[string]func(ctx context.Context,
 	"ls":      lsThreadsMain,
 	"thread":  threadSwitchMain,
 	"new":     newThreadMain,
-	"delete":  deleteThreadMain,
+	"archive": archiveThreadMain,
 	"exit":    exitMain,
 	"quit":    exitMain,
 	"billing": billingMain,
@@ -71,7 +72,8 @@ type GptCliThread struct {
 	Dialogue        []openai.ChatCompletionMessage `json:"dialogue"`
 	SummaryDialogue []openai.ChatCompletionMessage `json:"summary_dialogue,omitempty"`
 
-	filePath string
+	filePath        string
+	archiveFilePath string
 }
 
 type Prefs struct {
@@ -89,6 +91,7 @@ type GptCliContext struct {
 	haveSess     bool
 	prefs        Prefs
 	threadsDir   string
+	archiveDir   string
 }
 
 func NewGptCliContext() *GptCliContext {
@@ -112,6 +115,10 @@ func NewGptCliContext() *GptCliContext {
 	if err != nil {
 		threadsDirLocal = "/tmp"
 	}
+	archiveDirLocal, err := getArchiveDir()
+	if err != nil {
+		archiveDirLocal = "/tmp"
+	}
 
 	return &GptCliContext{
 		client:       clientLocal,
@@ -126,6 +133,7 @@ func NewGptCliContext() *GptCliContext {
 			SummarizePrior: false,
 		},
 		threadsDir: threadsDirLocal,
+		archiveDir: archiveDirLocal,
 	}
 }
 
@@ -162,8 +170,8 @@ func (gptCliCtx *GptCliContext) loadThreads() error {
 		}
 		fileName := fmt.Sprintf("%v.json",
 			strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(thread.Name))), 16))
-		filePath := filepath.Join(gptCliCtx.threadsDir, fileName)
-		thread.filePath = filePath
+		thread.filePath = filepath.Join(gptCliCtx.threadsDir, fileName)
+		thread.archiveFilePath = filepath.Join(gptCliCtx.archiveDir, fileName)
 
 		gptCliCtx.threads = append(gptCliCtx.threads, &thread)
 		gptCliCtx.totThreads++
@@ -464,6 +472,22 @@ func checkAndPrintUpgradeWarning() bool {
 	return true
 }
 
+func checkAndUpgradeConfig() {
+	// versions v0.3.5 and earlier don't have the archive dir
+	archiveDir, err := getArchiveDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "*WARN*: Unable to add archive directory: %v\n",
+			err)
+		return
+	}
+	err = os.MkdirAll(archiveDir, 0700)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "*WARN*: Unable to add archive directory %v: %v",
+			archiveDir, err)
+		return
+	}
+}
+
 func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
@@ -560,6 +584,7 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	fileName := fmt.Sprintf("%v.json",
 		strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(name))), 16))
 	filePath := filepath.Join(gptCliCtx.threadsDir, fileName)
+	archiveFilePath := filepath.Join(gptCliCtx.archiveDir, fileName)
 
 	dialogue := []openai.ChatCompletionMessage{
 		{Role: openai.ChatMessageRoleSystem, Content: SystemMsg},
@@ -573,6 +598,7 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 		Dialogue:        dialogue,
 		SummaryDialogue: make([]openai.ChatCompletionMessage, 0),
 		filePath:        filePath,
+		archiveFilePath: archiveFilePath,
 	}
 	gptCliCtx.curThreadNum = gptCliCtx.totThreads + 1
 	gptCliCtx.totThreads++
@@ -581,7 +607,7 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	return nil
 }
 
-func deleteThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
+func archiveThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
 	if len(args) != 2 {
@@ -593,10 +619,15 @@ func deleteThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 			args[1])
 	}
 
-	deletedName := gptCliCtx.threads[threadNum-1].Name
+	archivedName := gptCliCtx.threads[threadNum-1].Name
+	err = os.Link(gptCliCtx.threads[threadNum-1].filePath,
+		gptCliCtx.threads[threadNum-1].archiveFilePath)
+	if err != nil {
+		return fmt.Errorf("Failed to archive thread %v link: %w", threadNum, err)
+	}
 	err = os.Remove(gptCliCtx.threads[threadNum-1].filePath)
 	if err != nil {
-		return fmt.Errorf("Failed to delete thread %v: %w", threadNum, err)
+		return fmt.Errorf("Failed to archive thread %v remove: %w", threadNum, err)
 	}
 	oldCurThreadNum := gptCliCtx.curThreadNum
 
@@ -614,8 +645,8 @@ func deleteThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 		gptCliCtx.curThreadNum = oldCurThreadNum - 1
 	}
 
-	fmt.Printf("gptcli: Deleted thread %v(%v). Remaining threads renumbered.\n",
-		threadNum, deletedName)
+	fmt.Printf("gptcli: Archived thread %v(%v). Remaining threads renumbered.\n",
+		threadNum, archivedName)
 
 	return nil
 }
@@ -672,6 +703,13 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 			threadsPath, err)
 	}
 	gptCliCtx.threadsDir = threadsPath
+	archivePath := path.Join(configDir, ArchiveDir)
+	err = os.MkdirAll(archivePath, 0700)
+	if err != nil {
+		return fmt.Errorf("Could not create archive directory %v: %w",
+			archivePath, err)
+	}
+	gptCliCtx.archiveDir = threadsPath
 
 	gptCliCtx.client = openai.NewClient(key)
 	if gptCliCtx.haveSess {
@@ -733,6 +771,14 @@ func getThreadsDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(configDir, ThreadsDir), nil
+}
+
+func getArchiveDir() (string, error) {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, ArchiveDir), nil
 }
 
 func loadKey() (string, error) {
@@ -961,6 +1007,10 @@ func main() {
 
 	ctx := context.Background()
 	gptCliCtx := NewGptCliContext()
+
+	if !gptCliCtx.needConfig {
+		checkAndUpgradeConfig()
+	}
 
 	err := gptCliCtx.load()
 	if err != nil {
