@@ -709,7 +709,7 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 		return fmt.Errorf("Could not create archive directory %v: %w",
 			archivePath, err)
 	}
-	gptCliCtx.archiveDir = threadsPath
+	gptCliCtx.archiveDir = archivePath
 
 	gptCliCtx.client = openai.NewClient(key)
 	if gptCliCtx.haveSess {
