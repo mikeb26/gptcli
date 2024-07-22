@@ -860,7 +860,7 @@ func getCmdOrPrompt(gptCliCtx *GptCliContext) (string, error) {
 }
 
 // in order to reduce costs, summarize the prior dialogue history with
-// the GPT3Dot5Turbo when resending the thread to OpenAI
+// the GPT4oMini when resending the thread to OpenAI
 func summarizeDialogue(ctx context.Context, gptCliCtx *GptCliContext,
 	dialogue []openai.ChatCompletionMessage) ([]openai.ChatCompletionMessage,
 	error) {
@@ -878,7 +878,7 @@ func summarizeDialogue(ctx context.Context, gptCliCtx *GptCliContext,
 	fmt.Printf("gptcli: summarizing...\n")
 	resp, err := gptCliCtx.client.CreateChatCompletion(ctx,
 		openai.ChatCompletionRequest{
-			Model:    openai.GPT3Dot5Turbo,
+			Model:    openai.GPT4oMini,
 			Messages: dialogue,
 		},
 	)

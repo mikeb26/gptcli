@@ -300,7 +300,7 @@ func TestSummarizeDialogue(t *testing.T) {
 		Content: expectedSummaryContent,
 	}
 
-	expectedModel := openai.GPT3Dot5Turbo
+	expectedModel := openai.GPT4oMini
 	expectedRequest := openai.ChatCompletionRequest{
 		Model: expectedModel,
 		Messages: append(initialDialogue, openai.ChatCompletionMessage{
