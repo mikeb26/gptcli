@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -496,18 +497,18 @@ func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 		return nil
 	}
 
-	rowFmt := "| %8v | %17v | %17v | %17v | %-17v\n"
-	rowSpacer := "-------------------------------------------------------------------------------------------------\n"
+	rowFmt := "| %8v | %18v | %18v | %18v | %-18v\n"
+	rowSpacer := "----------------------------------------------------------------------------------------------\n"
 	fmt.Print(rowSpacer)
 	fmt.Printf(rowFmt, "Thread#", "Last Accessed", "Last Modified",
 		"Created", "Name")
 	fmt.Print(rowSpacer)
 
 	for idx, t := range gptCliCtx.threads {
-		cTime := t.CreateTime.Format("1/02/2006 3:04pm")
-		aTime := t.AccessTime.Format("1/02/2006 3:04pm")
-		mTime := t.ModTime.Format("1/02/2006 3:04pm")
-		today := time.Now().UTC().Truncate(24 * time.Hour).Format("1/02/2006")
+		cTime := t.CreateTime.Format("01/02/2006 03:04pm")
+		aTime := t.AccessTime.Format("01/02/2006 03:04pm")
+		mTime := t.ModTime.Format("01/02/2006 03:04pm")
+		today := time.Now().UTC().Truncate(24 * time.Hour).Format("01/02/2006")
 		cTime = strings.ReplaceAll(cTime, today, "Today")
 		aTime = strings.ReplaceAll(aTime, today, "Today")
 		mTime = strings.ReplaceAll(mTime, today, "Today")
@@ -545,6 +546,8 @@ func threadSwitchMain(ctx context.Context, gptCliCtx *GptCliContext,
 }
 
 func printCurThread(ctx context.Context, gptCliCtx *GptCliContext) {
+	var sb strings.Builder
+
 	for _, msg := range gptCliCtx.threads[gptCliCtx.curThreadNum-1].Dialogue {
 		if msg.Role == openai.ChatMessageRoleSystem {
 			continue
@@ -554,18 +557,48 @@ func printCurThread(ctx context.Context, gptCliCtx *GptCliContext) {
 			blocks := splitBlocks(msg.Content)
 			for idx, b := range blocks {
 				if idx%2 == 0 {
-					color.Cyan("%v", b)
+					sb.WriteString(color.CyanString("%v\n", b))
 				} else {
-					color.Green("%v", b)
+					sb.WriteString(color.GreenString("%v\n", b))
 				}
 			}
 			continue
 		}
 
 		// should be msg.Role == openai.ChatMessageRoleUser
-		fmt.Printf("gptcli/%v> %v\n",
-			gptCliCtx.threads[gptCliCtx.curThreadNum-1].Name, msg.Content)
+		sb.WriteString(fmt.Sprintf("gptcli/%v> %v\n",
+			gptCliCtx.threads[gptCliCtx.curThreadNum-1].Name, msg.Content))
 	}
+
+	_ = printStringViaPager(sb.String())
+}
+
+func printStringViaPager(content string) error {
+	cmd := exec.Command("less", "-r")
+	cmd.Stdout = os.Stdout
+	inPipe, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+
+	err = cmd.Start()
+	if err != nil {
+		inPipe.Close()
+		return fmt.Errorf("failed to start less command: %w", err)
+	}
+	_, err = inPipe.Write([]byte(content))
+	if err != nil {
+		inPipe.Close()
+		return fmt.Errorf("failed to write to stdin pipe: %w", err)
+	}
+	inPipe.Close()
+
+	err = cmd.Wait()
+	if err != nil {
+		return fmt.Errorf("less command failed: %w", err)
+	}
+
+	return nil
 }
 
 func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
@@ -648,7 +681,7 @@ func archiveThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	fmt.Printf("gptcli: Archived thread %v(%v). Remaining threads renumbered.\n",
 		threadNum, archivedName)
 
-	return nil
+	return lsThreadsMain(ctx, gptCliCtx, args)
 }
 
 func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) error {
