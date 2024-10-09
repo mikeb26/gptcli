@@ -59,6 +59,7 @@ var subCommandTab = map[string]func(ctx context.Context,
 	"ls":      lsThreadsMain,
 	"thread":  threadSwitchMain,
 	"new":     newThreadMain,
+	"summary": summaryToggleMain,
 	"archive": archiveThreadMain,
 	"exit":    exitMain,
 	"quit":    exitMain,
@@ -82,17 +83,18 @@ type Prefs struct {
 }
 
 type GptCliContext struct {
-	client       internal.OpenAIClient
-	sessClient   internal.OpenAIClient
-	input        *bufio.Reader
-	needConfig   bool
-	curThreadNum int
-	totThreads   int
-	threads      []*GptCliThread
-	haveSess     bool
-	prefs        Prefs
-	threadsDir   string
-	archiveDir   string
+	client           internal.OpenAIClient
+	sessClient       internal.OpenAIClient
+	input            *bufio.Reader
+	needConfig       bool
+	curThreadNum     int
+	curSummaryToggle bool
+	totThreads       int
+	threads          []*GptCliThread
+	haveSess         bool
+	prefs            Prefs
+	threadsDir       string
+	archiveDir       string
 }
 
 func NewGptCliContext() *GptCliContext {
@@ -133,8 +135,9 @@ func NewGptCliContext() *GptCliContext {
 		prefs: Prefs{
 			SummarizePrior: false,
 		},
-		threadsDir: threadsDirLocal,
-		archiveDir: archiveDirLocal,
+		curSummaryToggle: false,
+		threadsDir:       threadsDirLocal,
+		archiveDir:       archiveDirLocal,
 	}
 }
 
@@ -198,6 +201,7 @@ func (gptCliCtx *GptCliContext) loadPrefs() error {
 	if err != nil {
 		return err
 	}
+	gptCliCtx.curSummaryToggle = gptCliCtx.prefs.SummarizePrior
 
 	return nil
 }
@@ -684,6 +688,34 @@ func archiveThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	return lsThreadsMain(ctx, gptCliCtx, args)
 }
 
+func summaryToggleMain(ctx context.Context, gptCliCtx *GptCliContext,
+	args []string) error {
+
+	usageErr := fmt.Errorf("Syntax is 'summary [<on|off>]' e.g. 'summary on'\n")
+
+	if len(args) == 1 {
+		gptCliCtx.curSummaryToggle = !gptCliCtx.curSummaryToggle
+	} else if len(args) != 2 {
+		return usageErr
+	} else {
+		if strings.ToLower(args[1]) == "on" {
+			gptCliCtx.curSummaryToggle = true
+		} else if strings.ToLower(args[1]) == "off" {
+			gptCliCtx.curSummaryToggle = false
+		} else {
+			return usageErr
+		}
+	}
+
+	if gptCliCtx.curSummaryToggle {
+		fmt.Printf("summaries enabled; summaries of the thread history are sent for followups in order to reduce costs.\n")
+	} else {
+		fmt.Printf("summaries disabled; the full thread history is sent for	followups in order to get more precise responses.\n")
+	}
+
+	return nil
+}
+
 func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) error {
 	configDir, err := getConfigDir()
 	if err != nil {
@@ -761,6 +793,7 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 		shouldSummarize = "N"
 	}
 	gptCliCtx.prefs.SummarizePrior = (shouldSummarize[0] == 'Y')
+	gptCliCtx.curSummaryToggle = gptCliCtx.prefs.SummarizePrior
 
 	return gptCliCtx.savePrefs()
 }
@@ -947,7 +980,7 @@ func interactiveThreadWork(ctx context.Context,
 	dialogue2Send := dialogue
 
 	var err error
-	if gptCliCtx.prefs.SummarizePrior && len(dialogue) > 2 {
+	if gptCliCtx.curSummaryToggle && len(dialogue) > 2 {
 		if len(gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue) > 0 {
 			summaryDialogue =
 				gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue
@@ -992,7 +1025,7 @@ func interactiveThreadWork(ctx context.Context,
 	gptCliCtx.threads[gptCliCtx.curThreadNum-1].Dialogue = append(dialogue, msg)
 	gptCliCtx.threads[gptCliCtx.curThreadNum-1].ModTime = time.Now()
 	gptCliCtx.threads[gptCliCtx.curThreadNum-1].AccessTime = time.Now()
-	if gptCliCtx.prefs.SummarizePrior {
+	if gptCliCtx.curSummaryToggle {
 		gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue =
 			append(summaryDialogue, msg)
 	}

@@ -10,5 +10,6 @@ Available Commands:
   archive <thread#>              Archive a previously created thread(conversation)
   ls                             List available threads(conversations)
   thread <thread#>               Switch to a previously created thread
+  summary [<on|off>]             Toggle thread summaries on or off
   exit                           Exit gptcli
   billing                        Show billing/daily usage information
