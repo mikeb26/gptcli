@@ -1,4 +1,4 @@
-/* Copyright © 2023 Mike Brown. All Rights Reserved.
+/* Copyright © 2023-2024 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -172,10 +172,17 @@ func (gptCliCtx *GptCliContext) loadThreads() error {
 		if err != nil {
 			return fmt.Errorf("Failed to parse %v: %w", fullpath, err)
 		}
-		fileName := fmt.Sprintf("%v.json",
-			strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(thread.Name))), 16))
+		fileName := genUniqFileName(thread.Name, thread.CreateTime)
 		thread.filePath = filepath.Join(gptCliCtx.threadsDir, fileName)
 		thread.archiveFilePath = filepath.Join(gptCliCtx.archiveDir, fileName)
+
+		if fileName != dEnt.Name() {
+			oldPath := filepath.Join(gptCliCtx.threadsDir, dEnt.Name())
+			fmt.Fprintf(os.Stderr, "Renaming thread %v/%v to %v/%v\n",
+				gptCliCtx.threadsDir, dEnt.Name(), gptCliCtx.threadsDir, fileName)
+			_ = os.Remove(oldPath)
+			_ = thread.save()
+		}
 
 		gptCliCtx.threads = append(gptCliCtx.threads, &thread)
 		gptCliCtx.totThreads++
@@ -605,6 +612,12 @@ func printStringViaPager(content string) error {
 	return nil
 }
 
+func genUniqFileName(name string, cTime time.Time) string {
+	return fmt.Sprintf("%v_%v.json",
+		strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(name))), 16),
+		cTime.Unix())
+}
+
 func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
@@ -618,8 +631,8 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 		return err
 	}
 	name = strings.TrimSpace(name)
-	fileName := fmt.Sprintf("%v.json",
-		strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(name))), 16))
+	cTime := time.Now()
+	fileName := genUniqFileName(name, cTime)
 	filePath := filepath.Join(gptCliCtx.threadsDir, fileName)
 	archiveFilePath := filepath.Join(gptCliCtx.archiveDir, fileName)
 
@@ -629,9 +642,9 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 
 	curThread := &GptCliThread{
 		Name:            name,
-		CreateTime:      time.Now(),
-		AccessTime:      time.Now(),
-		ModTime:         time.Now(),
+		CreateTime:      cTime,
+		AccessTime:      cTime,
+		ModTime:         cTime,
 		Dialogue:        dialogue,
 		SummaryDialogue: make([]openai.ChatCompletionMessage, 0),
 		filePath:        filePath,
