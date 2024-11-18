@@ -520,9 +520,13 @@ func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 		aTime := t.AccessTime.Format("01/02/2006 03:04pm")
 		mTime := t.ModTime.Format("01/02/2006 03:04pm")
 		today := time.Now().UTC().Truncate(24 * time.Hour).Format("01/02/2006")
+		yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour).Format("01/02/2006")
 		cTime = strings.ReplaceAll(cTime, today, "Today")
 		aTime = strings.ReplaceAll(aTime, today, "Today")
 		mTime = strings.ReplaceAll(mTime, today, "Today")
+		cTime = strings.ReplaceAll(cTime, yesterday, "Yesterday")
+		aTime = strings.ReplaceAll(aTime, yesterday, "Yesterday")
+		mTime = strings.ReplaceAll(mTime, yesterday, "Yesterday")
 
 		fmt.Printf(rowFmt, idx+1, aTime, mTime, cTime, t.Name)
 	}
@@ -1081,6 +1085,34 @@ func splitBlocks(text string) []string {
 	return blocks
 }
 
+func (gptCliCtx *GptCliContext) getSubCmd(
+	cmdOrPrompt string) func(context.Context, *GptCliContext, []string) error {
+
+	subCmdFunc, ok := subCommandTab[cmdOrPrompt]
+	if ok {
+		return subCmdFunc
+	}
+	if gptCliCtx.curThreadNum != 0 {
+		return nil
+	} // else we're not in a current thread; find closest match to allow
+	// aliasing. e.g. allow user to type 'a' instead of 'archive' if there's
+	// no other subcommand that starts with 'a'.
+
+	var subCmdFound string
+	for k, _ := range subCommandTab {
+		if strings.HasPrefix(k, cmdOrPrompt) {
+			if subCmdFound != "" {
+				// ambiguous
+				return nil
+			}
+
+			subCmdFound = k
+		}
+	}
+
+	return subCommandTab[subCmdFound]
+}
+
 func main() {
 	checkAndPrintUpgradeWarning()
 
@@ -1106,8 +1138,8 @@ func main() {
 		}
 		cmdArgs := strings.Split(fullCmdOrPrompt, " ")
 		cmdOrPrompt = cmdArgs[0]
-		subCmdFunc, ok := subCommandTab[cmdOrPrompt]
-		if !ok {
+		subCmdFunc := gptCliCtx.getSubCmd(cmdOrPrompt)
+		if subCmdFunc == nil {
 			if gptCliCtx.curThreadNum == 0 {
 				fmt.Fprintf(os.Stderr, "gptcli: Unknown command %v. Try	'help'.\n",
 					cmdOrPrompt)
