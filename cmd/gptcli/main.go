@@ -37,6 +37,8 @@ const (
 	ArchiveDir            = "archive_threads"
 	CodeBlockDelim        = "```"
 	CodeBlockDelimNewline = "```\n"
+	ThreadParseErrFmt     = "Could not parse %v. Please enter an integer thread number.\n"
+	ThreadNoExistErrFmt   = "Thread %v does not exist. To list threads try 'ls'.\n"
 )
 
 const SystemMsg = `You are gptcli, a CLI based utility that otherwise acts
@@ -74,8 +76,15 @@ type GptCliThread struct {
 	Dialogue        []openai.ChatCompletionMessage `json:"dialogue"`
 	SummaryDialogue []openai.ChatCompletionMessage `json:"summary_dialogue,omitempty"`
 
-	filePath        string
-	archiveFilePath string
+	fileName string
+}
+
+type GptCliThreadGroup struct {
+	prefix       string
+	threads      []*GptCliThread
+	totThreads   int
+	dir          string
+	curThreadNum int
 }
 
 type Prefs struct {
@@ -83,18 +92,16 @@ type Prefs struct {
 }
 
 type GptCliContext struct {
-	client           internal.OpenAIClient
-	sessClient       internal.OpenAIClient
-	input            *bufio.Reader
-	needConfig       bool
-	curThreadNum     int
-	curSummaryToggle bool
-	totThreads       int
-	threads          []*GptCliThread
-	haveSess         bool
-	prefs            Prefs
-	threadsDir       string
-	archiveDir       string
+	client             internal.OpenAIClient
+	haveSess           bool
+	sessClient         internal.OpenAIClient
+	input              *bufio.Reader
+	needConfig         bool
+	curSummaryToggle   bool
+	prefs              Prefs
+	threadGroups       []*GptCliThreadGroup
+	curThreadGroup     *GptCliThreadGroup
+	archiveThreadGroup *GptCliThreadGroup
 }
 
 func NewGptCliContext() *GptCliContext {
@@ -114,6 +121,21 @@ func NewGptCliContext() *GptCliContext {
 		haveSessLocal = true
 	}
 
+	gptCliCtx := &GptCliContext{
+		client:           clientLocal,
+		haveSess:         haveSessLocal,
+		sessClient:       sessClientLocal,
+		input:            bufio.NewReader(os.Stdin),
+		needConfig:       needConfigLocal,
+		curSummaryToggle: false,
+		prefs: Prefs{
+			SummarizePrior: false,
+		},
+		curThreadGroup:     nil,
+		archiveThreadGroup: nil,
+		threadGroups:       make([]*GptCliThreadGroup, 0),
+	}
+
 	threadsDirLocal, err := getThreadsDir()
 	if err != nil {
 		threadsDirLocal = "/tmp"
@@ -123,45 +145,59 @@ func NewGptCliContext() *GptCliContext {
 		archiveDirLocal = "/tmp"
 	}
 
-	return &GptCliContext{
-		client:       clientLocal,
-		input:        bufio.NewReader(os.Stdin),
-		needConfig:   needConfigLocal,
-		curThreadNum: 0,
-		totThreads:   0,
+	gptCliCtx.threadGroups = append(gptCliCtx.threadGroups,
+		NewGptCliThreadGroup("", threadsDirLocal))
+	gptCliCtx.threadGroups = append(gptCliCtx.threadGroups,
+		NewGptCliThreadGroup("a", archiveDirLocal))
+
+	gptCliCtx.curThreadGroup = gptCliCtx.threadGroups[0]
+	gptCliCtx.archiveThreadGroup = gptCliCtx.threadGroups[1]
+
+	return gptCliCtx
+}
+
+func NewGptCliThreadGroup(prefixIn string, dirIn string) *GptCliThreadGroup {
+
+	thrGrp := &GptCliThreadGroup{
+		prefix:       prefixIn,
 		threads:      make([]*GptCliThread, 0),
-		haveSess:     haveSessLocal,
-		sessClient:   sessClientLocal,
-		prefs: Prefs{
-			SummarizePrior: false,
-		},
-		curSummaryToggle: false,
-		threadsDir:       threadsDirLocal,
-		archiveDir:       archiveDirLocal,
+		totThreads:   0,
+		dir:          dirIn,
+		curThreadNum: 0,
 	}
+
+	return thrGrp
 }
 
 func (gptCliCtx *GptCliContext) load() error {
-	err := gptCliCtx.loadThreads()
+	err := gptCliCtx.loadPrefs()
 	if err != nil {
 		return err
 	}
-
-	return gptCliCtx.loadPrefs()
-}
-
-func (gptCliCtx *GptCliContext) loadThreads() error {
 	if gptCliCtx.needConfig {
 		return nil
 	}
+	for _, thrGrp := range gptCliCtx.threadGroups {
+		err := thrGrp.loadThreads()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	dEntries, err := os.ReadDir(gptCliCtx.threadsDir)
+func (thrGrp *GptCliThreadGroup) loadThreads() error {
+	thrGrp.curThreadNum = 0
+	thrGrp.totThreads = 0
+	thrGrp.threads = make([]*GptCliThread, 0)
+
+	dEntries, err := os.ReadDir(thrGrp.dir)
 	if err != nil {
-		return fmt.Errorf("Failed to read dir %v: %w", gptCliCtx.threadsDir, err)
+		return fmt.Errorf("Failed to read dir %v: %w", thrGrp.dir, err)
 	}
 
 	for _, dEnt := range dEntries {
-		fullpath := filepath.Join(gptCliCtx.threadsDir, dEnt.Name())
+		fullpath := filepath.Join(thrGrp.dir, dEnt.Name())
 		threadFileText, err := os.ReadFile(fullpath)
 		if err != nil {
 			return fmt.Errorf("Failed to read %v: %w", fullpath, err)
@@ -172,20 +208,17 @@ func (gptCliCtx *GptCliContext) loadThreads() error {
 		if err != nil {
 			return fmt.Errorf("Failed to parse %v: %w", fullpath, err)
 		}
-		fileName := genUniqFileName(thread.Name, thread.CreateTime)
-		thread.filePath = filepath.Join(gptCliCtx.threadsDir, fileName)
-		thread.archiveFilePath = filepath.Join(gptCliCtx.archiveDir, fileName)
-
-		if fileName != dEnt.Name() {
-			oldPath := filepath.Join(gptCliCtx.threadsDir, dEnt.Name())
-			fmt.Fprintf(os.Stderr, "Renaming thread %v/%v to %v/%v\n",
-				gptCliCtx.threadsDir, dEnt.Name(), gptCliCtx.threadsDir, fileName)
+		thread.fileName = genUniqFileName(thread.Name, thread.CreateTime)
+		if thread.fileName != dEnt.Name() {
+			oldPath := filepath.Join(thrGrp.dir, dEnt.Name())
+			newPath := filepath.Join(thrGrp.dir, thread.fileName)
+			fmt.Fprintf(os.Stderr, "Renaming thread %v to %v\n",
+				oldPath, newPath)
 			_ = os.Remove(oldPath)
-			_ = thread.save()
+			_ = thread.save(thrGrp.dir)
 		}
 
-		gptCliCtx.threads = append(gptCliCtx.threads, &thread)
-		gptCliCtx.totThreads++
+		_ = thrGrp.addThread(&thread)
 	}
 
 	return nil
@@ -231,15 +264,28 @@ func (gptCliCtx *GptCliContext) savePrefs() error {
 	return nil
 }
 
-func (thread *GptCliThread) save() error {
+func (thread *GptCliThread) save(dir string) error {
 	threadFileContent, err := json.Marshal(thread)
 	if err != nil {
 		return fmt.Errorf("Failed to save thread %v: %w", thread.Name, err)
 	}
 
-	err = os.WriteFile(thread.filePath, threadFileContent, 0600)
+	filePath := filepath.Join(dir, thread.fileName)
+	err = os.WriteFile(filePath, threadFileContent, 0600)
 	if err != nil {
-		return fmt.Errorf("Failed to save thread %v: %w", thread.Name, err)
+		return fmt.Errorf("Failed to save thread %v(%v): %w", thread.Name,
+			filePath, err)
+	}
+
+	return nil
+}
+
+func (thread *GptCliThread) remove(dir string) error {
+	filePath := filepath.Join(dir, thread.fileName)
+	err := os.Remove(filePath)
+	if err != nil {
+		return fmt.Errorf("Failed to delete thread %v(%v): %w", thread.Name,
+			filePath, err)
 	}
 
 	return nil
@@ -257,11 +303,11 @@ func helpMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) erro
 func exitMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
-	if gptCliCtx.curThreadNum == 0 {
+	if gptCliCtx.curThreadGroup.curThreadNum == 0 {
 		return io.EOF
 	}
 
-	gptCliCtx.curThreadNum = 0
+	gptCliCtx.curThreadGroup.curThreadNum = 0
 
 	return nil
 }
@@ -503,7 +549,7 @@ func checkAndUpgradeConfig() {
 func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
-	if gptCliCtx.totThreads == 0 {
+	if gptCliCtx.curThreadGroup.totThreads == 0 {
 		fmt.Printf("You haven't created any threads yet. To create a thread use the 'new' command.\n")
 		return nil
 	}
@@ -515,7 +561,7 @@ func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 		"Created", "Name")
 	fmt.Print(rowSpacer)
 
-	for idx, t := range gptCliCtx.threads {
+	for idx, t := range gptCliCtx.curThreadGroup.threads {
 		cTime := t.CreateTime.Format("01/02/2006 03:04pm")
 		aTime := t.AccessTime.Format("01/02/2006 03:04pm")
 		mTime := t.ModTime.Format("01/02/2006 03:04pm")
@@ -543,27 +589,34 @@ func threadSwitchMain(ctx context.Context, gptCliCtx *GptCliContext,
 		return fmt.Errorf("Syntax is 'thread <thread#>' e.g. 'thread 1'\n")
 	}
 	threadNum, err := strconv.ParseUint(args[1], 10, 64)
-	if err != nil || threadNum > uint64(gptCliCtx.totThreads) || threadNum == 0 {
-		return fmt.Errorf("Thread %v does not exist. To list threads try 'ls'.\n",
-			args[1])
+	if err != nil {
+		return fmt.Errorf(ThreadParseErrFmt, args[1])
+	}
+	return gptCliCtx.curThreadGroup.threadSwitch(int(threadNum))
+}
+
+func (thrGrp *GptCliThreadGroup) threadSwitch(threadNum int) error {
+	if threadNum > thrGrp.totThreads || threadNum == 0 {
+		return fmt.Errorf(ThreadNoExistErrFmt, threadNum)
 	}
 
-	gptCliCtx.curThreadNum = int(threadNum)
-	gptCliCtx.threads[gptCliCtx.curThreadNum-1].AccessTime = time.Now()
-	err = gptCliCtx.threads[gptCliCtx.curThreadNum-1].save()
+	thrGrp.curThreadNum = threadNum
+	thread := thrGrp.threads[thrGrp.curThreadNum-1]
+	thread.AccessTime = time.Now()
+	err := thread.save(thrGrp.dir)
 	if err != nil {
 		return err
 	}
 
-	printCurThread(ctx, gptCliCtx)
+	_ = printStringViaPager(thread.String())
 
 	return nil
 }
 
-func printCurThread(ctx context.Context, gptCliCtx *GptCliContext) {
+func (thread *GptCliThread) String() string {
 	var sb strings.Builder
 
-	for _, msg := range gptCliCtx.threads[gptCliCtx.curThreadNum-1].Dialogue {
+	for _, msg := range thread.Dialogue {
 		if msg.Role == openai.ChatMessageRoleSystem {
 			continue
 		}
@@ -582,10 +635,10 @@ func printCurThread(ctx context.Context, gptCliCtx *GptCliContext) {
 
 		// should be msg.Role == openai.ChatMessageRoleUser
 		sb.WriteString(fmt.Sprintf("gptcli/%v> %v\n",
-			gptCliCtx.threads[gptCliCtx.curThreadNum-1].Name, msg.Content))
+			thread.Name, msg.Content))
 	}
 
-	_ = printStringViaPager(sb.String())
+	return sb.String()
 }
 
 func printStringViaPager(content string) error {
@@ -637,8 +690,6 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	name = strings.TrimSpace(name)
 	cTime := time.Now()
 	fileName := genUniqFileName(name, cTime)
-	filePath := filepath.Join(gptCliCtx.threadsDir, fileName)
-	archiveFilePath := filepath.Join(gptCliCtx.archiveDir, fileName)
 
 	dialogue := []openai.ChatCompletionMessage{
 		{Role: openai.ChatMessageRoleSystem, Content: SystemMsg},
@@ -651,14 +702,19 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 		ModTime:         cTime,
 		Dialogue:        dialogue,
 		SummaryDialogue: make([]openai.ChatCompletionMessage, 0),
-		filePath:        filePath,
-		archiveFilePath: archiveFilePath,
+		fileName:        fileName,
 	}
-	gptCliCtx.curThreadNum = gptCliCtx.totThreads + 1
-	gptCliCtx.totThreads++
-	gptCliCtx.threads = append(gptCliCtx.threads, curThread)
+	gptCliCtx.curThreadGroup.curThreadNum =
+		gptCliCtx.curThreadGroup.addThread(curThread)
 
 	return nil
+}
+
+func (thrGrp *GptCliThreadGroup) addThread(curThread *GptCliThread) int {
+	thrGrp.totThreads++
+	thrGrp.threads = append(thrGrp.threads, curThread)
+
+	return thrGrp.totThreads
 }
 
 func archiveThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
@@ -668,41 +724,48 @@ func archiveThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 		return fmt.Errorf("Syntax is 'thread <thread#>' e.g. 'thread 1'\n")
 	}
 	threadNum, err := strconv.ParseUint(args[1], 10, 64)
-	if err != nil || threadNum > uint64(gptCliCtx.totThreads) || threadNum == 0 {
-		return fmt.Errorf("Thread %v does not exist. To list threads try 'ls'.\n",
-			args[1])
+	if err != nil {
+		return fmt.Errorf(ThreadParseErrFmt, args[1])
 	}
 
-	archivedName := gptCliCtx.threads[threadNum-1].Name
-	err = os.Link(gptCliCtx.threads[threadNum-1].filePath,
-		gptCliCtx.threads[threadNum-1].archiveFilePath)
-	if err != nil {
-		return fmt.Errorf("Failed to archive thread %v link: %w", threadNum, err)
+	if gptCliCtx.curThreadGroup == gptCliCtx.archiveThreadGroup {
+		return fmt.Errorf("gptcli: Thread already archived")
 	}
-	err = os.Remove(gptCliCtx.threads[threadNum-1].filePath)
-	if err != nil {
-		return fmt.Errorf("Failed to archive thread %v remove: %w", threadNum, err)
-	}
-	oldCurThreadNum := gptCliCtx.curThreadNum
 
-	gptCliCtx.curThreadNum = 0
-	gptCliCtx.totThreads = 0
-	gptCliCtx.threads = make([]*GptCliThread, 0)
-	err = gptCliCtx.loadThreads()
+	err = gptCliCtx.curThreadGroup.moveThread(int(threadNum),
+		gptCliCtx.archiveThreadGroup)
+	if err != nil {
+		return fmt.Errorf("gptcli: Failed to archive thread: %w", err)
+	}
+
+	fmt.Printf("gptcli: Archived thread %v. Remaining threads renumbered.\n",
+		threadNum)
+
+	return lsThreadsMain(ctx, gptCliCtx, args)
+}
+
+func (srcThrGrp *GptCliThreadGroup) moveThread(threadNum int,
+	dstThrGrp *GptCliThreadGroup) error {
+
+	if threadNum > srcThrGrp.totThreads || threadNum == 0 {
+		return fmt.Errorf(ThreadNoExistErrFmt, threadNum)
+	}
+
+	thread := srcThrGrp.threads[threadNum-1]
+
+	err := thread.save(dstThrGrp.dir)
 	if err != nil {
 		return err
 	}
-
-	if threadNum > uint64(oldCurThreadNum) {
-		gptCliCtx.curThreadNum = oldCurThreadNum
-	} else if threadNum < uint64(oldCurThreadNum) {
-		gptCliCtx.curThreadNum = oldCurThreadNum - 1
+	err = thread.remove(srcThrGrp.dir)
+	if err != nil {
+		_ = thread.remove(dstThrGrp.dir)
+		return err
 	}
 
-	fmt.Printf("gptcli: Archived thread %v(%v). Remaining threads renumbered.\n",
-		threadNum, archivedName)
+	dstThrGrp.addThread(thread)
 
-	return lsThreadsMain(ctx, gptCliCtx, args)
+	return srcThrGrp.loadThreads()
 }
 
 func summaryToggleMain(ctx context.Context, gptCliCtx *GptCliContext,
@@ -784,14 +847,12 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 		return fmt.Errorf("Could not create threads directory %v: %w",
 			threadsPath, err)
 	}
-	gptCliCtx.threadsDir = threadsPath
 	archivePath := path.Join(configDir, ArchiveDir)
 	err = os.MkdirAll(archivePath, 0700)
 	if err != nil {
 		return fmt.Errorf("Could not create archive directory %v: %w",
 			archivePath, err)
 	}
-	gptCliCtx.archiveDir = archivePath
 
 	gptCliCtx.client = openai.NewClient(key)
 	if gptCliCtx.haveSess {
@@ -918,12 +979,13 @@ func getMultiLineInputRemainder(gptCliCtx *GptCliContext) (string, error) {
 func getCmdOrPrompt(gptCliCtx *GptCliContext) (string, error) {
 	var cmdOrPrompt string
 	var err error
+	thrGrp := gptCliCtx.curThreadGroup
 	for len(cmdOrPrompt) == 0 {
-		if gptCliCtx.curThreadNum == 0 {
+		if thrGrp.curThreadNum == 0 {
 			fmt.Printf("gptcli> ")
 		} else {
 			fmt.Printf("gptcli/%v> ",
-				gptCliCtx.threads[gptCliCtx.curThreadNum-1].Name)
+				thrGrp.threads[thrGrp.curThreadNum-1].Name)
 		}
 		cmdOrPrompt, err = gptCliCtx.input.ReadString('\n')
 		if err != nil {
@@ -990,7 +1052,9 @@ func interactiveThreadWork(ctx context.Context,
 		Content: prompt,
 	}
 
-	dialogue := gptCliCtx.threads[gptCliCtx.curThreadNum-1].Dialogue
+	thrGrp := gptCliCtx.curThreadGroup
+	thread := thrGrp.threads[thrGrp.curThreadNum-1]
+	dialogue := thread.Dialogue
 	summaryDialogue := dialogue
 
 	dialogue = append(dialogue, msg)
@@ -998,9 +1062,8 @@ func interactiveThreadWork(ctx context.Context,
 
 	var err error
 	if gptCliCtx.curSummaryToggle && len(dialogue) > 2 {
-		if len(gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue) > 0 {
-			summaryDialogue =
-				gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue
+		if len(thread.SummaryDialogue) > 0 {
+			summaryDialogue = thread.SummaryDialogue
 		}
 		summaryDialogue, err = summarizeDialogue(ctx, gptCliCtx, summaryDialogue)
 		if err != nil {
@@ -1039,15 +1102,14 @@ func interactiveThreadWork(ctx context.Context,
 		Role:    openai.ChatMessageRoleAssistant,
 		Content: resp.Choices[0].Message.Content,
 	}
-	gptCliCtx.threads[gptCliCtx.curThreadNum-1].Dialogue = append(dialogue, msg)
-	gptCliCtx.threads[gptCliCtx.curThreadNum-1].ModTime = time.Now()
-	gptCliCtx.threads[gptCliCtx.curThreadNum-1].AccessTime = time.Now()
+	thread.Dialogue = append(dialogue, msg)
+	thread.ModTime = time.Now()
+	thread.AccessTime = time.Now()
 	if gptCliCtx.curSummaryToggle {
-		gptCliCtx.threads[gptCliCtx.curThreadNum-1].SummaryDialogue =
-			append(summaryDialogue, msg)
+		thread.SummaryDialogue = append(summaryDialogue, msg)
 	}
 
-	err = gptCliCtx.threads[gptCliCtx.curThreadNum-1].save()
+	err = thread.save(thrGrp.dir)
 	if err != nil {
 		return err
 	}
@@ -1092,7 +1154,7 @@ func (gptCliCtx *GptCliContext) getSubCmd(
 	if ok {
 		return subCmdFunc
 	}
-	if gptCliCtx.curThreadNum != 0 {
+	if gptCliCtx.curThreadGroup.curThreadNum != 0 {
 		return nil
 	} // else we're not in a current thread; find closest match to allow
 	// aliasing. e.g. allow user to type 'a' instead of 'archive' if there's
@@ -1140,7 +1202,7 @@ func main() {
 		cmdOrPrompt = cmdArgs[0]
 		subCmdFunc := gptCliCtx.getSubCmd(cmdOrPrompt)
 		if subCmdFunc == nil {
-			if gptCliCtx.curThreadNum == 0 {
+			if gptCliCtx.curThreadGroup.curThreadNum == 0 {
 				fmt.Fprintf(os.Stderr, "gptcli: Unknown command %v. Try	'help'.\n",
 					cmdOrPrompt)
 				continue
