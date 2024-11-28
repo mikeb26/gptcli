@@ -101,7 +101,7 @@ func TestInteractiveThreadWork(t *testing.T) {
 	now := time.Now()
 	gptCliCtx := NewGptCliContext()
 	gptCliCtx.client = mockOpenAIClient
-	gptCliCtx.curThreadGroup.dir = filepath.Dir(tmpFile.Name())
+	gptCliCtx.mainThreadGroup.dir = filepath.Dir(tmpFile.Name())
 	thread := &GptCliThread{
 		Name:            "test",
 		CreateTime:      now,
@@ -111,7 +111,7 @@ func TestInteractiveThreadWork(t *testing.T) {
 		SummaryDialogue: []openai.ChatCompletionMessage{},
 		fileName:        filepath.Base(tmpFile.Name()),
 	}
-	gptCliCtx.curThreadGroup.curThreadNum = gptCliCtx.curThreadGroup.addThread(thread)
+	gptCliCtx.mainThreadGroup.curThreadNum = gptCliCtx.mainThreadGroup.addThread(thread)
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -192,8 +192,8 @@ func TestGetCmdOrPrompt(t *testing.T) {
 
 			gptCliCtx := NewGptCliContext()
 			gptCliCtx.input = reader
-			gptCliCtx.curThreadGroup.curThreadNum = tt.curThread
-			gptCliCtx.curThreadGroup.threads =
+			gptCliCtx.mainThreadGroup.curThreadNum = tt.curThread
+			gptCliCtx.mainThreadGroup.threads =
 				[]*GptCliThread{{Name: "Thread1"}}
 
 			gotPrompt, err := getCmdOrPrompt(gptCliCtx)
@@ -225,7 +225,7 @@ func TestThreadSwitchMain(t *testing.T) {
 	now := time.Now()
 	gptCliCtx := NewGptCliContext()
 	gptCliCtx.client = mockOpenAIClient
-	gptCliCtx.curThreadGroup.dir = filepath.Dir(tmpFile.Name())
+	gptCliCtx.mainThreadGroup.dir = filepath.Dir(tmpFile.Name())
 	thread := &GptCliThread{
 		Name:            "test",
 		CreateTime:      now,
@@ -235,7 +235,7 @@ func TestThreadSwitchMain(t *testing.T) {
 		SummaryDialogue: []openai.ChatCompletionMessage{},
 		fileName:        filepath.Base(tmpFile.Name()),
 	}
-	gptCliCtx.curThreadGroup.curThreadNum = gptCliCtx.curThreadGroup.addThread(thread)
+	gptCliCtx.mainThreadGroup.curThreadNum = gptCliCtx.mainThreadGroup.addThread(thread)
 
 	tests := []struct {
 		name      string
@@ -272,7 +272,7 @@ func TestThreadSwitchMain(t *testing.T) {
 			}
 
 			// Verify the current thread number has been set correctly
-			assert.Equal(t, tt.newThread, gptCliCtx.curThreadGroup.curThreadNum)
+			assert.Equal(t, tt.newThread, gptCliCtx.mainThreadGroup.curThreadNum)
 		})
 	}
 }
@@ -339,7 +339,7 @@ func TestArchiveThreadMain(t *testing.T) {
 
 	now := time.Now()
 	gptCliCtx := NewGptCliContext()
-	gptCliCtx.curThreadGroup.dir = threadsDirLocal
+	gptCliCtx.mainThreadGroup.dir = threadsDirLocal
 	gptCliCtx.archiveThreadGroup.dir = archiveDirLocal
 	thread := &GptCliThread{
 		Name:            threadName,
@@ -350,13 +350,13 @@ func TestArchiveThreadMain(t *testing.T) {
 		SummaryDialogue: []openai.ChatCompletionMessage{},
 		fileName:        strconv.Itoa(threadNum) + ".json",
 	}
-	gptCliCtx.curThreadGroup.curThreadNum = gptCliCtx.curThreadGroup.addThread(thread)
+	gptCliCtx.mainThreadGroup.curThreadNum = gptCliCtx.mainThreadGroup.addThread(thread)
 
 	args := []string{"archive", strconv.Itoa(threadNum)}
 	err = archiveThreadMain(context.Background(), gptCliCtx, args)
 
 	assert.Nil(t, err)
-	assert.Equal(t, 0, gptCliCtx.curThreadGroup.totThreads)
+	assert.Equal(t, 0, gptCliCtx.mainThreadGroup.totThreads)
 	_, err = os.Stat(threadFilePath)
 	assert.True(t, os.IsNotExist(err))
 	_, err = os.Stat(archiveFilePath)

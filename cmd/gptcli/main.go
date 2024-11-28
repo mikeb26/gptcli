@@ -10,6 +10,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -37,7 +38,7 @@ const (
 	ArchiveDir            = "archive_threads"
 	CodeBlockDelim        = "```"
 	CodeBlockDelimNewline = "```\n"
-	ThreadParseErrFmt     = "Could not parse %v. Please enter an integer thread number.\n"
+	ThreadParseErrFmt     = "Could not parse %v. Please enter a valid thread number.\n"
 	ThreadNoExistErrFmt   = "Thread %v does not exist. To list threads try 'ls'.\n"
 )
 
@@ -54,18 +55,19 @@ costs of using GPT by reducing token counts.`
 var subCommandTab = map[string]func(ctx context.Context,
 	gptCliCtx *GptCliContext, args []string) error{
 
-	"help":    helpMain,
-	"version": versionMain,
-	"upgrade": upgradeMain,
-	"config":  configMain,
-	"ls":      lsThreadsMain,
-	"thread":  threadSwitchMain,
-	"new":     newThreadMain,
-	"summary": summaryToggleMain,
-	"archive": archiveThreadMain,
-	"exit":    exitMain,
-	"quit":    exitMain,
-	"billing": billingMain,
+	"help":      helpMain,
+	"version":   versionMain,
+	"upgrade":   upgradeMain,
+	"config":    configMain,
+	"ls":        lsThreadsMain,
+	"thread":    threadSwitchMain,
+	"new":       newThreadMain,
+	"summary":   summaryToggleMain,
+	"archive":   archiveThreadMain,
+	"unarchive": unarchiveThreadMain,
+	"exit":      exitMain,
+	"quit":      exitMain,
+	"billing":   billingMain,
 }
 
 type GptCliThread struct {
@@ -100,8 +102,9 @@ type GptCliContext struct {
 	curSummaryToggle   bool
 	prefs              Prefs
 	threadGroups       []*GptCliThreadGroup
-	curThreadGroup     *GptCliThreadGroup
 	archiveThreadGroup *GptCliThreadGroup
+	mainThreadGroup    *GptCliThreadGroup
+	curThreadGroup     *GptCliThreadGroup
 }
 
 func NewGptCliContext() *GptCliContext {
@@ -131,8 +134,9 @@ func NewGptCliContext() *GptCliContext {
 		prefs: Prefs{
 			SummarizePrior: false,
 		},
-		curThreadGroup:     nil,
 		archiveThreadGroup: nil,
+		mainThreadGroup:    nil,
+		curThreadGroup:     nil,
 		threadGroups:       make([]*GptCliThreadGroup, 0),
 	}
 
@@ -150,8 +154,9 @@ func NewGptCliContext() *GptCliContext {
 	gptCliCtx.threadGroups = append(gptCliCtx.threadGroups,
 		NewGptCliThreadGroup("a", archiveDirLocal))
 
-	gptCliCtx.curThreadGroup = gptCliCtx.threadGroups[0]
+	gptCliCtx.mainThreadGroup = gptCliCtx.threadGroups[0]
 	gptCliCtx.archiveThreadGroup = gptCliCtx.threadGroups[1]
+	gptCliCtx.curThreadGroup = gptCliCtx.mainThreadGroup
 
 	return gptCliCtx
 }
@@ -308,6 +313,7 @@ func exitMain(ctx context.Context, gptCliCtx *GptCliContext,
 	}
 
 	gptCliCtx.curThreadGroup.curThreadNum = 0
+	gptCliCtx.curThreadGroup = gptCliCtx.mainThreadGroup
 
 	return nil
 }
@@ -549,19 +555,42 @@ func checkAndUpgradeConfig() {
 func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
-	if gptCliCtx.curThreadGroup.totThreads == 0 {
+	if gptCliCtx.mainThreadGroup.totThreads == 0 {
 		fmt.Printf("You haven't created any threads yet. To create a thread use the 'new' command.\n")
 		return nil
 	}
 
-	rowFmt := "| %8v | %18v | %18v | %18v | %-18v\n"
-	rowSpacer := "----------------------------------------------------------------------------------------------\n"
-	fmt.Print(rowSpacer)
-	fmt.Printf(rowFmt, "Thread#", "Last Accessed", "Last Modified",
-		"Created", "Name")
-	fmt.Print(rowSpacer)
+	showAll := false
 
-	for idx, t := range gptCliCtx.curThreadGroup.threads {
+	f := flag.NewFlagSet("ls", flag.ContinueOnError)
+	f.BoolVar(&showAll, "all", false, "Also show archive threads")
+	err := f.Parse(args[1:])
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%v", gptCliCtx.mainThreadGroup.String(true, !showAll))
+	if showAll {
+		fmt.Printf("%v", gptCliCtx.archiveThreadGroup.String(false, true))
+	}
+
+	return nil
+}
+
+func (thrGrp *GptCliThreadGroup) String(header bool, footer bool) string {
+	var sb strings.Builder
+
+	const rowFmt = "| %8v | %18v | %18v | %18v | %-18v\n"
+	const rowSpacer = "----------------------------------------------------------------------------------------------\n"
+
+	if header {
+		sb.WriteString(rowSpacer)
+		sb.WriteString(fmt.Sprintf(rowFmt, "Thread#", "Last Accessed", "Last Modified",
+			"Created", "Name"))
+		sb.WriteString(rowSpacer)
+	}
+
+	for idx, t := range thrGrp.threads {
 		cTime := t.CreateTime.Format("01/02/2006 03:04pm")
 		aTime := t.AccessTime.Format("01/02/2006 03:04pm")
 		mTime := t.ModTime.Format("01/02/2006 03:04pm")
@@ -574,12 +603,35 @@ func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 		aTime = strings.ReplaceAll(aTime, yesterday, "Yesterday")
 		mTime = strings.ReplaceAll(mTime, yesterday, "Yesterday")
 
-		fmt.Printf(rowFmt, idx+1, aTime, mTime, cTime, t.Name)
+		threadNum := fmt.Sprintf("%v%v", thrGrp.prefix, idx+1)
+		sb.WriteString(fmt.Sprintf(rowFmt, threadNum, aTime, mTime, cTime,
+			t.Name))
 	}
 
-	fmt.Print(rowSpacer)
+	if footer {
+		sb.WriteString(rowSpacer)
+	}
 
-	return nil
+	return sb.String()
+}
+
+func parseThreadNum(gptCliCtx *GptCliContext,
+	userInput string) (*GptCliThreadGroup, int, error) {
+
+	prefix := strings.TrimRight(userInput, "0123456789")
+	suffix := userInput[len(prefix):]
+	threadNum, err := strconv.ParseUint(suffix, 10, 64)
+	if err != nil {
+		return nil, 0, fmt.Errorf(ThreadParseErrFmt, userInput)
+	}
+
+	for _, thrGrp := range gptCliCtx.threadGroups {
+		if prefix == thrGrp.prefix {
+			return thrGrp, int(threadNum), nil
+		}
+	}
+
+	return nil, 0, fmt.Errorf(ThreadParseErrFmt, userInput)
 }
 
 func threadSwitchMain(ctx context.Context, gptCliCtx *GptCliContext,
@@ -588,16 +640,20 @@ func threadSwitchMain(ctx context.Context, gptCliCtx *GptCliContext,
 	if len(args) != 2 {
 		return fmt.Errorf("Syntax is 'thread <thread#>' e.g. 'thread 1'\n")
 	}
-	threadNum, err := strconv.ParseUint(args[1], 10, 64)
+	thrGrp, threadNum, err := parseThreadNum(gptCliCtx, args[1])
 	if err != nil {
-		return fmt.Errorf(ThreadParseErrFmt, args[1])
+		return err
 	}
-	return gptCliCtx.curThreadGroup.threadSwitch(int(threadNum))
+	if gptCliCtx.curThreadGroup != thrGrp {
+		gptCliCtx.curThreadGroup = thrGrp
+	}
+	return thrGrp.threadSwitch(int(threadNum))
 }
 
 func (thrGrp *GptCliThreadGroup) threadSwitch(threadNum int) error {
 	if threadNum > thrGrp.totThreads || threadNum == 0 {
-		return fmt.Errorf(ThreadNoExistErrFmt, threadNum)
+		threadNumPrint := fmt.Sprintf("%v%v", thrGrp.prefix, threadNum)
+		return fmt.Errorf(ThreadNoExistErrFmt, threadNumPrint)
 	}
 
 	thrGrp.curThreadNum = threadNum
@@ -642,7 +698,7 @@ func (thread *GptCliThread) String() string {
 }
 
 func printStringViaPager(content string) error {
-	cmd := exec.Command("less", "-r")
+	cmd := exec.Command("less", "-r", "-F")
 	cmd.Stdout = os.Stdout
 	inPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -704,8 +760,8 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 		SummaryDialogue: make([]openai.ChatCompletionMessage, 0),
 		fileName:        fileName,
 	}
-	gptCliCtx.curThreadGroup.curThreadNum =
-		gptCliCtx.curThreadGroup.addThread(curThread)
+	gptCliCtx.mainThreadGroup.curThreadNum =
+		gptCliCtx.mainThreadGroup.addThread(curThread)
 
 	return nil
 }
@@ -721,19 +777,20 @@ func archiveThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
 	if len(args) != 2 {
-		return fmt.Errorf("Syntax is 'thread <thread#>' e.g. 'thread 1'\n")
+		return fmt.Errorf("Syntax is 'archive <thread#>' e.g. 'archive 1'\n")
 	}
-	threadNum, err := strconv.ParseUint(args[1], 10, 64)
+	thrGrp, threadNum, err := parseThreadNum(gptCliCtx, args[1])
 	if err != nil {
-		return fmt.Errorf(ThreadParseErrFmt, args[1])
+		return err
 	}
 
-	if gptCliCtx.curThreadGroup == gptCliCtx.archiveThreadGroup {
+	if thrGrp == gptCliCtx.archiveThreadGroup {
 		return fmt.Errorf("gptcli: Thread already archived")
+	} else if thrGrp != gptCliCtx.mainThreadGroup {
+		panic("BUG: archiveThreadMain() only supports 2 thread groups currently")
 	}
 
-	err = gptCliCtx.curThreadGroup.moveThread(int(threadNum),
-		gptCliCtx.archiveThreadGroup)
+	err = thrGrp.moveThread(int(threadNum), gptCliCtx.archiveThreadGroup)
 	if err != nil {
 		return fmt.Errorf("gptcli: Failed to archive thread: %w", err)
 	}
@@ -741,14 +798,45 @@ func archiveThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	fmt.Printf("gptcli: Archived thread %v. Remaining threads renumbered.\n",
 		threadNum)
 
-	return lsThreadsMain(ctx, gptCliCtx, args)
+	lsArgs := []string{"ls"}
+	return lsThreadsMain(ctx, gptCliCtx, lsArgs)
+}
+
+func unarchiveThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
+	args []string) error {
+
+	if len(args) != 2 {
+		return fmt.Errorf("Syntax is 'unarchive a<thread#>' e.g. 'unarchive 1'\n")
+	}
+	thrGrp, threadNum, err := parseThreadNum(gptCliCtx, args[1])
+	if err != nil {
+		return err
+	}
+
+	if thrGrp == gptCliCtx.mainThreadGroup {
+		return fmt.Errorf("gptcli: Thread already unarchived")
+	} else if thrGrp != gptCliCtx.archiveThreadGroup {
+		panic("BUG: unarchiveThreadMain() only supports 2 thread groups currently")
+	}
+
+	err = thrGrp.moveThread(int(threadNum), gptCliCtx.mainThreadGroup)
+	if err != nil {
+		return fmt.Errorf("gptcli: Failed to unarchive thread: %w", err)
+	}
+
+	fmt.Printf("gptcli: Unarchived thread %v. Remaining threads renumbered.\n",
+		threadNum)
+
+	lsArgs := []string{"ls"}
+	return lsThreadsMain(ctx, gptCliCtx, lsArgs)
 }
 
 func (srcThrGrp *GptCliThreadGroup) moveThread(threadNum int,
 	dstThrGrp *GptCliThreadGroup) error {
 
 	if threadNum > srcThrGrp.totThreads || threadNum == 0 {
-		return fmt.Errorf(ThreadNoExistErrFmt, threadNum)
+		threadNumPrint := fmt.Sprintf("%v%v", srcThrGrp.prefix, threadNum)
+		return fmt.Errorf(ThreadNoExistErrFmt, threadNumPrint)
 	}
 
 	thread := srcThrGrp.threads[threadNum-1]
@@ -762,6 +850,7 @@ func (srcThrGrp *GptCliThreadGroup) moveThread(threadNum int,
 		_ = thread.remove(dstThrGrp.dir)
 		return err
 	}
+	srcThrGrp.curThreadNum = 0
 
 	dstThrGrp.addThread(thread)
 
@@ -1053,6 +1142,9 @@ func interactiveThreadWork(ctx context.Context,
 	}
 
 	thrGrp := gptCliCtx.curThreadGroup
+	if thrGrp == gptCliCtx.archiveThreadGroup {
+		return fmt.Errorf("Cannot edit archived thread; use unarchive first")
+	}
 	thread := thrGrp.threads[thrGrp.curThreadNum-1]
 	dialogue := thread.Dialogue
 	summaryDialogue := dialogue
