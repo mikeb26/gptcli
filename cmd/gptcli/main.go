@@ -40,6 +40,8 @@ const (
 	CodeBlockDelimNewline = "```\n"
 	ThreadParseErrFmt     = "Could not parse %v. Please enter a valid thread number.\n"
 	ThreadNoExistErrFmt   = "Thread %v does not exist. To list threads try 'ls'.\n"
+	RowFmt                = "| %8v | %18v | %18v | %18v | %-18v\n"
+	RowSpacer             = "----------------------------------------------------------------------------------------------\n"
 )
 
 const SystemMsg = `You are gptcli, a CLI based utility that otherwise acts
@@ -68,6 +70,7 @@ var subCommandTab = map[string]func(ctx context.Context,
 	"exit":      exitMain,
 	"quit":      exitMain,
 	"billing":   billingMain,
+	"search":    searchMain,
 }
 
 type GptCliThread struct {
@@ -577,39 +580,52 @@ func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 	return nil
 }
 
+func threadGroupHeaderString() string {
+	var sb strings.Builder
+
+	sb.WriteString(RowSpacer)
+	sb.WriteString(fmt.Sprintf(RowFmt, "Thread#", "Last Accessed", "Last Modified",
+		"Created", "Name"))
+
+	sb.WriteString(RowSpacer)
+
+	return sb.String()
+}
+
+func threadGroupFooterString() string {
+	return RowSpacer
+}
+
+func (t *GptCliThread) HeaderString(threadNum string) string {
+	cTime := t.CreateTime.Format("01/02/2006 03:04pm")
+	aTime := t.AccessTime.Format("01/02/2006 03:04pm")
+	mTime := t.ModTime.Format("01/02/2006 03:04pm")
+	today := time.Now().UTC().Truncate(24 * time.Hour).Format("01/02/2006")
+	yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour).Format("01/02/2006")
+	cTime = strings.ReplaceAll(cTime, today, "Today")
+	aTime = strings.ReplaceAll(aTime, today, "Today")
+	mTime = strings.ReplaceAll(mTime, today, "Today")
+	cTime = strings.ReplaceAll(cTime, yesterday, "Yesterday")
+	aTime = strings.ReplaceAll(aTime, yesterday, "Yesterday")
+	mTime = strings.ReplaceAll(mTime, yesterday, "Yesterday")
+
+	return fmt.Sprintf(RowFmt, threadNum, aTime, mTime, cTime, t.Name)
+}
+
 func (thrGrp *GptCliThreadGroup) String(header bool, footer bool) string {
 	var sb strings.Builder
 
-	const rowFmt = "| %8v | %18v | %18v | %18v | %-18v\n"
-	const rowSpacer = "----------------------------------------------------------------------------------------------\n"
-
 	if header {
-		sb.WriteString(rowSpacer)
-		sb.WriteString(fmt.Sprintf(rowFmt, "Thread#", "Last Accessed", "Last Modified",
-			"Created", "Name"))
-		sb.WriteString(rowSpacer)
+		sb.WriteString(threadGroupHeaderString())
 	}
 
 	for idx, t := range thrGrp.threads {
-		cTime := t.CreateTime.Format("01/02/2006 03:04pm")
-		aTime := t.AccessTime.Format("01/02/2006 03:04pm")
-		mTime := t.ModTime.Format("01/02/2006 03:04pm")
-		today := time.Now().UTC().Truncate(24 * time.Hour).Format("01/02/2006")
-		yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour).Format("01/02/2006")
-		cTime = strings.ReplaceAll(cTime, today, "Today")
-		aTime = strings.ReplaceAll(aTime, today, "Today")
-		mTime = strings.ReplaceAll(mTime, today, "Today")
-		cTime = strings.ReplaceAll(cTime, yesterday, "Yesterday")
-		aTime = strings.ReplaceAll(aTime, yesterday, "Yesterday")
-		mTime = strings.ReplaceAll(mTime, yesterday, "Yesterday")
-
 		threadNum := fmt.Sprintf("%v%v", thrGrp.prefix, idx+1)
-		sb.WriteString(fmt.Sprintf(rowFmt, threadNum, aTime, mTime, cTime,
-			t.Name))
+		sb.WriteString(t.HeaderString(threadNum))
 	}
 
 	if footer {
-		sb.WriteString(rowSpacer)
+		sb.WriteString(threadGroupFooterString())
 	}
 
 	return sb.String()
@@ -881,6 +897,56 @@ func summaryToggleMain(ctx context.Context, gptCliCtx *GptCliContext,
 	} else {
 		fmt.Printf("summaries disabled; the full thread history is sent for	followups in order to get more precise responses.\n")
 	}
+
+	return nil
+}
+
+func threadContainsSearchStr(t *GptCliThread, searchStr string) bool {
+	for _, msg := range t.Dialogue {
+		if msg.Role == openai.ChatMessageRoleSystem {
+			continue
+		}
+
+		if strings.Contains(msg.Content, searchStr) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func searchMain(ctx context.Context, gptCliCtx *GptCliContext,
+	args []string) error {
+
+	usageErr := fmt.Errorf("Syntax is 'search <search_string>[,<search_string>...] e.g. 'search foo'\n")
+
+	if len(args) < 2 {
+		return usageErr
+	}
+	searchStrs := args[1:]
+
+	var sb strings.Builder
+
+	sb.WriteString(threadGroupHeaderString())
+
+	for _, thrGrp := range gptCliCtx.threadGroups {
+		for tidx, t := range thrGrp.threads {
+			count := 0
+			for _, searchStr := range searchStrs {
+				if threadContainsSearchStr(t, searchStr) {
+					count++
+				}
+			}
+			if count == len(searchStrs) {
+				threadNum := fmt.Sprintf("%v%v", thrGrp.prefix, tidx+1)
+				sb.WriteString(t.HeaderString(threadNum))
+			}
+		}
+	}
+
+	sb.WriteString(threadGroupFooterString())
+
+	fmt.Printf("%v", sb.String())
 
 	return nil
 }

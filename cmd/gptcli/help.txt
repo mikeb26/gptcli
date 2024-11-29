@@ -14,3 +14,4 @@ Available Commands:
   summary [<on|off>]             Toggle thread summaries on or off
   exit                           Exit gptcli
   billing                        Show billing/daily usage information
+  search <str1>[,<str2>]         Search threads for a given string(s)
