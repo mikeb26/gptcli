@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/mikeb26/gptcli/internal"
 	"github.com/sashabaranov/go-openai"
 )
@@ -25,7 +27,6 @@ import (
 const (
 	CommandName           = "gptcli"
 	KeyFile               = ".openai.key"
-	SessionFile           = ".openai.session"
 	PrefsFile             = "prefs.json"
 	ThreadsDir            = "threads"
 	ArchiveDir            = "archive_threads"
@@ -40,7 +41,10 @@ const (
 const SystemMsg = `You are gptcli, a CLI based utility that otherwise acts
 exactly like ChatGPT. All subsequent user messages you receive are input from a
 CLI interface and your responses will be displayed on a CLI interface. Your
-source code is available at https://github.com/mikeb26/gptcli.`
+source code is available at https://github.com/mikeb26/gptcli. When answering
+questions from users please think step by step. When there are multiple answers
+in response to a user question, when possible please call out which
+answers are considered best practice vs. a deprecated or legacy practice.`
 
 const SummarizeMsg = `Please summarize the entire prior conversation
 history. The resulting summary should be optimized for consumption by a more
@@ -62,8 +66,8 @@ var subCommandTab = map[string]func(ctx context.Context,
 	"unarchive": unarchiveThreadMain,
 	"exit":      exitMain,
 	"quit":      exitMain,
-	"billing":   billingMain,
 	"search":    searchMain,
+	"cat":       catMain,
 }
 
 type Prefs struct {
@@ -72,8 +76,6 @@ type Prefs struct {
 
 type GptCliContext struct {
 	client             internal.OpenAIClient
-	haveSess           bool
-	sessClient         internal.OpenAIClient
 	input              *bufio.Reader
 	needConfig         bool
 	curSummaryToggle   bool
@@ -93,18 +95,9 @@ func NewGptCliContext() *GptCliContext {
 	} else {
 		clientLocal = openai.NewClient(keyText)
 	}
-	var sessClientLocal *openai.Client
-	haveSessLocal := false
-	sessText, err := loadSess()
-	if err == nil {
-		sessClientLocal = openai.NewClient(sessText)
-		haveSessLocal = true
-	}
 
 	gptCliCtx := &GptCliContext{
 		client:           clientLocal,
-		haveSess:         haveSessLocal,
-		sessClient:       sessClientLocal,
 		input:            bufio.NewReader(os.Stdin),
 		needConfig:       needConfigLocal,
 		curSummaryToggle: false,
@@ -177,58 +170,8 @@ func exitMain(ctx context.Context, gptCliCtx *GptCliContext,
 	return nil
 }
 
-func centsToDollarString(cents float64) string {
-	ret := fmt.Sprintf("$%.2f", cents*0.01)
-	if ret == "$0.00" {
-		ret = "<$0.01"
-	}
-
-	return ret
-}
-
-func billingMain(ctx context.Context, gptCliCtx *GptCliContext,
-	args []string) error {
-
-	if gptCliCtx.needConfig {
-		return fmt.Errorf("You must run 'config' before querying billing usage history.\n")
-	}
-
-	if !gptCliCtx.haveSess {
-		return fmt.Errorf("A session key must first be configured to use the billing feature. try 'config'")
-	}
-	endDate := time.Now().Add(24 * time.Hour)
-	startDate := endDate.Add(-(30 * 24 * time.Hour))
-	resp, err := gptCliCtx.sessClient.GetBillingUsage(ctx, startDate, endDate)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("Usage from %v - %v:\n", startDate.Format(time.DateOnly),
-		endDate.Format(time.DateOnly))
-
-	var printedDate bool
-	for _, d := range resp.DailyCosts {
-		printedDate = false
-		for _, li := range d.LineItems {
-			if li.Cost == 0 {
-				continue
-			}
-
-			if !printedDate {
-				fmt.Printf("%v:\n", d.Time.Format(time.DateOnly))
-				printedDate = true
-			}
-			fmt.Printf("\t%v: %v\n", li.Name, centsToDollarString(li.Cost))
-		}
-	}
-
-	fmt.Printf("\nTotal: %v\n", centsToDollarString(resp.TotalUsage))
-
-	return nil
-}
-
 func printStringViaPager(content string) error {
-	cmd := exec.Command("less", "-r", "-F")
+	cmd := exec.Command("less", "-r", "-X")
 	cmd.Stdout = os.Stdout
 	inPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -253,6 +196,22 @@ func printStringViaPager(content string) error {
 	}
 
 	return nil
+}
+
+func printToScreen(str2print string) {
+	_, height, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		height = 25
+		err = nil
+	}
+	if strings.Count(str2print, "\n") >= height {
+		err = printStringViaPager(str2print)
+		if err != nil {
+			return
+		} // else
+	} // else
+
+	fmt.Printf("%v", str2print)
 }
 
 func genUniqFileName(name string, cTime time.Time) string {

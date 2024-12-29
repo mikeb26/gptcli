@@ -98,26 +98,6 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 	if err != nil {
 		return fmt.Errorf("Could not write OpenAI API key file %v: %w", keyPath, err)
 	}
-	sessPath := path.Join(configDir, SessionFile)
-	_, err = os.Stat(sessPath)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("Could not open OpenAI Session file %v: %w", keyPath, err)
-	}
-	fmt.Printf("Enter your OpenAI Session key (optional): ")
-	sess, err := gptCliCtx.input.ReadString('\n')
-	if err != nil {
-		return err
-	}
-	sess = strings.TrimSpace(sess)
-	if len(sess) != 0 {
-		err = os.WriteFile(sessPath, []byte(sess), 0600)
-		if err != nil {
-			return fmt.Errorf("Could not write OpenAI Session file %v: %w", keyPath, err)
-		}
-		gptCliCtx.haveSess = true
-	} else {
-		gptCliCtx.haveSess = false
-	}
 	threadsPath := path.Join(configDir, ThreadsDir)
 	err = os.MkdirAll(threadsPath, 0700)
 	if err != nil {
@@ -132,9 +112,6 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 	}
 
 	gptCliCtx.client = openai.NewClient(key)
-	if gptCliCtx.haveSess {
-		gptCliCtx.sessClient = openai.NewClient(sess)
-	}
 	gptCliCtx.needConfig = false
 
 	fmt.Printf("Summarize dialogue when continuing threads? (reduces costs for less precise replies from OpenAI) [N]: ")
@@ -178,14 +155,6 @@ func getPrefsPath() (string, error) {
 	return filepath.Join(configDir, PrefsFile), nil
 }
 
-func getSessPath() (string, error) {
-	configDir, err := getConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(configDir, SessionFile), nil
-}
-
 func getThreadsDir() (string, error) {
 	configDir, err := getConfigDir()
 	if err != nil {
@@ -214,22 +183,6 @@ func loadKey() (string, error) {
 				"run `%v config` to configure", CommandName)
 		}
 		return "", fmt.Errorf("Could not load OpenAI API key: %w", err)
-	}
-	return string(data), nil
-}
-
-func loadSess() (string, error) {
-	sessPath, err := getSessPath()
-	if err != nil {
-		return "", fmt.Errorf("Could not load OpenAI Session: %w", err)
-	}
-	data, err := os.ReadFile(sessPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("Could not load OpenAI Session: "+
-				"run `%v config` to configure", CommandName)
-		}
-		return "", fmt.Errorf("Could not load OpenAI Session: %w", err)
 	}
 	return string(data), nil
 }

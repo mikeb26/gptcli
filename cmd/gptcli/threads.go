@@ -242,7 +242,7 @@ func (thrGrp *GptCliThreadGroup) threadSwitch(threadNum int) error {
 		return err
 	}
 
-	_ = printStringViaPager(thread.String())
+	printToScreen(thread.String())
 
 	return nil
 }
@@ -449,14 +449,18 @@ func interactiveThreadWork(ctx context.Context,
 		return fmt.Errorf("gptcli: BUG: Expected 1 response, got %v",
 			len(resp.Choices))
 	}
+
+	var sb strings.Builder
 	blocks := splitBlocks(resp.Choices[0].Message.Content)
 	for idx, b := range blocks {
 		if idx%2 == 0 {
-			color.Cyan("%v", b)
+			sb.WriteString(color.CyanString("%v\n", b))
 		} else {
-			color.Green("%v", b)
+			sb.WriteString(color.GreenString("%v\n", b))
 		}
 	}
+
+	printToScreen(sb.String())
 
 	msg = openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleAssistant,
@@ -473,6 +477,44 @@ func interactiveThreadWork(ctx context.Context,
 	if err != nil {
 		return err
 	}
+
+	return nil
+}
+
+func catMain(ctx context.Context, gptCliCtx *GptCliContext,
+	args []string) error {
+
+	var thrGrp *GptCliThreadGroup
+	var threadNum int
+	var err error
+
+	if len(args) > 2 {
+		return fmt.Errorf("Syntax is 'cat <thread#>' e.g. 'cat 1'\n")
+	} else if len(args) == 2 {
+		thrGrp, threadNum, err = parseThreadNum(gptCliCtx, args[1])
+		if err != nil {
+			return err
+		}
+	} else {
+		thrGrp = gptCliCtx.curThreadGroup
+		threadNum = thrGrp.curThreadNum
+	}
+
+	if threadNum > thrGrp.totThreads {
+		threadNumPrint := fmt.Sprintf("%v%v", thrGrp.prefix, threadNum)
+		return fmt.Errorf(ThreadNoExistErrFmt, threadNumPrint)
+	} else if threadNum == 0 {
+		return fmt.Errorf("No thread is currently selected. Select one with 'thread <thread#>'.")
+	}
+
+	thread := thrGrp.threads[threadNum-1]
+	thread.AccessTime = time.Now()
+	err = thread.save(thrGrp.dir)
+	if err != nil {
+		return err
+	}
+
+	printToScreen(thread.String())
 
 	return nil
 }
