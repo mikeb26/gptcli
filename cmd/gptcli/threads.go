@@ -121,7 +121,7 @@ func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
 	if gptCliCtx.mainThreadGroup.totThreads == 0 {
-		fmt.Printf("You haven't created any threads yet. To create a thread use the 'new' command.\n")
+		fmt.Printf("%v.\n", ErrNoThreadsExist)
 		return nil
 	}
 

@@ -169,13 +169,6 @@ func TestGetCmdOrPrompt(t *testing.T) {
 			curThread:  1,
 			wantErr:    false,
 		},
-		{
-			name:       "error on input",
-			input:      "",
-			wantPrompt: "",
-			curThread:  0,
-			wantErr:    true,
-		},
 	}
 
 	var err error

@@ -59,6 +59,7 @@ var subCommandTab = map[string]func(ctx context.Context,
 	"upgrade":   upgradeMain,
 	"config":    configMain,
 	"ls":        lsThreadsMain,
+	"menu":      menuMain,
 	"thread":    threadSwitchMain,
 	"new":       newThreadMain,
 	"summary":   summaryToggleMain,
@@ -330,6 +331,9 @@ func getCmdOrPrompt(gptCliCtx *GptCliContext) (string, error) {
 		}
 		cmdOrPrompt, err = gptCliCtx.input.ReadString('\n')
 		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return "exit", nil
+			}
 			return "", err
 		}
 		cmdOrPrompt = strings.TrimSpace(cmdOrPrompt)
