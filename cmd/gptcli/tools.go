@@ -129,7 +129,7 @@ func defineReadFileTool() openai.Tool {
 		Properties: map[string]jsonschema.Definition{
 			"file_name": {
 				Type:        jsonschema.String,
-				Description: fmt.Sprintf("The file to read"),
+				Description: "The file to read",
 			},
 		},
 		Required: []string{"file_name"},
@@ -153,7 +153,7 @@ func defineDeleteFileTool() openai.Tool {
 		Properties: map[string]jsonschema.Definition{
 			"file_name": {
 				Type:        jsonschema.String,
-				Description: fmt.Sprintf("The file to delete"),
+				Description: "The file to delete",
 			},
 		},
 		Required: []string{"file_name"},
@@ -177,7 +177,22 @@ func defineRetrieveUrlTool() openai.Tool {
 		Properties: map[string]jsonschema.Definition{
 			"url": {
 				Type:        jsonschema.String,
-				Description: fmt.Sprintf("The url to retrieve"),
+				Description: "The url to retrieve",
+			},
+			"headers": {
+				Type: jsonschema.Array,
+				Items: &jsonschema.Definition{
+					Type: jsonschema.String,
+				},
+				Description: "Optional request headers as an array of strings formatted as 'Key: Value'",
+			},
+			"method": {
+				Type:        jsonschema.String,
+				Description: "Optional HTTP request method (e.g., GET, POST, etc.); defaults to GET",
+			},
+			"body": {
+				Type:        jsonschema.String,
+				Description: "Optional HTTP request body",
 			},
 		},
 		Required: []string{"url"},
@@ -214,7 +229,7 @@ func defineChdirTool() openai.Tool {
 		Properties: map[string]jsonschema.Definition{
 			"newdir": {
 				Type:        jsonschema.String,
-				Description: fmt.Sprintf("The new directory to change into"),
+				Description: "The new directory to change into",
 			},
 		},
 		Required: []string{"newdir"},
@@ -238,7 +253,7 @@ func defineEnvGetTool() openai.Tool {
 		Properties: map[string]jsonschema.Definition{
 			"envvar": {
 				Type:        jsonschema.String,
-				Description: fmt.Sprintf("The environment variable to get"),
+				Description: "The environment variable to get",
 			},
 		},
 		Required: []string{"envvar"},
@@ -262,11 +277,11 @@ func defineEnvSetTool() openai.Tool {
 		Properties: map[string]jsonschema.Definition{
 			"envvar": {
 				Type:        jsonschema.String,
-				Description: fmt.Sprintf("The environment variable to set"),
+				Description: "The environment variable to set",
 			},
 			"value": {
 				Type:        jsonschema.String,
-				Description: fmt.Sprintf("The value to set"),
+				Description: "The value to set",
 			},
 		},
 		Required: []string{"envvar", "value"},
@@ -290,7 +305,7 @@ func defineAppendFileTool() openai.Tool {
 		Properties: map[string]jsonschema.Definition{
 			"file_name": {
 				Type:        jsonschema.String,
-				Description: fmt.Sprintf("The existing file to append to"),
+				Description: "The existing file to append to",
 			},
 			"content": {
 				Type:        jsonschema.String,
@@ -482,8 +497,7 @@ func readFile(args map[string]any) (string, error) {
 	}
 	content, err := os.ReadFile(fileName)
 	if err != nil {
-		return "", fmt.Errorf("gptcli: failed to read '%v': %w", fileName,
-			err)
+		return "", fmt.Errorf("gptcli: failed to read '%v': %w", fileName, err)
 	}
 
 	return string(content), nil
@@ -494,20 +508,62 @@ func readUrl(args map[string]any) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("gptcli: missing 'url' arg")
 	}
+
+	requestMethod := "GET"
+	m, ok := args["method"].(string)
+	if ok && m != "" {
+		requestMethod = strings.ToUpper(m)
+	}
+
+	// Check for an optional body parameter
+	var bodyReader io.Reader
+	bodyVal, ok := args["body"].(string)
+	if ok && bodyVal != "" {
+		bodyReader = strings.NewReader(bodyVal)
+	}
+
 	httpClient := &http.Client{
 		Timeout: time.Second * 30,
 	}
-	resp, err := httpClient.Get(url)
+
+	var req *http.Request
+	var resp *http.Response
+	var err error
+
+	req, err = http.NewRequest(requestMethod, url, bodyReader)
 	if err != nil {
-		return "", fmt.Errorf("%v: failed to fetch '%v': %w", RetrieveUrl, url,
-			err)
+		return "", fmt.Errorf("gptcli: failed to create request for '%v' with method '%v': %w", url, requestMethod, err)
 	}
 
+	headersArg, ok := args["headers"]
+	if ok {
+		headersArray, ok := headersArg.([]interface{})
+		if !ok {
+			return "", fmt.Errorf("gptcli: 'headers' should be an array of strings")
+		}
+		for _, headerVal := range headersArray {
+			headerStr, ok := headerVal.(string)
+			if !ok {
+				return "", fmt.Errorf("gptcli: each header should be a string")
+			}
+			parts := strings.SplitN(headerStr, ":", 2)
+			if len(parts) != 2 {
+				return "", fmt.Errorf("gptcli: invalid header format '%v', expected 'Key: Value'", headerStr)
+			}
+			headerKey := strings.TrimSpace(parts[0])
+			headerValue := strings.TrimSpace(parts[1])
+			req.Header.Add(headerKey, headerValue)
+		}
+	}
+
+	resp, err = httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("%v: failed to fetch '%v': %w", RetrieveUrl, url, err)
+	}
 	defer resp.Body.Close()
 	content, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("%v: failed to read '%v': %w", RetrieveUrl, url,
-			err)
+		return "", fmt.Errorf("%v: failed to read '%v': %w", RetrieveUrl, url, err)
 	}
 
 	ret := RetrieveUrlResponse{
