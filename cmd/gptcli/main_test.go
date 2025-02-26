@@ -103,13 +103,12 @@ func TestInteractiveThreadWork(t *testing.T) {
 	gptCliCtx.client = mockOpenAIClient
 	gptCliCtx.mainThreadGroup.dir = filepath.Dir(tmpFile.Name())
 	thread := &GptCliThread{
-		Name:            "test",
-		CreateTime:      now,
-		AccessTime:      now,
-		ModTime:         now,
-		Dialogue:        expectedDialogue,
-		SummaryDialogue: []openai.ChatCompletionMessage{},
-		fileName:        filepath.Base(tmpFile.Name()),
+		Name:       "test",
+		CreateTime: now,
+		AccessTime: now,
+		ModTime:    now,
+		Dialogue:   expectedDialogue,
+		fileName:   filepath.Base(tmpFile.Name()),
 	}
 	gptCliCtx.mainThreadGroup.curThreadNum = gptCliCtx.mainThreadGroup.addThread(thread)
 
@@ -220,13 +219,12 @@ func TestThreadSwitchMain(t *testing.T) {
 	gptCliCtx.client = mockOpenAIClient
 	gptCliCtx.mainThreadGroup.dir = filepath.Dir(tmpFile.Name())
 	thread := &GptCliThread{
-		Name:            "test",
-		CreateTime:      now,
-		AccessTime:      now,
-		ModTime:         now,
-		Dialogue:        nil,
-		SummaryDialogue: []openai.ChatCompletionMessage{},
-		fileName:        filepath.Base(tmpFile.Name()),
+		Name:       "test",
+		CreateTime: now,
+		AccessTime: now,
+		ModTime:    now,
+		Dialogue:   nil,
+		fileName:   filepath.Base(tmpFile.Name()),
 	}
 	gptCliCtx.mainThreadGroup.curThreadNum = gptCliCtx.mainThreadGroup.addThread(thread)
 
@@ -335,13 +333,12 @@ func TestArchiveThreadMain(t *testing.T) {
 	gptCliCtx.mainThreadGroup.dir = threadsDirLocal
 	gptCliCtx.archiveThreadGroup.dir = archiveDirLocal
 	thread := &GptCliThread{
-		Name:            threadName,
-		CreateTime:      now,
-		AccessTime:      now,
-		ModTime:         now,
-		Dialogue:        []openai.ChatCompletionMessage{},
-		SummaryDialogue: []openai.ChatCompletionMessage{},
-		fileName:        strconv.Itoa(threadNum) + ".json",
+		Name:       threadName,
+		CreateTime: now,
+		AccessTime: now,
+		ModTime:    now,
+		Dialogue:   []openai.ChatCompletionMessage{},
+		fileName:   strconv.Itoa(threadNum) + ".json",
 	}
 	gptCliCtx.mainThreadGroup.curThreadNum = gptCliCtx.mainThreadGroup.addThread(thread)
 

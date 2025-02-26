@@ -38,13 +38,13 @@ const (
 	RowSpacer             = "----------------------------------------------------------------------------------------------\n"
 )
 
-const SystemMsg = `You are gptcli, a CLI based utility that otherwise acts
-exactly like ChatGPT. All subsequent user messages you receive are input from a
-CLI interface and your responses will be displayed on a CLI interface. Your
-source code is available at https://github.com/mikeb26/gptcli. When answering
-questions from users please think step by step. When there are multiple answers
-in response to a user question, when possible please call out which
-answers are considered best practice vs. a deprecated or legacy practice.`
+const SystemMsg = `You are gptcli, a CLI based LLM and agentic interface with
+full access to the underlying operating system on Linux and other UNIX like
+systems. Your source code is available at
+https://github.com/mikeb26/gptcli. When answering questions from users please
+think step by step. When there are multiple answers in response to a user
+question, when possible please call out which answers are considered best
+practice vs. a deprecated or legacy practice.`
 
 const SummarizeMsg = `Please summarize the entire prior conversation
 history. The resulting summary should be optimized for consumption by a more
@@ -85,6 +85,7 @@ type GptCliContext struct {
 	archiveThreadGroup *GptCliThreadGroup
 	mainThreadGroup    *GptCliThreadGroup
 	curThreadGroup     *GptCliThreadGroup
+	tools              []openai.Tool
 }
 
 func NewGptCliContext() *GptCliContext {
@@ -109,6 +110,7 @@ func NewGptCliContext() *GptCliContext {
 		mainThreadGroup:    nil,
 		curThreadGroup:     nil,
 		threadGroups:       make([]*GptCliThreadGroup, 0),
+		tools:              defineTools(),
 	}
 
 	threadsDirLocal, err := getThreadsDir()

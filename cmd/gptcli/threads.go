@@ -21,12 +21,11 @@ import (
 )
 
 type GptCliThread struct {
-	Name            string                         `json:"name"`
-	CreateTime      time.Time                      `json:"ctime"`
-	AccessTime      time.Time                      `json:"atime"`
-	ModTime         time.Time                      `json:"mtime"`
-	Dialogue        []openai.ChatCompletionMessage `json:"dialogue"`
-	SummaryDialogue []openai.ChatCompletionMessage `json:"summary_dialogue,omitempty"`
+	Name       string                         `json:"name"`
+	CreateTime time.Time                      `json:"ctime"`
+	AccessTime time.Time                      `json:"atime"`
+	ModTime    time.Time                      `json:"mtime"`
+	Dialogue   []openai.ChatCompletionMessage `json:"dialogue"`
 
 	fileName string
 }
@@ -265,11 +264,10 @@ func (thread *GptCliThread) String() string {
 				}
 			}
 			continue
+		} else if msg.Role == openai.ChatMessageRoleUser {
+			sb.WriteString(fmt.Sprintf("gptcli/%v> %v\n",
+				thread.Name, msg.Content))
 		}
-
-		// should be msg.Role == openai.ChatMessageRoleUser
-		sb.WriteString(fmt.Sprintf("gptcli/%v> %v\n",
-			thread.Name, msg.Content))
 	}
 
 	return sb.String()
@@ -296,13 +294,12 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	}
 
 	curThread := &GptCliThread{
-		Name:            name,
-		CreateTime:      cTime,
-		AccessTime:      cTime,
-		ModTime:         cTime,
-		Dialogue:        dialogue,
-		SummaryDialogue: make([]openai.ChatCompletionMessage, 0),
-		fileName:        fileName,
+		Name:       name,
+		CreateTime: cTime,
+		AccessTime: cTime,
+		ModTime:    cTime,
+		Dialogue:   dialogue,
+		fileName:   fileName,
 	}
 	gptCliCtx.mainThreadGroup.curThreadNum =
 		gptCliCtx.mainThreadGroup.addThread(curThread)
@@ -414,44 +411,75 @@ func interactiveThreadWork(ctx context.Context,
 		return fmt.Errorf("Cannot edit archived thread; use unarchive first")
 	}
 	thread := thrGrp.threads[thrGrp.curThreadNum-1]
-	dialogue := thread.Dialogue
-	summaryDialogue := dialogue
+	fullDialogue := thread.Dialogue
+	summaryDialogue := fullDialogue
 
-	dialogue = append(dialogue, msg)
-	dialogue2Send := dialogue
+	fullDialogue = append(fullDialogue, msg)
+	workingDialogue := fullDialogue
 
 	var err error
-	if gptCliCtx.curSummaryToggle && len(dialogue) > 2 {
-		if len(thread.SummaryDialogue) > 0 {
-			summaryDialogue = thread.SummaryDialogue
-		}
+	if gptCliCtx.curSummaryToggle && len(fullDialogue) > 2 {
 		summaryDialogue, err = summarizeDialogue(ctx, gptCliCtx, summaryDialogue)
 		if err != nil {
 			return err
 		}
 		summaryDialogue = append(summaryDialogue, msg)
-		dialogue2Send = summaryDialogue
+		workingDialogue = summaryDialogue
 	}
 
-	fmt.Printf("gptcli: processing...\n")
+	var resp openai.ChatCompletionResponse
+	toolsCompleted := false
+	for toolsCompleted == false {
 
-	resp, err := gptCliCtx.client.CreateChatCompletion(ctx,
-		openai.ChatCompletionRequest{
-			Model:    openai.GPT4o,
-			Messages: dialogue2Send,
-		},
-	)
-	if err != nil {
-		return err
-	}
+		toolsCompleted = true
 
-	if len(resp.Choices) != 1 {
-		return fmt.Errorf("gptcli: BUG: Expected 1 response, got %v",
-			len(resp.Choices))
+		fmt.Printf("gptcli: processing...\n")
+		resp, err = gptCliCtx.client.CreateChatCompletion(ctx,
+			openai.ChatCompletionRequest{
+				Model:           openai.O3Mini,
+				Messages:        workingDialogue,
+				Tools:           gptCliCtx.tools,
+				ReasoningEffort: "high",
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		if len(resp.Choices) != 1 {
+			return fmt.Errorf("gptcli: BUG: Expected 1 response, got %v",
+				len(resp.Choices))
+		}
+
+		msg = resp.Choices[0].Message
+		workingDialogue = append(workingDialogue, msg)
+		fullDialogue = append(fullDialogue, msg)
+
+		for _, tc := range msg.ToolCalls {
+			toolsCompleted = false
+			var toolMsg openai.ChatCompletionMessage
+			// @todo need a way to disambiguate errors that represent
+			// problems in gptcli vs. tool runtime errors that should be
+			// returned to openai via chat completion. for now return all.
+			toolMsg, _ = gptCliCtx.processToolCall(tc)
+			workingDialogue = append(workingDialogue, toolMsg)
+			fullDialogue = append(fullDialogue, toolMsg)
+		}
+
+		if toolsCompleted && msg.Content == "" {
+			msg = openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: "You sent an empty response to the last user message; can you please respond?",
+			}
+			workingDialogue = append(workingDialogue, msg)
+			fullDialogue = append(fullDialogue, msg)
+			toolsCompleted = false
+		}
 	}
 
 	var sb strings.Builder
-	blocks := splitBlocks(resp.Choices[0].Message.Content)
+	msg = resp.Choices[0].Message
+	blocks := splitBlocks(msg.Content)
 	for idx, b := range blocks {
 		if idx%2 == 0 {
 			sb.WriteString(color.CyanString("%v\n", b))
@@ -462,16 +490,9 @@ func interactiveThreadWork(ctx context.Context,
 
 	printToScreen(sb.String())
 
-	msg = openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleAssistant,
-		Content: resp.Choices[0].Message.Content,
-	}
-	thread.Dialogue = append(dialogue, msg)
+	thread.Dialogue = fullDialogue
 	thread.ModTime = time.Now()
 	thread.AccessTime = time.Now()
-	if gptCliCtx.curSummaryToggle {
-		thread.SummaryDialogue = append(summaryDialogue, msg)
-	}
 
 	err = thread.save(thrGrp.dir)
 	if err != nil {
