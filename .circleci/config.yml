@@ -7,7 +7,7 @@ jobs:
     working_directory: ~/repo
     # https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
     docker:
-      - image: cimg/go:1.21
+      - image: cimg/go:1.24.0
     # https://circleci.com/docs/2.0/configuration-reference/#steps
     steps:
       - checkout
@@ -17,6 +17,11 @@ jobs:
       - run:
           name: Install Dependencies
           command: make vendor
+      - run:
+          name: Install ncurses
+          command: |
+              sudo apt-get update
+              sudo apt-get install -y libncurses-dev
       - save_cache:
           key: go-mod-v4-{{ checksum "go.sum" }}
           paths:
