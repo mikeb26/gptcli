@@ -5,10 +5,13 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/sashabaranov/go-openai"
 )
@@ -26,6 +29,7 @@ const (
 	EnvGet                 = "env_get"
 	EnvSet                 = "env_set"
 	RetrieveUrl            = "url_retrieve"
+	PromptRun              = "prompt_run"
 )
 
 type Tool interface {
@@ -48,8 +52,20 @@ var toolInfo = map[ToolCallOp]Tool{
 	EnvSet:      EnvSetTool{},
 }
 
-func defineTools() []openai.Tool {
+var initOnce sync.Once
+
+func defineTools(ctx context.Context, client *openai.Client,
+	input *bufio.Reader) []openai.Tool {
+
 	tools := make([]openai.Tool, 0)
+
+	if client == nil {
+		return tools
+	}
+
+	initOnce.Do(func() {
+		toolInfo[PromptRun] = NewPromptRunTool(ctx, client, input)
+	})
 
 	for _, tool := range toolInfo {
 		tools = append(tools, tool.Define())
@@ -58,7 +74,8 @@ func defineTools() []openai.Tool {
 	return tools
 }
 
-func (gptCliCtx *GptCliContext) processToolCall(tc openai.ToolCall) (openai.ChatCompletionMessage, error) {
+func processToolCall(tc openai.ToolCall,
+	input *bufio.Reader) (openai.ChatCompletionMessage, error) {
 
 	var err error
 	msg := openai.ChatCompletionMessage{
@@ -81,7 +98,7 @@ func (gptCliCtx *GptCliContext) processToolCall(tc openai.ToolCall) (openai.Chat
 			tc.Function.Arguments)
 
 		fmt.Printf("allow? (Y/N) [N]: ")
-		allowTool, err := gptCliCtx.input.ReadString('\n')
+		allowTool, err := input.ReadString('\n')
 		if err != nil {
 			return msg, err
 		}

@@ -104,7 +104,7 @@ type GptCliContext struct {
 	tools              []openai.Tool
 }
 
-func NewGptCliContext() *GptCliContext {
+func NewGptCliContext(ctx context.Context) *GptCliContext {
 	var clientLocal *openai.Client
 	needConfigLocal := false
 	keyText, err := loadKey()
@@ -126,8 +126,8 @@ func NewGptCliContext() *GptCliContext {
 		mainThreadGroup:    nil,
 		curThreadGroup:     nil,
 		threadGroups:       make([]*GptCliThreadGroup, 0),
-		tools:              defineTools(),
 	}
+	gptCliCtx.tools = defineTools(ctx, clientLocal, gptCliCtx.input)
 
 	threadsDirLocal, err := getThreadsDir()
 	if err != nil {
@@ -469,7 +469,7 @@ func main() {
 	checkAndPrintUpgradeWarning()
 
 	ctx := context.Background()
-	gptCliCtx := NewGptCliContext()
+	gptCliCtx := NewGptCliContext(ctx)
 
 	if !gptCliCtx.needConfig {
 		checkAndUpgradeConfig()

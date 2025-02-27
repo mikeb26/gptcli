@@ -461,7 +461,7 @@ func interactiveThreadWork(ctx context.Context,
 			// @todo need a way to disambiguate errors that represent
 			// problems in gptcli vs. tool runtime errors that should be
 			// returned to openai via chat completion. for now return all.
-			toolMsg, _ = gptCliCtx.processToolCall(tc)
+			toolMsg, _ = processToolCall(tc, gptCliCtx.input)
 			workingDialogue = append(workingDialogue, toolMsg)
 			fullDialogue = append(fullDialogue, toolMsg)
 		}
