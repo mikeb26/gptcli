@@ -34,28 +34,123 @@ const (
 	RetrieveUrl            = "url_retrieve"
 )
 
-type ToolInfo struct {
-	Op                  ToolCallOp
-	RequireUserApproval bool
-	ToolFunc            func(map[string]any) (string, error)
+type Tool interface {
+	GetOp() ToolCallOp
+	RequiresUserApproval() bool
+	Invoke(args map[string]any) (string, error)
+	Define() openai.Tool
 }
 
-var toolInfo = map[ToolCallOp]ToolInfo{
-	RunCommand: {Op: RunCommand, RequireUserApproval: true,
-		ToolFunc: execCmdWithArgs},
-	CreateFile: {Op: CreateFile, RequireUserApproval: true,
-		ToolFunc: createFile},
-	AppendFile: {Op: AppendFile, RequireUserApproval: true,
-		ToolFunc: appendFile},
-	ReadFile: {Op: ReadFile, RequireUserApproval: true, ToolFunc: readFile},
-	DeleteFile: {Op: DeleteFile, RequireUserApproval: true,
-		ToolFunc: deleteFile},
-	Pwd:   {Op: Pwd, RequireUserApproval: false, ToolFunc: pwd},
-	Chdir: {Op: Chdir, RequireUserApproval: true, ToolFunc: chdir},
-	RetrieveUrl: {Op: RetrieveUrl, RequireUserApproval: false,
-		ToolFunc: readUrl},
-	EnvGet: {Op: EnvGet, RequireUserApproval: false, ToolFunc: getenv},
-	EnvSet: {Op: EnvSet, RequireUserApproval: true, ToolFunc: setenv},
+type RunCommandTool struct{}
+
+func (t RunCommandTool) GetOp() ToolCallOp {
+	return RunCommand
+}
+
+func (t RunCommandTool) RequiresUserApproval() bool {
+	return true
+}
+
+type CreateFileTool struct{}
+
+func (t CreateFileTool) GetOp() ToolCallOp {
+	return CreateFile
+}
+
+func (t CreateFileTool) RequiresUserApproval() bool {
+	return true
+}
+
+type AppendFileTool struct{}
+
+func (t AppendFileTool) GetOp() ToolCallOp {
+	return AppendFile
+}
+func (t AppendFileTool) RequiresUserApproval() bool {
+	return true
+}
+
+type ReadFileTool struct{}
+
+func (t ReadFileTool) GetOp() ToolCallOp {
+	return ReadFile
+}
+
+func (t ReadFileTool) RequiresUserApproval() bool {
+	return true
+}
+
+type DeleteFileTool struct{}
+
+func (t DeleteFileTool) GetOp() ToolCallOp {
+	return DeleteFile
+}
+
+func (t DeleteFileTool) RequiresUserApproval() bool {
+	return true
+}
+
+type PwdTool struct{}
+
+func (t PwdTool) GetOp() ToolCallOp {
+	return Pwd
+}
+
+func (t PwdTool) RequiresUserApproval() bool {
+	return false
+}
+
+type ChdirTool struct{}
+
+func (t ChdirTool) GetOp() ToolCallOp {
+	return Chdir
+}
+
+func (t ChdirTool) RequiresUserApproval() bool {
+	return true
+}
+
+type RetrieveUrlTool struct{}
+
+func (t RetrieveUrlTool) GetOp() ToolCallOp {
+	return RetrieveUrl
+}
+
+func (t RetrieveUrlTool) RequiresUserApproval() bool {
+	return false
+}
+
+type EnvGetTool struct{}
+
+func (t EnvGetTool) GetOp() ToolCallOp {
+	return EnvGet
+}
+
+func (t EnvGetTool) RequiresUserApproval() bool {
+	return false
+}
+
+type EnvSetTool struct{}
+
+func (t EnvSetTool) GetOp() ToolCallOp {
+	return EnvSet
+}
+
+func (t EnvSetTool) RequiresUserApproval() bool {
+	return true
+}
+
+var toolInfo = map[ToolCallOp]Tool{
+	RunCommand:  RunCommandTool{},
+	CreateFile:  CreateFileTool{},
+	AppendFile:  AppendFileTool{},
+	ReadFile:    ReadFileTool{},
+	DeleteFile:  DeleteFileTool{},
+	Pwd:         PwdTool{},
+	Chdir:       ChdirTool{},
+	RetrieveUrl: RetrieveUrlTool{},
+	EnvGet:      EnvGetTool{},
+	EnvSet:      EnvSetTool{},
 }
 
 type CmdRunResp struct {
@@ -78,21 +173,14 @@ type RetrieveUrlResponse struct {
 func defineTools() []openai.Tool {
 	tools := make([]openai.Tool, 0)
 
-	tools = append(tools, defineRunCmdTool())
-	tools = append(tools, defineCreateFileTool())
-	tools = append(tools, defineAppendFileTool())
-	tools = append(tools, defineReadFileTool())
-	tools = append(tools, defineDeleteFileTool())
-	tools = append(tools, definePwdTool())
-	tools = append(tools, defineChdirTool())
-	tools = append(tools, defineRetrieveUrlTool())
-	tools = append(tools, defineEnvGetTool())
-	tools = append(tools, defineEnvSetTool())
+	for _, tool := range toolInfo {
+		tools = append(tools, tool.Define())
+	}
 
 	return tools
 }
 
-func defineRunCmdTool() openai.Tool {
+func (RunCommandTool) Define() openai.Tool {
 	params := jsonschema.Definition{
 		Type: jsonschema.Object,
 		Properties: map[string]jsonschema.Definition{
@@ -123,7 +211,7 @@ func defineRunCmdTool() openai.Tool {
 	return t
 }
 
-func defineReadFileTool() openai.Tool {
+func (ReadFileTool) Define() openai.Tool {
 	params := jsonschema.Definition{
 		Type: jsonschema.Object,
 		Properties: map[string]jsonschema.Definition{
@@ -147,7 +235,7 @@ func defineReadFileTool() openai.Tool {
 	return t
 }
 
-func defineDeleteFileTool() openai.Tool {
+func (DeleteFileTool) Define() openai.Tool {
 	params := jsonschema.Definition{
 		Type: jsonschema.Object,
 		Properties: map[string]jsonschema.Definition{
@@ -171,7 +259,7 @@ func defineDeleteFileTool() openai.Tool {
 	return t
 }
 
-func defineRetrieveUrlTool() openai.Tool {
+func (RetrieveUrlTool) Define() openai.Tool {
 	params := jsonschema.Definition{
 		Type: jsonschema.Object,
 		Properties: map[string]jsonschema.Definition{
@@ -210,7 +298,7 @@ func defineRetrieveUrlTool() openai.Tool {
 	return t
 }
 
-func definePwdTool() openai.Tool {
+func (PwdTool) Define() openai.Tool {
 	f := openai.FunctionDefinition{
 		Name:        string(Pwd),
 		Description: "print the current working directory",
@@ -223,7 +311,7 @@ func definePwdTool() openai.Tool {
 	return t
 }
 
-func defineChdirTool() openai.Tool {
+func (ChdirTool) Define() openai.Tool {
 	params := jsonschema.Definition{
 		Type: jsonschema.Object,
 		Properties: map[string]jsonschema.Definition{
@@ -247,7 +335,7 @@ func defineChdirTool() openai.Tool {
 	return t
 }
 
-func defineEnvGetTool() openai.Tool {
+func (EnvGetTool) Define() openai.Tool {
 	params := jsonschema.Definition{
 		Type: jsonschema.Object,
 		Properties: map[string]jsonschema.Definition{
@@ -271,7 +359,7 @@ func defineEnvGetTool() openai.Tool {
 	return t
 }
 
-func defineEnvSetTool() openai.Tool {
+func (EnvSetTool) Define() openai.Tool {
 	params := jsonschema.Definition{
 		Type: jsonschema.Object,
 		Properties: map[string]jsonschema.Definition{
@@ -299,7 +387,7 @@ func defineEnvSetTool() openai.Tool {
 	return t
 }
 
-func defineAppendFileTool() openai.Tool {
+func (AppendFileTool) Define() openai.Tool {
 	params := jsonschema.Definition{
 		Type: jsonschema.Object,
 		Properties: map[string]jsonschema.Definition{
@@ -316,7 +404,7 @@ func defineAppendFileTool() openai.Tool {
 	}
 	f := openai.FunctionDefinition{
 		Name:        string(AppendFile),
-		Description: "append to an exiting file",
+		Description: "append to an existing file",
 		Parameters:  params,
 	}
 	t := openai.Tool{
@@ -327,7 +415,7 @@ func defineAppendFileTool() openai.Tool {
 	return t
 }
 
-func defineCreateFileTool() openai.Tool {
+func (CreateFileTool) Define() openai.Tool {
 	params := jsonschema.Definition{
 		Type: jsonschema.Object,
 		Properties: map[string]jsonschema.Definition{
@@ -365,7 +453,7 @@ func (gptCliCtx *GptCliContext) processToolCall(tc openai.ToolCall) (openai.Chat
 		ToolCallID: tc.ID,
 	}
 
-	infoEntry, ok := toolInfo[ToolCallOp(tc.Function.Name)]
+	toolEntry, ok := toolInfo[ToolCallOp(tc.Function.Name)]
 	if !ok {
 		err = fmt.Errorf("gptcli: Unrecognized tool '%v' args: '%v'",
 			tc.Function.Name, tc.Function.Arguments)
@@ -373,7 +461,7 @@ func (gptCliCtx *GptCliContext) processToolCall(tc openai.ToolCall) (openai.Chat
 		return msg, err
 	}
 
-	if infoEntry.RequireUserApproval {
+	if toolEntry.RequiresUserApproval() {
 		fmt.Printf("gptcli would like to '%v'('%v')\n", tc.Function.Name,
 			tc.Function.Arguments)
 
@@ -402,7 +490,7 @@ func (gptCliCtx *GptCliContext) processToolCall(tc openai.ToolCall) (openai.Chat
 			tc.Function.Name, tc.Function.Arguments, err)
 	}
 
-	msg.Content, err = infoEntry.ToolFunc(args)
+	msg.Content, err = toolEntry.Invoke(args)
 	if err != nil && msg.Content == "" {
 		msg.Content = fmt.Sprintf("%v", err)
 	} else if err == nil && msg.Content == "" {
@@ -412,7 +500,7 @@ func (gptCliCtx *GptCliContext) processToolCall(tc openai.ToolCall) (openai.Chat
 	return msg, err
 }
 
-func execCmdWithArgs(args map[string]any) (string, error) {
+func (t RunCommandTool) Invoke(args map[string]any) (string, error) {
 	cmdStr, ok := args["cmd"].(string)
 	if !ok {
 		return "", fmt.Errorf("gptcli: missing 'cmd' arg")
@@ -451,7 +539,7 @@ func execCmdWithArgs(args map[string]any) (string, error) {
 	return string(encodedResp), err
 }
 
-func createFile(args map[string]any) (string, error) {
+func (CreateFileTool) Invoke(args map[string]any) (string, error) {
 	fileName, ok := args["file_name"].(string)
 	if !ok {
 		return "", fmt.Errorf("gptcli: missing 'file_name' arg")
@@ -468,7 +556,7 @@ func createFile(args map[string]any) (string, error) {
 	return "", nil
 }
 
-func appendFile(args map[string]any) (string, error) {
+func (AppendFileTool) Invoke(args map[string]any) (string, error) {
 	fileName, ok := args["file_name"].(string)
 	if !ok {
 		return "", fmt.Errorf("gptcli: missing 'file_name' arg")
@@ -490,7 +578,7 @@ func appendFile(args map[string]any) (string, error) {
 	return "", nil
 }
 
-func readFile(args map[string]any) (string, error) {
+func (ReadFileTool) Invoke(args map[string]any) (string, error) {
 	fileName, ok := args["file_name"].(string)
 	if !ok {
 		return "", fmt.Errorf("gptcli: missing 'file_name' arg")
@@ -503,7 +591,7 @@ func readFile(args map[string]any) (string, error) {
 	return string(content), nil
 }
 
-func readUrl(args map[string]any) (string, error) {
+func (RetrieveUrlTool) Invoke(args map[string]any) (string, error) {
 	url, ok := args["url"].(string)
 	if !ok {
 		return "", fmt.Errorf("gptcli: missing 'url' arg")
@@ -515,7 +603,6 @@ func readUrl(args map[string]any) (string, error) {
 		requestMethod = strings.ToUpper(m)
 	}
 
-	// Check for an optional body parameter
 	var bodyReader io.Reader
 	bodyVal, ok := args["body"].(string)
 	if ok && bodyVal != "" {
@@ -526,11 +613,7 @@ func readUrl(args map[string]any) (string, error) {
 		Timeout: time.Second * 30,
 	}
 
-	var req *http.Request
-	var resp *http.Response
-	var err error
-
-	req, err = http.NewRequest(requestMethod, url, bodyReader)
+	req, err := http.NewRequest(requestMethod, url, bodyReader)
 	if err != nil {
 		return "", fmt.Errorf("gptcli: failed to create request for '%v' with method '%v': %w", url, requestMethod, err)
 	}
@@ -556,7 +639,7 @@ func readUrl(args map[string]any) (string, error) {
 		}
 	}
 
-	resp, err = httpClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("%v: failed to fetch '%v': %w", RetrieveUrl, url, err)
 	}
@@ -581,7 +664,7 @@ func readUrl(args map[string]any) (string, error) {
 	return string(encodedRet), err
 }
 
-func deleteFile(args map[string]any) (string, error) {
+func (DeleteFileTool) Invoke(args map[string]any) (string, error) {
 	fileName, ok := args["file_name"].(string)
 	if !ok {
 		return "", fmt.Errorf("gptcli: missing 'file_name' arg")
@@ -594,7 +677,7 @@ func deleteFile(args map[string]any) (string, error) {
 	return "", nil
 }
 
-func pwd(args map[string]any) (string, error) {
+func (PwdTool) Invoke(args map[string]any) (string, error) {
 	curDir, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("gptcli: failed to get working directory: %w", err)
@@ -603,7 +686,7 @@ func pwd(args map[string]any) (string, error) {
 	return curDir, nil
 }
 
-func chdir(args map[string]any) (string, error) {
+func (t ChdirTool) Invoke(args map[string]any) (string, error) {
 	newdir, ok := args["newdir"].(string)
 	if !ok {
 		return "", fmt.Errorf("gptcli: missing 'newdir' arg")
@@ -616,7 +699,7 @@ func chdir(args map[string]any) (string, error) {
 	return "", nil
 }
 
-func getenv(args map[string]any) (string, error) {
+func (EnvGetTool) Invoke(args map[string]any) (string, error) {
 	envvar, ok := args["envvar"].(string)
 	if !ok {
 		return "", fmt.Errorf("gptcli: missing 'envvar' arg")
@@ -625,7 +708,7 @@ func getenv(args map[string]any) (string, error) {
 	return ret, nil
 }
 
-func setenv(args map[string]any) (string, error) {
+func (EnvSetTool) Invoke(args map[string]any) (string, error) {
 	envvar, ok := args["envvar"].(string)
 	if !ok {
 		return "", fmt.Errorf("gptcli: missing 'envvar' arg")
