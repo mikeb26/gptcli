@@ -5,17 +5,28 @@
 package main
 
 import (
-	_ "embed"
-	"fmt"
+	"bufio"
+	"context"
 	"os"
 
-	"github.com/sashabaranov/go-openai"
-	"github.com/sashabaranov/go-openai/jsonschema"
+	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/mikeb26/gptcli/internal"
 )
 
-type CreateFileTool struct{}
+type CreateFileTool struct {
+	input *bufio.Reader
+}
 
-func (t CreateFileTool) GetOp() ToolCallOp {
+type CreateFileReq struct {
+	Filename string `json:"filename" jsonschema:"description=The name of the file to create or overwrite"`
+	Content  string `json:"content" jsonschema:"description=The content of the file"`
+}
+
+type CreateFileResp struct {
+	Error string `json:"error" jsonschema:"description=The error status of the create call"`
+}
+
+func (g CreateFileTool) GetOp() ToolCallOp {
 	return CreateFile
 }
 
@@ -23,7 +34,18 @@ func (t CreateFileTool) RequiresUserApproval() bool {
 	return true
 }
 
-type AppendFileTool struct{}
+type AppendFileTool struct {
+	input *bufio.Reader
+}
+
+type AppendFileReq struct {
+	Filename string `json:"filename" jsonschema:"description=The name of the file to append"`
+	Content  string `json:"content" jsonschema:"description=The content to append"`
+}
+
+type AppendFileResp struct {
+	Error string `json:"error" jsonschema:"description=The error status of the append call"`
+}
 
 func (t AppendFileTool) GetOp() ToolCallOp {
 	return AppendFile
@@ -32,7 +54,18 @@ func (t AppendFileTool) RequiresUserApproval() bool {
 	return true
 }
 
-type ReadFileTool struct{}
+type ReadFileTool struct {
+	input *bufio.Reader
+}
+
+type ReadFileReq struct {
+	Filename string `json:"filename" jsonschema:"description=The file to read"`
+}
+
+type ReadFileResp struct {
+	Error   string `json:"error" jsonschema:"description=The error status of the read call"`
+	Content string `json:"content" jsonschema:"description=The content of the file"`
+}
 
 func (t ReadFileTool) GetOp() ToolCallOp {
 	return ReadFile
@@ -42,7 +75,17 @@ func (t ReadFileTool) RequiresUserApproval() bool {
 	return true
 }
 
-type DeleteFileTool struct{}
+type DeleteFileTool struct {
+	input *bufio.Reader
+}
+
+type DeleteFileReq struct {
+	Filename string `json:"filename" jsonschema:"description=The file to delete"`
+}
+
+type DeleteFileResp struct {
+	Error string `json:"error" jsonschema:"description=The error status of the delete call"`
+}
 
 func (t DeleteFileTool) GetOp() ToolCallOp {
 	return DeleteFile
@@ -52,171 +95,158 @@ func (t DeleteFileTool) RequiresUserApproval() bool {
 	return true
 }
 
-func (ReadFileTool) Define() openai.Tool {
-	params := jsonschema.Definition{
-		Type: jsonschema.Object,
-		Properties: map[string]jsonschema.Definition{
-			"file_name": {
-				Type:        jsonschema.String,
-				Description: "The file to read",
-			},
-		},
-		Required: []string{"file_name"},
-	}
-	f := openai.FunctionDefinition{
-		Name:        string(ReadFile),
-		Description: "read a file",
-		Parameters:  params,
-	}
-	t := openai.Tool{
-		Type:     openai.ToolTypeFunction,
-		Function: &f,
+func NewReadFileTool(inputIn *bufio.Reader) internal.GptCliTool {
+	t := &ReadFileTool{
+		input: inputIn,
 	}
 
-	return t
+	return t.Define()
 }
 
-func (DeleteFileTool) Define() openai.Tool {
-	params := jsonschema.Definition{
-		Type: jsonschema.Object,
-		Properties: map[string]jsonschema.Definition{
-			"file_name": {
-				Type:        jsonschema.String,
-				Description: "The file to delete",
-			},
-		},
-		Required: []string{"file_name"},
-	}
-	f := openai.FunctionDefinition{
-		Name:        string(DeleteFile),
-		Description: "delete a file",
-		Parameters:  params,
-	}
-	t := openai.Tool{
-		Type:     openai.ToolTypeFunction,
-		Function: &f,
-	}
-
-	return t
-}
-
-func (AppendFileTool) Define() openai.Tool {
-	params := jsonschema.Definition{
-		Type: jsonschema.Object,
-		Properties: map[string]jsonschema.Definition{
-			"file_name": {
-				Type:        jsonschema.String,
-				Description: "The existing file to append to",
-			},
-			"content": {
-				Type:        jsonschema.String,
-				Description: "The content to append to the file",
-			},
-		},
-		Required: []string{"file_name", "content"},
-	}
-	f := openai.FunctionDefinition{
-		Name:        string(AppendFile),
-		Description: "append to an existing file",
-		Parameters:  params,
-	}
-	t := openai.Tool{
-		Type:     openai.ToolTypeFunction,
-		Function: &f,
-	}
-
-	return t
-}
-
-func (CreateFileTool) Define() openai.Tool {
-	params := jsonschema.Definition{
-		Type: jsonschema.Object,
-		Properties: map[string]jsonschema.Definition{
-			"file_name": {
-				Type:        jsonschema.String,
-				Description: "The new file to create",
-			},
-			"content": {
-				Type:        jsonschema.String,
-				Description: "The content to create the new file with",
-			},
-		},
-		Required: []string{"file_name", "content"},
-	}
-	f := openai.FunctionDefinition{
-		Name:        string(CreateFile),
-		Description: "create a new file",
-		Parameters:  params,
-	}
-	t := openai.Tool{
-		Type:     openai.ToolTypeFunction,
-		Function: &f,
-	}
-
-	return t
-}
-
-func (CreateFileTool) Invoke(args map[string]any) (string, error) {
-	fileName, ok := args["file_name"].(string)
-	if !ok {
-		return "", fmt.Errorf("gptcli: missing 'file_name' arg")
-	}
-	content, ok := args["content"].(string)
-	if !ok {
-		return "", fmt.Errorf("gptcli: missing 'content' arg")
-	}
-	err := os.WriteFile(fileName, []byte(content), 0644)
+func (t ReadFileTool) Define() internal.GptCliTool {
+	ret, err := utils.InferTool(string(t.GetOp()), "read a file on the local filesystem",
+		t.Invoke)
 	if err != nil {
-		return "", fmt.Errorf("gptcli: failed to write '%v': %w", fileName, err)
+		panic(err)
 	}
 
-	return "", nil
+	return ret
 }
 
-func (AppendFileTool) Invoke(args map[string]any) (string, error) {
-	fileName, ok := args["file_name"].(string)
-	if !ok {
-		return "", fmt.Errorf("gptcli: missing 'file_name' arg")
-	}
-	content, ok := args["content"].(string)
-	if !ok {
-		return "", fmt.Errorf("gptcli: missing 'content' arg")
-	}
-	file, err := os.OpenFile(fileName, os.O_APPEND|os.O_WRONLY, 0644)
+func (t DeleteFileTool) Define() internal.GptCliTool {
+	ret, err := utils.InferTool(string(t.GetOp()), "delete a file on the local filesystem",
+		t.Invoke)
 	if err != nil {
-		return "", fmt.Errorf("gptcli: failed to open '%v': %w", fileName, err)
+		panic(err)
+	}
+
+	return ret
+}
+
+func NewAppendFileTool(inputIn *bufio.Reader) internal.GptCliTool {
+	t := &AppendFileTool{
+		input: inputIn,
+	}
+
+	return t.Define()
+}
+
+func (t AppendFileTool) Define() internal.GptCliTool {
+	ret, err := utils.InferTool(string(t.GetOp()), "append to an existing file on the local filesystem",
+		t.Invoke)
+	if err != nil {
+		panic(err)
+	}
+
+	return ret
+}
+
+func NewCreateFileTool(inputIn *bufio.Reader) internal.GptCliTool {
+	t := &CreateFileTool{
+		input: inputIn,
+	}
+
+	return t.Define()
+}
+
+func (t CreateFileTool) Define() internal.GptCliTool {
+	ret, err := utils.InferTool(string(t.GetOp()), "create or overwrite a file on the local filesystem",
+		t.Invoke)
+	if err != nil {
+		panic(err)
+	}
+
+	return ret
+}
+
+func (t CreateFileTool) Invoke(ctx context.Context,
+	req *CreateFileReq) (*CreateFileResp, error) {
+
+	ret := &CreateFileResp{}
+
+	err := getUserApproval(t.input, t, req)
+	if err != nil {
+		ret.Error = err.Error()
+		return ret, nil
+	}
+
+	err = os.WriteFile(req.Filename, []byte(req.Content), 0644)
+	if err != nil {
+		ret.Error = err.Error()
+	}
+
+	return ret, nil
+}
+
+func (t AppendFileTool) Invoke(ctx context.Context,
+	req *AppendFileReq) (*AppendFileResp, error) {
+
+	ret := &AppendFileResp{}
+
+	err := getUserApproval(t.input, t, req)
+	if err != nil {
+		ret.Error = err.Error()
+		return ret, nil
+	}
+
+	file, err := os.OpenFile(req.Filename, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		ret.Error = err.Error()
+		return ret, nil
 	}
 	defer file.Close()
-	_, err = file.WriteString(content)
+	_, err = file.WriteString(req.Content)
 	if err != nil {
-		return "", fmt.Errorf("gptcli: failed to write '%v': %w", fileName, err)
+		ret.Error = err.Error()
 	}
 
-	return "", nil
+	return ret, nil
 }
 
-func (ReadFileTool) Invoke(args map[string]any) (string, error) {
-	fileName, ok := args["file_name"].(string)
-	if !ok {
-		return "", fmt.Errorf("gptcli: missing 'file_name' arg")
-	}
-	content, err := os.ReadFile(fileName)
+func (t ReadFileTool) Invoke(ctx context.Context,
+	req *ReadFileReq) (*ReadFileResp, error) {
+
+	ret := &ReadFileResp{}
+
+	err := getUserApproval(t.input, t, req)
 	if err != nil {
-		return "", fmt.Errorf("gptcli: failed to read '%v': %w", fileName, err)
+		ret.Error = err.Error()
+		return ret, nil
 	}
 
-	return string(content), nil
+	content, err := os.ReadFile(req.Filename)
+	if err == nil {
+		ret.Content = string(content)
+	} else {
+		ret.Error = err.Error()
+	}
+
+	return ret, nil
 }
 
-func (DeleteFileTool) Invoke(args map[string]any) (string, error) {
-	fileName, ok := args["file_name"].(string)
-	if !ok {
-		return "", fmt.Errorf("gptcli: missing 'file_name' arg")
-	}
-	err := os.Remove(fileName)
-	if err != nil {
-		return "", fmt.Errorf("gptcli: failed to remove '%v': %w", fileName, err)
+func NewDeleteFileTool(inputIn *bufio.Reader) internal.GptCliTool {
+	t := &DeleteFileTool{
+		input: inputIn,
 	}
 
-	return "", nil
+	return t.Define()
+}
+
+func (t DeleteFileTool) Invoke(ctx context.Context,
+	req *DeleteFileReq) (*DeleteFileResp, error) {
+
+	ret := &DeleteFileResp{}
+
+	err := getUserApproval(t.input, t, req)
+	if err != nil {
+		ret.Error = err.Error()
+		return ret, nil
+	}
+
+	err = os.Remove(req.Filename)
+	if err != nil {
+		ret.Error = err.Error()
+	}
+
+	return ret, nil
 }

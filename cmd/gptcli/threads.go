@@ -1,4 +1,4 @@
-/* Copyright © 2023-2024 Mike Brown. All Rights Reserved.
+/* Copyright © 2023-2025 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -17,15 +16,16 @@ import (
 	"time"
 
 	"github.com/fatih/color"
-	"github.com/sashabaranov/go-openai"
+
+	"github.com/mikeb26/gptcli/internal"
 )
 
 type GptCliThread struct {
-	Name       string                         `json:"name"`
-	CreateTime time.Time                      `json:"ctime"`
-	AccessTime time.Time                      `json:"atime"`
-	ModTime    time.Time                      `json:"mtime"`
-	Dialogue   []openai.ChatCompletionMessage `json:"dialogue"`
+	Name       string                    `json:"name"`
+	CreateTime time.Time                 `json:"ctime"`
+	AccessTime time.Time                 `json:"atime"`
+	ModTime    time.Time                 `json:"mtime"`
+	Dialogue   []*internal.GptCliMessage `json:"dialogue"`
 
 	fileName string
 }
@@ -250,11 +250,11 @@ func (thread *GptCliThread) String() string {
 	var sb strings.Builder
 
 	for _, msg := range thread.Dialogue {
-		if msg.Role == openai.ChatMessageRoleSystem {
+		if msg.Role == internal.GptCliMessageRoleSystem {
 			continue
 		}
 
-		if msg.Role == openai.ChatMessageRoleAssistant {
+		if msg.Role == internal.GptCliMessageRoleAssistant {
 			blocks := splitBlocks(msg.Content)
 			for idx, b := range blocks {
 				if idx%2 == 0 {
@@ -264,7 +264,7 @@ func (thread *GptCliThread) String() string {
 				}
 			}
 			continue
-		} else if msg.Role == openai.ChatMessageRoleUser {
+		} else if msg.Role == internal.GptCliMessageRoleUser {
 			sb.WriteString(fmt.Sprintf("gptcli/%v> %v\n",
 				thread.Name, msg.Content))
 		}
@@ -289,8 +289,8 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	cTime := time.Now()
 	fileName := genUniqFileName(name, cTime)
 
-	dialogue := []openai.ChatCompletionMessage{
-		{Role: openai.ChatMessageRoleSystem, Content: SystemMsg},
+	dialogue := []*internal.GptCliMessage{
+		{Role: internal.GptCliMessageRoleSystem, Content: SystemMsg},
 	}
 
 	curThread := &GptCliThread{
@@ -401,8 +401,8 @@ func (srcThrGrp *GptCliThreadGroup) moveThread(threadNum int,
 func interactiveThreadWork(ctx context.Context,
 	gptCliCtx *GptCliContext, prompt string) error {
 
-	msg := openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleUser,
+	reqMsg := &internal.GptCliMessage{
+		Role:    internal.GptCliMessageRoleUser,
 		Content: prompt,
 	}
 
@@ -414,7 +414,7 @@ func interactiveThreadWork(ctx context.Context,
 	fullDialogue := thread.Dialogue
 	summaryDialogue := fullDialogue
 
-	fullDialogue = append(fullDialogue, msg)
+	fullDialogue = append(fullDialogue, reqMsg)
 	workingDialogue := fullDialogue
 
 	var err error
@@ -423,63 +423,22 @@ func interactiveThreadWork(ctx context.Context,
 		if err != nil {
 			return err
 		}
-		summaryDialogue = append(summaryDialogue, msg)
+		summaryDialogue = append(summaryDialogue, reqMsg)
 		workingDialogue = summaryDialogue
 	}
 
-	var resp openai.ChatCompletionResponse
-	toolsCompleted := false
-	for toolsCompleted == false {
-
-		toolsCompleted = true
-
-		fmt.Printf("gptcli: processing...\n")
-		resp, err = gptCliCtx.client.CreateChatCompletion(ctx,
-			openai.ChatCompletionRequest{
-				Model:           openai.O3Mini,
-				Messages:        workingDialogue,
-				Tools:           gptCliCtx.tools,
-				ReasoningEffort: "high",
-			},
-		)
-		if err != nil {
-			return err
-		}
-
-		if len(resp.Choices) != 1 {
-			return fmt.Errorf("gptcli: BUG: Expected 1 response, got %v",
-				len(resp.Choices))
-		}
-
-		msg = resp.Choices[0].Message
-		workingDialogue = append(workingDialogue, msg)
-		fullDialogue = append(fullDialogue, msg)
-
-		for _, tc := range msg.ToolCalls {
-			toolsCompleted = false
-			var toolMsg openai.ChatCompletionMessage
-			// @todo need a way to disambiguate errors that represent
-			// problems in gptcli vs. tool runtime errors that should be
-			// returned to openai via chat completion. for now return all.
-			toolMsg, _ = processToolCall(tc, gptCliCtx.input)
-			workingDialogue = append(workingDialogue, toolMsg)
-			fullDialogue = append(fullDialogue, toolMsg)
-		}
-
-		if toolsCompleted && msg.Content == "" {
-			msg = openai.ChatCompletionMessage{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: "You sent an empty response to the last user message; can you please respond?",
-			}
-			workingDialogue = append(workingDialogue, msg)
-			fullDialogue = append(fullDialogue, msg)
-			toolsCompleted = false
-		}
+	var replyMsg *internal.GptCliMessage
+	fmt.Printf("gptcli: processing...\n")
+	// @todo need ReasoningEffort: "high",
+	replyMsg, err = gptCliCtx.client.CreateChatCompletion(ctx, workingDialogue)
+	if err != nil {
+		return err
 	}
 
+	fullDialogue = append(fullDialogue, replyMsg)
+
 	var sb strings.Builder
-	msg = resp.Choices[0].Message
-	blocks := splitBlocks(msg.Content)
+	blocks := splitBlocks(replyMsg.Content)
 	for idx, b := range blocks {
 		if idx%2 == 0 {
 			sb.WriteString(color.CyanString("%v\n", b))

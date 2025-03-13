@@ -1,3 +1,7 @@
+/* Copyright © 2023-2025 Mike Brown. All Rights Reserved.
+ *
+ * See LICENSE file at the root of this package for license terms
+ */
 package main
 
 import (
@@ -11,11 +15,8 @@ import (
 	"testing"
 	"time"
 
-	//"github.com/mikeb26/gptcli/internal"
-
 	"github.com/golang/mock/gomock"
 	"github.com/mikeb26/gptcli/internal"
-	"github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -71,24 +72,19 @@ func TestSplitBlocks(t *testing.T) {
 }
 
 func TestInteractiveThreadWork(t *testing.T) {
+	ctx := context.Background()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockOpenAIClient := internal.NewMockOpenAIClient(ctrl)
+	mockOpenAIClient := internal.NewMockGptCliAIClient(ctrl)
 
-	expectedDialogue := []openai.ChatCompletionMessage{
-		{Role: openai.ChatMessageRoleUser, Content: "test prompt"},
+	expectedDialogue := []*internal.GptCliMessage{
+		{Role: internal.GptCliMessageRoleUser, Content: "test prompt"},
 	}
 
-	expectedResponse := openai.ChatCompletionResponse{
-		Choices: []openai.ChatCompletionChoice{
-			{
-				Message: openai.ChatCompletionMessage{
-					Role:    openai.ChatMessageRoleAssistant,
-					Content: "test response",
-				},
-			},
-		},
+	expectedResponse := &internal.GptCliMessage{
+		Role:    internal.GptCliMessageRoleAssistant,
+		Content: "test response",
 	}
 
 	mockOpenAIClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).Return(expectedResponse, nil)
@@ -99,7 +95,7 @@ func TestInteractiveThreadWork(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	now := time.Now()
-	gptCliCtx := NewGptCliContext()
+	gptCliCtx := NewGptCliContext(ctx)
 	gptCliCtx.client = mockOpenAIClient
 	gptCliCtx.mainThreadGroup.dir = filepath.Dir(tmpFile.Name())
 	thread := &GptCliThread{
@@ -114,7 +110,7 @@ func TestInteractiveThreadWork(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	err = interactiveThreadWork(context.Background(), gptCliCtx, "test prompt")
+	err = interactiveThreadWork(ctx, gptCliCtx, "test prompt")
 
 	assert.Nil(t, err)
 	assert.Equal(t, 3, len(thread.Dialogue))
@@ -136,6 +132,7 @@ func TestInteractiveThreadWork(t *testing.T) {
 }
 
 func TestGetCmdOrPrompt(t *testing.T) {
+	ctx := context.Background()
 	pr, pw := io.Pipe()
 
 	reader := bufio.NewReader(pr)
@@ -182,7 +179,7 @@ func TestGetCmdOrPrompt(t *testing.T) {
 				}
 			}()
 
-			gptCliCtx := NewGptCliContext()
+			gptCliCtx := NewGptCliContext(ctx)
 			gptCliCtx.input = reader
 			gptCliCtx.mainThreadGroup.curThreadNum = tt.curThread
 			gptCliCtx.mainThreadGroup.threads =
@@ -204,10 +201,11 @@ func TestGetCmdOrPrompt(t *testing.T) {
 }
 
 func TestThreadSwitchMain(t *testing.T) {
+	ctx := context.Background()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockOpenAIClient := internal.NewMockOpenAIClient(ctrl)
+	mockOpenAIClient := internal.NewMockGptCliAIClient(ctrl)
 
 	tmpFile, err := os.CreateTemp("", "gptcli.testThreadSwitch.*")
 	assert.Nil(t, err)
@@ -215,7 +213,7 @@ func TestThreadSwitchMain(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	now := time.Now()
-	gptCliCtx := NewGptCliContext()
+	gptCliCtx := NewGptCliContext(ctx)
 	gptCliCtx.client = mockOpenAIClient
 	gptCliCtx.mainThreadGroup.dir = filepath.Dir(tmpFile.Name())
 	thread := &GptCliThread{
@@ -253,7 +251,7 @@ func TestThreadSwitchMain(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := threadSwitchMain(context.Background(), gptCliCtx, tt.args)
+			err := threadSwitchMain(ctx, gptCliCtx, tt.args)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -269,43 +267,36 @@ func TestThreadSwitchMain(t *testing.T) {
 }
 
 func TestSummarizeDialogue(t *testing.T) {
+	ctx := context.Background()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockClient := internal.NewMockOpenAIClient(ctrl)
+	mockClient := internal.NewMockGptCliAIClient(ctrl)
 	gptCliCtx := GptCliContext{
 		client: mockClient,
 	}
 
-	initialDialogue := []openai.ChatCompletionMessage{
-		{Role: openai.ChatMessageRoleUser, Content: "Hello!"},
-		{Role: openai.ChatMessageRoleAssistant, Content: "Hi! How can I assist you today?"},
+	initialDialogue := []*internal.GptCliMessage{
+		{Role: internal.GptCliMessageRoleUser, Content: "Hello!"},
+		{Role: internal.GptCliMessageRoleAssistant, Content: "Hi! How can I assist you today?"},
 	}
 
 	expectedSummaryContent := "User greeted and asked for assistance."
-	expectedSummaryMessage := openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleAssistant,
+	expectedSummaryMessage := &internal.GptCliMessage{
+		Role:    internal.GptCliMessageRoleAssistant,
 		Content: expectedSummaryContent,
 	}
 
-	expectedModel := openai.GPT4oMini
-	expectedRequest := openai.ChatCompletionRequest{
-		Model: expectedModel,
-		Messages: append(initialDialogue, openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleSystem,
-			Content: SummarizeMsg,
-		}),
-	}
+	initialDialogueWithSummary := append(initialDialogue, &internal.GptCliMessage{
+		Role:    internal.GptCliMessageRoleSystem,
+		Content: SummarizeMsg,
+	})
 
 	mockClient.EXPECT().
-		CreateChatCompletion(gomock.Any(), gomock.Eq(expectedRequest)).
-		Return(openai.ChatCompletionResponse{
-			Choices: []openai.ChatCompletionChoice{{
-				Message: expectedSummaryMessage,
-			}},
-		}, nil).Times(1)
+		CreateChatCompletion(gomock.Any(), gomock.Eq(initialDialogueWithSummary)).
+		Return(expectedSummaryMessage, nil).Times(1)
 
-	summaryDialogue, err := summarizeDialogue(context.Background(), &gptCliCtx, initialDialogue)
+	summaryDialogue, err := summarizeDialogue(ctx, &gptCliCtx, initialDialogue)
 
 	assert.NoError(t, err)
 	assert.Len(t, summaryDialogue, 2)
@@ -313,6 +304,7 @@ func TestSummarizeDialogue(t *testing.T) {
 }
 
 func TestArchiveThreadMain(t *testing.T) {
+	ctx := context.Background()
 	threadsDirLocal, err := os.MkdirTemp("", "gptcli_test_*")
 	assert.Nil(t, err)
 	defer os.RemoveAll(threadsDirLocal)
@@ -329,7 +321,7 @@ func TestArchiveThreadMain(t *testing.T) {
 	assert.Nil(t, err)
 
 	now := time.Now()
-	gptCliCtx := NewGptCliContext()
+	gptCliCtx := NewGptCliContext(ctx)
 	gptCliCtx.mainThreadGroup.dir = threadsDirLocal
 	gptCliCtx.archiveThreadGroup.dir = archiveDirLocal
 	thread := &GptCliThread{
@@ -337,13 +329,13 @@ func TestArchiveThreadMain(t *testing.T) {
 		CreateTime: now,
 		AccessTime: now,
 		ModTime:    now,
-		Dialogue:   []openai.ChatCompletionMessage{},
+		Dialogue:   []*internal.GptCliMessage{},
 		fileName:   strconv.Itoa(threadNum) + ".json",
 	}
 	gptCliCtx.mainThreadGroup.curThreadNum = gptCliCtx.mainThreadGroup.addThread(thread)
 
 	args := []string{"archive", strconv.Itoa(threadNum)}
-	err = archiveThreadMain(context.Background(), gptCliCtx, args)
+	err = archiveThreadMain(ctx, gptCliCtx, args)
 
 	assert.Nil(t, err)
 	assert.Equal(t, 0, gptCliCtx.mainThreadGroup.totThreads)

@@ -1,4 +1,4 @@
-/* Copyright © 2023-2024 Mike Brown. All Rights Reserved.
+/* Copyright © 2023-2025 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -6,15 +6,12 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
-
-	"github.com/sashabaranov/go-openai"
 )
 
 func (gptCliCtx *GptCliContext) loadPrefs() error {
@@ -111,7 +108,8 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 			archivePath, err)
 	}
 
-	gptCliCtx.client = openai.NewClient(key)
+	gptCliCtx.client = NewEINOAIClient(ctx, gptCliCtx.input, key, DefaultModel,
+		0)
 	gptCliCtx.needConfig = false
 
 	fmt.Printf("Summarize dialogue when continuing threads? (reduces costs for less precise replies from OpenAI) [N]: ")

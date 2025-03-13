@@ -7,13 +7,10 @@ package main
 import (
 	"bufio"
 	"context"
-	_ "embed"
-	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 
-	"github.com/sashabaranov/go-openai"
+	"github.com/mikeb26/gptcli/internal"
 )
 
 type ToolCallOp string
@@ -35,99 +32,53 @@ const (
 type Tool interface {
 	GetOp() ToolCallOp
 	RequiresUserApproval() bool
-	Invoke(args map[string]any) (string, error)
-	Define() openai.Tool
+	Define() internal.GptCliTool
 }
 
-var toolInfo = map[ToolCallOp]Tool{
-	RunCommand:  RunCommandTool{},
-	CreateFile:  CreateFileTool{},
-	AppendFile:  AppendFileTool{},
-	ReadFile:    ReadFileTool{},
-	DeleteFile:  DeleteFileTool{},
-	Pwd:         PwdTool{},
-	Chdir:       ChdirTool{},
-	RetrieveUrl: RetrieveUrlTool{},
-	EnvGet:      EnvGetTool{},
-	EnvSet:      EnvSetTool{},
-}
+func defineTools(ctx context.Context, input *bufio.Reader, apiKey string,
+	model string, depth int) []internal.GptCliTool {
 
-var initOnce sync.Once
-
-func defineTools(ctx context.Context, client *openai.Client,
-	input *bufio.Reader) []openai.Tool {
-
-	tools := make([]openai.Tool, 0)
-
-	if client == nil {
-		return tools
+	tools := []internal.GptCliTool{
+		NewRunCommandTool(input),
+		NewCreateFileTool(input),
+		NewAppendFileTool(input),
+		NewReadFileTool(input),
+		NewDeleteFileTool(input),
+		NewPwdTool(input),
+		NewChdirTool(input),
+		NewEnvGetTool(input),
+		NewEnvSetTool(input),
+		NewRetrieveUrlTool(input),
 	}
-
-	initOnce.Do(func() {
-		toolInfo[PromptRun] = NewPromptRunTool(ctx, client, input)
-	})
-
-	for _, tool := range toolInfo {
-		tools = append(tools, tool.Define())
+	if depth <= MaxDepth {
+		tools = append(tools, NewPromptRunTool(ctx, input, apiKey, model,
+			depth))
 	}
 
 	return tools
 }
 
-func processToolCall(tc openai.ToolCall,
-	input *bufio.Reader) (openai.ChatCompletionMessage, error) {
-
-	var err error
-	msg := openai.ChatCompletionMessage{
-		Role:       openai.ChatMessageRoleTool,
-		Content:    "",
-		Name:       tc.Function.Name,
-		ToolCallID: tc.ID,
+func getUserApproval(input *bufio.Reader, t Tool, arg any) error {
+	if !t.RequiresUserApproval() {
+		return nil
 	}
 
-	toolEntry, ok := toolInfo[ToolCallOp(tc.Function.Name)]
-	if !ok {
-		err = fmt.Errorf("gptcli: Unrecognized tool '%v' args: '%v'",
-			tc.Function.Name, tc.Function.Arguments)
-		msg.Content = fmt.Sprintf("%v", err)
-		return msg, err
-	}
-
-	if toolEntry.RequiresUserApproval() {
-		fmt.Printf("gptcli would like to '%v'('%v')\n", tc.Function.Name,
-			tc.Function.Arguments)
-
-		fmt.Printf("allow? (Y/N) [N]: ")
-		allowTool, err := input.ReadString('\n')
-		if err != nil {
-			return msg, err
-		}
-
-		allowTool = strings.ToUpper(strings.TrimSpace(allowTool))
-		if len(allowTool) == 0 {
-			allowTool = "N"
-		}
-
-		if allowTool != "Y" {
-			msg.Content = fmt.Sprintf("the user denied your request to invoke tool:%v args:%v. try explaining why you need the tool and asking the user to try again.",
-				tc.Function.Name, tc.Function.Arguments)
-			return msg, nil
-		}
-	}
-
-	var args map[string]any
-	err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+	fmt.Printf("gptcli would like to '%v'('%v')\n", t.GetOp(), arg)
+	fmt.Printf("allow? (Y/N) [N]: ")
+	allowTool, err := input.ReadString('\n')
 	if err != nil {
-		return msg, fmt.Errorf("gptcli: failed to parse tool '%v' args '%v': %w",
-			tc.Function.Name, tc.Function.Arguments, err)
+		return fmt.Errorf("gptcli was unable to read user input: %w", err)
 	}
 
-	msg.Content, err = toolEntry.Invoke(args)
-	if err != nil && msg.Content == "" {
-		msg.Content = fmt.Sprintf("%v", err)
-	} else if err == nil && msg.Content == "" {
-		msg.Content = "success"
+	allowTool = strings.ToUpper(strings.TrimSpace(allowTool))
+	if len(allowTool) == 0 {
+		allowTool = "N"
 	}
 
-	return msg, err
+	if allowTool[0] != 'Y' {
+		return fmt.Errorf("The user denied approval for us to run %v(%v); you(the AI agent) should provide justification to the gptcli user for why we need to invoke it.",
+			t.GetOp(), arg)
+	}
+
+	return nil
 }

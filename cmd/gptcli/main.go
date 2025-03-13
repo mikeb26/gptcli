@@ -1,4 +1,4 @@
-/* Copyright © 2023-2024 Mike Brown. All Rights Reserved.
+/* Copyright © 2023-2025 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -21,7 +21,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/mikeb26/gptcli/internal"
-	"github.com/sashabaranov/go-openai"
 )
 
 const (
@@ -92,7 +91,7 @@ type Prefs struct {
 }
 
 type GptCliContext struct {
-	client             internal.OpenAIClient
+	client             internal.GptCliAIClient
 	input              *bufio.Reader
 	needConfig         bool
 	curSummaryToggle   bool
@@ -101,22 +100,23 @@ type GptCliContext struct {
 	archiveThreadGroup *GptCliThreadGroup
 	mainThreadGroup    *GptCliThreadGroup
 	curThreadGroup     *GptCliThreadGroup
-	tools              []openai.Tool
 }
 
 func NewGptCliContext(ctx context.Context) *GptCliContext {
-	var clientLocal *openai.Client
+	var clientLocal internal.GptCliAIClient
+	inputLocal := bufio.NewReader(os.Stdin)
 	needConfigLocal := false
 	keyText, err := loadKey()
 	if err != nil {
 		needConfigLocal = true
 	} else {
-		clientLocal = openai.NewClient(keyText)
+		clientLocal = NewEINOAIClient(ctx, inputLocal, keyText, DefaultModel,
+			0)
 	}
 
 	gptCliCtx := &GptCliContext{
 		client:           clientLocal,
-		input:            bufio.NewReader(os.Stdin),
+		input:            inputLocal,
 		needConfig:       needConfigLocal,
 		curSummaryToggle: false,
 		prefs: Prefs{
@@ -127,7 +127,6 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 		curThreadGroup:     nil,
 		threadGroups:       make([]*GptCliThreadGroup, 0),
 	}
-	gptCliCtx.tools = defineTools(ctx, clientLocal, gptCliCtx.input)
 
 	threadsDirLocal, err := getThreadsDir()
 	if err != nil {
@@ -269,7 +268,7 @@ func summaryToggleMain(ctx context.Context, gptCliCtx *GptCliContext,
 
 func threadContainsSearchStr(t *GptCliThread, searchStr string) bool {
 	for _, msg := range t.Dialogue {
-		if msg.Role == openai.ChatMessageRoleSystem {
+		if msg.Role == internal.GptCliMessageRoleSystem {
 			continue
 		}
 
@@ -370,38 +369,24 @@ func getCmdOrPrompt(gptCliCtx *GptCliContext) (string, error) {
 // in order to reduce costs, summarize the prior dialogue history with
 // the GPT4oMini when resending the thread to OpenAI
 func summarizeDialogue(ctx context.Context, gptCliCtx *GptCliContext,
-	dialogue []openai.ChatCompletionMessage) ([]openai.ChatCompletionMessage,
-	error) {
+	dialogue []*internal.GptCliMessage) ([]*internal.GptCliMessage, error) {
 
-	summaryDialogue := []openai.ChatCompletionMessage{
-		{Role: openai.ChatMessageRoleSystem, Content: SystemMsg},
+	summaryDialogue := []*internal.GptCliMessage{
+		{Role: internal.GptCliMessageRoleSystem, Content: SystemMsg},
 	}
 
-	msg := openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleSystem,
+	msg := &internal.GptCliMessage{
+		Role:    internal.GptCliMessageRoleSystem,
 		Content: SummarizeMsg,
 	}
 	dialogue = append(dialogue, msg)
 
 	fmt.Printf("gptcli: summarizing...\n")
-	resp, err := gptCliCtx.client.CreateChatCompletion(ctx,
-		openai.ChatCompletionRequest{
-			Model:    openai.GPT4oMini,
-			Messages: dialogue,
-		},
-	)
+	msg, err := gptCliCtx.client.CreateChatCompletion(ctx, dialogue)
 	if err != nil {
 		return summaryDialogue, err
 	}
-	if len(resp.Choices) != 1 {
-		return summaryDialogue, fmt.Errorf("gptcli: BUG: Expected 1 response, got %v",
-			len(resp.Choices))
-	}
 
-	msg = openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleAssistant,
-		Content: resp.Choices[0].Message.Content,
-	}
 	summaryDialogue = append(summaryDialogue, msg)
 
 	return summaryDialogue, nil

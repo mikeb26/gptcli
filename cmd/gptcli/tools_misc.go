@@ -5,18 +5,63 @@
 package main
 
 import (
-	_ "embed"
-	"fmt"
+	"bufio"
+	"context"
 	"os"
 
-	"github.com/sashabaranov/go-openai"
-	"github.com/sashabaranov/go-openai/jsonschema"
+	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/mikeb26/gptcli/internal"
 )
 
-type PwdTool struct{}
-type ChdirTool struct{}
-type EnvGetTool struct{}
-type EnvSetTool struct{}
+type PwdTool struct {
+	input *bufio.Reader
+}
+
+type PwdReq struct {
+}
+
+type PwdResp struct {
+	Error string `json:"error" jsonschema:"description=The error status of the pwd call"`
+	Pwd   string `json:"error" jsonschema:"description=The present working directory"`
+}
+
+type ChdirTool struct {
+	input *bufio.Reader
+}
+
+type ChdirReq struct {
+	Newdir string `json:"error" jsonschema:"description=The new directory to change into"`
+}
+
+type ChdirResp struct {
+	Error string `json:"error" jsonschema:"description=The error status of the chdir call"`
+}
+
+type EnvGetTool struct {
+	input *bufio.Reader
+}
+
+type EnvGetReq struct {
+	Envvar string `json:"envvar" jsonschema:"description=The environment variable to get"`
+}
+
+type EnvGetResp struct {
+	Error string `json:"error" jsonschema:"description=The error status of the envget call"`
+	Value string `json:"error" jsonschema:"description=The current value of the request environment variable"`
+}
+
+type EnvSetTool struct {
+	input *bufio.Reader
+}
+
+type EnvSetReq struct {
+	Envvar string `json:"envvar" jsonschema:"description=The environment variable to set"`
+	Value  string `json:"error" jsonschema:"description=The new value to set"`
+}
+
+type EnvSetResp struct {
+	Error string `json:"error" jsonschema:"description=The error status of the envset call"`
+}
 
 func (t PwdTool) GetOp() ToolCallOp {
 	return Pwd
@@ -26,26 +71,41 @@ func (t PwdTool) RequiresUserApproval() bool {
 	return false
 }
 
-func (PwdTool) Define() openai.Tool {
-	f := openai.FunctionDefinition{
-		Name:        string(Pwd),
-		Description: "print the current working directory",
-	}
-	t := openai.Tool{
-		Type:     openai.ToolTypeFunction,
-		Function: &f,
+func NewPwdTool(inputIn *bufio.Reader) internal.GptCliTool {
+	t := &PwdTool{
+		input: inputIn,
 	}
 
-	return t
+	return t.Define()
 }
 
-func (PwdTool) Invoke(args map[string]any) (string, error) {
-	curDir, err := os.Getwd()
+func (t PwdTool) Define() internal.GptCliTool {
+	ret, err := utils.InferTool(string(t.GetOp()), "print the current working directory",
+		t.Invoke)
 	if err != nil {
-		return "", fmt.Errorf("gptcli: failed to get working directory: %w", err)
+		panic(err)
 	}
 
-	return curDir, nil
+	return ret
+}
+
+func (t PwdTool) Invoke(ctx context.Context, _ *PwdReq) (*PwdResp, error) {
+	ret := &PwdResp{}
+
+	err := getUserApproval(t.input, t, "")
+	if err != nil {
+		ret.Error = err.Error()
+		return ret, nil
+	}
+
+	curDir, err := os.Getwd()
+	if err != nil {
+		ret.Error = err.Error()
+	} else {
+		ret.Pwd = curDir
+	}
+
+	return ret, nil
 }
 
 func (t ChdirTool) GetOp() ToolCallOp {
@@ -56,41 +116,41 @@ func (t ChdirTool) RequiresUserApproval() bool {
 	return true
 }
 
-func (ChdirTool) Define() openai.Tool {
-	params := jsonschema.Definition{
-		Type: jsonschema.Object,
-		Properties: map[string]jsonschema.Definition{
-			"newdir": {
-				Type:        jsonschema.String,
-				Description: "The new directory to change into",
-			},
-		},
-		Required: []string{"newdir"},
-	}
-	f := openai.FunctionDefinition{
-		Name:        string(Chdir),
-		Description: "change the current working directory",
-		Parameters:  params,
-	}
-	t := openai.Tool{
-		Type:     openai.ToolTypeFunction,
-		Function: &f,
+func NewChdirTool(inputIn *bufio.Reader) internal.GptCliTool {
+	t := &ChdirTool{
+		input: inputIn,
 	}
 
-	return t
+	return t.Define()
 }
 
-func (t ChdirTool) Invoke(args map[string]any) (string, error) {
-	newdir, ok := args["newdir"].(string)
-	if !ok {
-		return "", fmt.Errorf("gptcli: missing 'newdir' arg")
-	}
-	err := os.Chdir(newdir)
+func (t ChdirTool) Define() internal.GptCliTool {
+	ret, err := utils.InferTool(string(t.GetOp()), "change the current working directory",
+		t.Invoke)
 	if err != nil {
-		return "", fmt.Errorf("gptcli: failed to change working directory: %w", err)
+		panic(err)
 	}
 
-	return "", nil
+	return ret
+}
+
+func (t ChdirTool) Invoke(ctx context.Context,
+	req *ChdirReq) (*ChdirResp, error) {
+
+	ret := &ChdirResp{}
+
+	err := getUserApproval(t.input, t, req)
+	if err != nil {
+		ret.Error = err.Error()
+		return ret, nil
+	}
+
+	err = os.Chdir(req.Newdir)
+	if err != nil {
+		ret.Error = err.Error()
+	}
+
+	return ret, nil
 }
 
 func (t EnvGetTool) GetOp() ToolCallOp {
@@ -98,39 +158,40 @@ func (t EnvGetTool) GetOp() ToolCallOp {
 }
 
 func (t EnvGetTool) RequiresUserApproval() bool {
-	return false
+	return true
 }
 
-func (EnvGetTool) Define() openai.Tool {
-	params := jsonschema.Definition{
-		Type: jsonschema.Object,
-		Properties: map[string]jsonschema.Definition{
-			"envvar": {
-				Type:        jsonschema.String,
-				Description: "The environment variable to get",
-			},
-		},
-		Required: []string{"envvar"},
-	}
-	f := openai.FunctionDefinition{
-		Name:        string(EnvGet),
-		Description: "get an environment variable",
-		Parameters:  params,
-	}
-	t := openai.Tool{
-		Type:     openai.ToolTypeFunction,
-		Function: &f,
+func NewEnvGetTool(inputIn *bufio.Reader) internal.GptCliTool {
+	t := &EnvGetTool{
+		input: inputIn,
 	}
 
-	return t
+	return t.Define()
 }
 
-func (EnvGetTool) Invoke(args map[string]any) (string, error) {
-	envvar, ok := args["envvar"].(string)
-	if !ok {
-		return "", fmt.Errorf("gptcli: missing 'envvar' arg")
+func (t EnvGetTool) Define() internal.GptCliTool {
+	ret, err := utils.InferTool(string(t.GetOp()), "get an environment variable",
+		t.Invoke)
+	if err != nil {
+		panic(err)
 	}
-	ret := os.Getenv(envvar)
+
+	return ret
+}
+
+func (t EnvGetTool) Invoke(ctx context.Context,
+	req *EnvGetReq) (*EnvGetResp, error) {
+
+	ret := &EnvGetResp{}
+
+	err := getUserApproval(t.input, t, req)
+	if err != nil {
+		ret.Error = err.Error()
+		return ret, nil
+	}
+
+	ret.Value = os.Getenv(req.Envvar)
+
 	return ret, nil
 }
 
@@ -142,42 +203,39 @@ func (t EnvSetTool) RequiresUserApproval() bool {
 	return true
 }
 
-func (EnvSetTool) Define() openai.Tool {
-	params := jsonschema.Definition{
-		Type: jsonschema.Object,
-		Properties: map[string]jsonschema.Definition{
-			"envvar": {
-				Type:        jsonschema.String,
-				Description: "The environment variable to set",
-			},
-			"value": {
-				Type:        jsonschema.String,
-				Description: "The value to set",
-			},
-		},
-		Required: []string{"envvar", "value"},
-	}
-	f := openai.FunctionDefinition{
-		Name:        string(EnvSet),
-		Description: "set an environment variable",
-		Parameters:  params,
-	}
-	t := openai.Tool{
-		Type:     openai.ToolTypeFunction,
-		Function: &f,
+func NewEnvSetTool(inputIn *bufio.Reader) internal.GptCliTool {
+	t := &EnvSetTool{
+		input: inputIn,
 	}
 
-	return t
+	return t.Define()
 }
 
-func (EnvSetTool) Invoke(args map[string]any) (string, error) {
-	envvar, ok := args["envvar"].(string)
-	if !ok {
-		return "", fmt.Errorf("gptcli: missing 'envvar' arg")
+func (t EnvSetTool) Define() internal.GptCliTool {
+	ret, err := utils.InferTool(string(t.GetOp()), "set an environment variable",
+		t.Invoke)
+	if err != nil {
+		panic(err)
 	}
-	value, ok := args["value"].(string)
-	if !ok {
-		return "", fmt.Errorf("gptcli: missing 'value' arg")
+
+	return ret
+}
+
+func (t EnvSetTool) Invoke(ctx context.Context,
+	req *EnvSetReq) (*EnvSetResp, error) {
+
+	ret := &EnvSetResp{}
+
+	err := getUserApproval(t.input, t, req)
+	if err != nil {
+		ret.Error = err.Error()
+		return ret, nil
 	}
-	return "", os.Setenv(envvar, value)
+
+	err = os.Setenv(req.Envvar, req.Value)
+	if err != nil {
+		ret.Error = err.Error()
+	}
+
+	return ret, nil
 }

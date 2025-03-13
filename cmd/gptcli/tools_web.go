@@ -5,19 +5,42 @@
 package main
 
 import (
-	_ "embed"
-	"encoding/json"
+	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/sashabaranov/go-openai"
-	"github.com/sashabaranov/go-openai/jsonschema"
+	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/mikeb26/gptcli/internal"
 )
 
-type RetrieveUrlTool struct{}
+type RetrieveUrlTool struct {
+	input *bufio.Reader
+}
+
+type RetrieveUrlRequestHeader struct {
+	Key   string `json:"key" jsonschema:"description=The HTTP header key"`
+	Value string `json:"value" jsonschema:"description=The HTTP header value"`
+}
+
+type RetrieveUrlReq struct {
+	Url     string                     `json:"url" jsonschema:"description=The URL to send the request to"`
+	Headers []RetrieveUrlRequestHeader `json:"headers" jsonschema:"description=The HTTP headers to include with the request (optional)"`
+	Method  string                     `json:"method" jsonschema:"description=HTTP request method (e.g., GET, POST, etc.); defaults to GET if not set (optional)"`
+	Body    string                     `json:"body" jsonschema:"description=HTTP request body (optional)"`
+}
+
+type RetrieveUrlResp struct {
+	Error         string      `json:"error" jsonschema:"description=The error status of the retrieve_url call"`
+	Status        string      `json:"status" jsonschema:"description=The HTTP status of the response to the request"`
+	StatusCode    int         `json:"statuscode" jsonschema:"description=The integer HTTP status code of the response to the request"`
+	Header        http.Header `json:"header" jsonschema:"description=The header returned by the response to the request"`
+	Body          string      `json:"body" jsonschema:"description=The body returned by the response to the request"`
+	ContentLength int64       `json:"contentlen" jsonschema:"description=The length of the content returned by the response to the request"`
+}
 
 func (t RetrieveUrlTool) GetOp() ToolCallOp {
 	return RetrieveUrl
@@ -27,125 +50,79 @@ func (t RetrieveUrlTool) RequiresUserApproval() bool {
 	return false
 }
 
-type RetrieveUrlResponse struct {
-	Status        string
-	StatusCode    int
-	Proto         string
-	ProtoMajor    int
-	ProtoMinor    int
-	Header        http.Header
-	Body          string
-	ContentLength int64
+func NewRetrieveUrlTool(inputIn *bufio.Reader) internal.GptCliTool {
+	t := &RetrieveUrlTool{
+		input: inputIn,
+	}
+
+	return t.Define()
 }
 
-func (RetrieveUrlTool) Define() openai.Tool {
-	params := jsonschema.Definition{
-		Type: jsonschema.Object,
-		Properties: map[string]jsonschema.Definition{
-			"url": {
-				Type:        jsonschema.String,
-				Description: "The url to retrieve",
-			},
-			"headers": {
-				Type: jsonschema.Array,
-				Items: &jsonschema.Definition{
-					Type: jsonschema.String,
-				},
-				Description: "Optional request headers as an array of strings formatted as 'Key: Value'",
-			},
-			"method": {
-				Type:        jsonschema.String,
-				Description: "Optional HTTP request method (e.g., GET, POST, etc.); defaults to GET",
-			},
-			"body": {
-				Type:        jsonschema.String,
-				Description: "Optional HTTP request body",
-			},
-		},
-		Required: []string{"url"},
-	}
-	f := openai.FunctionDefinition{
-		Name:        string(RetrieveUrl),
-		Description: "retrieve the content of a url",
-		Parameters:  params,
-	}
-	t := openai.Tool{
-		Type:     openai.ToolTypeFunction,
-		Function: &f,
+func (t RetrieveUrlTool) Define() internal.GptCliTool {
+	ret, err := utils.InferTool(string(t.GetOp()), "retrieve the content of a url",
+		t.Invoke)
+	if err != nil {
+		panic(err)
 	}
 
-	return t
+	return ret
 }
 
-func (RetrieveUrlTool) Invoke(args map[string]any) (string, error) {
-	url, ok := args["url"].(string)
-	if !ok {
-		return "", fmt.Errorf("gptcli: missing 'url' arg")
+func (t RetrieveUrlTool) Invoke(ctx context.Context,
+	req *RetrieveUrlReq) (*RetrieveUrlResp, error) {
+
+	ret := &RetrieveUrlResp{}
+
+	err := getUserApproval(t.input, t, req)
+	if err != nil {
+		ret.Error = err.Error()
+		return ret, nil
 	}
 
 	requestMethod := "GET"
-	m, ok := args["method"].(string)
-	if ok && m != "" {
-		requestMethod = strings.ToUpper(m)
+	if req.Method != "" {
+		requestMethod = strings.ToUpper(req.Method)
 	}
 
 	var bodyReader io.Reader
-	bodyVal, ok := args["body"].(string)
-	if ok && bodyVal != "" {
-		bodyReader = strings.NewReader(bodyVal)
+	if req.Body != "" {
+		bodyReader = strings.NewReader(req.Body)
 	}
 
 	httpClient := &http.Client{
 		Timeout: time.Second * 30,
 	}
 
-	req, err := http.NewRequest(requestMethod, url, bodyReader)
+	httpReq, err := http.NewRequest(requestMethod, req.Url, bodyReader)
 	if err != nil {
-		return "", fmt.Errorf("gptcli: failed to create request for '%v' with method '%v': %w", url, requestMethod, err)
+		ret.Error = err.Error()
+		return ret, nil
 	}
 
-	headersArg, ok := args["headers"]
-	if ok {
-		headersArray, ok := headersArg.([]interface{})
-		if !ok {
-			return "", fmt.Errorf("gptcli: 'headers' should be an array of strings")
-		}
-		for _, headerVal := range headersArray {
-			headerStr, ok := headerVal.(string)
-			if !ok {
-				return "", fmt.Errorf("gptcli: each header should be a string")
-			}
-			parts := strings.SplitN(headerStr, ":", 2)
-			if len(parts) != 2 {
-				return "", fmt.Errorf("gptcli: invalid header format '%v', expected 'Key: Value'", headerStr)
-			}
-			headerKey := strings.TrimSpace(parts[0])
-			headerValue := strings.TrimSpace(parts[1])
-			req.Header.Add(headerKey, headerValue)
-		}
+	for _, reqHdr := range req.Headers {
+		httpReq.Header.Add(strings.TrimSpace(reqHdr.Key),
+			strings.TrimSpace(reqHdr.Value))
 	}
-
-	resp, err := httpClient.Do(req)
+	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
-		return "", fmt.Errorf("%v: failed to fetch '%v': %w", RetrieveUrl, url, err)
+		err = fmt.Errorf("Failed to retrieve %v: %w", req.Url, err)
+		ret.Error = err.Error()
+		return ret, nil
 	}
-	defer resp.Body.Close()
-	content, err := io.ReadAll(resp.Body)
+
+	defer httpResp.Body.Close()
+	content, err := io.ReadAll(httpResp.Body)
 	if err != nil {
-		return "", fmt.Errorf("%v: failed to read '%v': %w", RetrieveUrl, url, err)
+		err = fmt.Errorf("Failed to read response body: %w", err)
+		ret.Error = err.Error()
+		return ret, nil
 	}
 
-	ret := RetrieveUrlResponse{
-		Status:        resp.Status,
-		StatusCode:    resp.StatusCode,
-		Proto:         resp.Proto,
-		ProtoMajor:    resp.ProtoMajor,
-		ProtoMinor:    resp.ProtoMinor,
-		Header:        resp.Header,
-		Body:          string(content),
-		ContentLength: resp.ContentLength,
-	}
+	ret.Status = httpResp.Status
+	ret.StatusCode = httpResp.StatusCode
+	ret.Header = httpResp.Header
+	ret.Body = string(content)
+	ret.ContentLength = httpResp.ContentLength
 
-	encodedRet, err := json.Marshal(ret)
-	return string(encodedRet), err
+	return ret, nil
 }

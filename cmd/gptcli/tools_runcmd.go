@@ -5,23 +5,29 @@
 package main
 
 import (
-	_ "embed"
-	"encoding/json"
-	"fmt"
+	"bufio"
+	"context"
 	"os"
 	"os/exec"
 	"strings"
 
-	"github.com/sashabaranov/go-openai"
-	"github.com/sashabaranov/go-openai/jsonschema"
+	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/mikeb26/gptcli/internal"
 )
 
-type RunCommandTool struct{}
+type RunCommandTool struct {
+	input *bufio.Reader
+}
+
+type CmdRunReq struct {
+	Cmd     string   `json:"cmd" jsonschema:"description=The command to execute"`
+	CmdArgs []string `json:"cmdargs" jsonschema:"description=A list of arguments to include when executing the command."`
+}
 
 type CmdRunResp struct {
-	Err    error  `json:"error"`
-	Stdout string `json:"stdout"`
-	Stderr string `json:"stderr"`
+	Error  string `json:"error" jsonschema:"description=The error status of the command"`
+	Stdout string `json:"stdout" jsonschema:"description=The standard output emitted by the command"`
+	Stderr string `json:"stderr" jsonschema:"description=The standard error emitted by the command"`
 }
 
 func (t RunCommandTool) GetOp() ToolCallOp {
@@ -32,72 +38,50 @@ func (t RunCommandTool) RequiresUserApproval() bool {
 	return true
 }
 
-func (RunCommandTool) Define() openai.Tool {
-	params := jsonschema.Definition{
-		Type: jsonschema.Object,
-		Properties: map[string]jsonschema.Definition{
-			"cmd": {
-				Type:        jsonschema.String,
-				Description: "The command to execute.",
-			},
-			"cmdArgs": {
-				Type: jsonschema.Array,
-				Items: &jsonschema.Definition{
-					Type: jsonschema.String,
-				},
-				Description: "A list of arguments to include when running the command.",
-			},
-		},
-		Required: []string{"cmd"},
-	}
-	f := openai.FunctionDefinition{
-		Name:        string(RunCommand),
-		Description: "Run a command on the user's behalf",
-		Parameters:  params,
-	}
-	t := openai.Tool{
-		Type:     openai.ToolTypeFunction,
-		Function: &f,
+func NewRunCommandTool(inputIn *bufio.Reader) internal.GptCliTool {
+	t := &RunCommandTool{
+		input: inputIn,
 	}
 
-	return t
+	return t.Define()
 }
 
-func (t RunCommandTool) Invoke(args map[string]any) (string, error) {
-	cmdStr, ok := args["cmd"].(string)
-	if !ok {
-		return "", fmt.Errorf("gptcli: missing 'cmd' arg")
-	}
-	cmdArgsIf, ok := args["cmdArgs"].([]interface{})
-	if !ok {
-		return "", fmt.Errorf("gptcli: missing 'cmdArgs' args")
-	}
-	cmdArgs := make([]string, len(cmdArgsIf))
-	for i, v := range cmdArgsIf {
-		s, ok := v.(string)
-		if !ok {
-			return "", fmt.Errorf("gptcli: unable to parse '%v' in cmdArgs", v)
-		}
-		cmdArgs[i] = s
+func (t RunCommandTool) Define() internal.GptCliTool {
+	ret, err := utils.InferTool(string(t.GetOp()), "Run a command on the user's behalf",
+		t.Invoke)
+	if err != nil {
+		panic(err)
 	}
 
-	var resp CmdRunResp
+	return ret
+}
 
-	cmd := exec.Command(cmdStr, cmdArgs...)
+func (t RunCommandTool) Invoke(ctx context.Context,
+	req *CmdRunReq) (*CmdRunResp, error) {
+
+	resp := &CmdRunResp{}
+
+	err := getUserApproval(t.input, t, req)
+	if err != nil {
+		resp.Error = err.Error()
+		return resp, nil
+	}
+
+	cmd := exec.Command(req.Cmd, req.CmdArgs...)
 	cmd.Env = os.Environ()
+	// @todo should this be t.input instead of os.Stdin?
 	cmd.Stdin = os.Stdin
-
 	var stdoutSb strings.Builder
 	var stderrSb strings.Builder
-
 	cmd.Stdout = &stdoutSb
 	cmd.Stderr = &stderrSb
 
-	resp.Err = cmd.Run()
+	err = cmd.Run()
+	if err != nil {
+		resp.Error = err.Error()
+	}
 	resp.Stderr = stderrSb.String()
 	resp.Stdout = stdoutSb.String()
 
-	encodedResp, err := json.Marshal(resp)
-
-	return string(encodedResp), err
+	return resp, nil
 }
