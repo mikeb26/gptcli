@@ -47,7 +47,7 @@ func (t RetrieveUrlTool) GetOp() ToolCallOp {
 }
 
 func (t RetrieveUrlTool) RequiresUserApproval() bool {
-	return false
+	return true
 }
 
 func NewRetrieveUrlTool(inputIn *bufio.Reader) internal.GptCliTool {

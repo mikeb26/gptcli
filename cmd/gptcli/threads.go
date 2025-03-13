@@ -258,7 +258,7 @@ func (thread *GptCliThread) String() string {
 			blocks := splitBlocks(msg.Content)
 			for idx, b := range blocks {
 				if idx%2 == 0 {
-					sb.WriteString(color.CyanString("%v\n", b))
+					sb.WriteString(color.BlueString("%v\n", b))
 				} else {
 					sb.WriteString(color.GreenString("%v\n", b))
 				}
@@ -441,7 +441,7 @@ func interactiveThreadWork(ctx context.Context,
 	blocks := splitBlocks(replyMsg.Content)
 	for idx, b := range blocks {
 		if idx%2 == 0 {
-			sb.WriteString(color.CyanString("%v\n", b))
+			sb.WriteString(color.BlueString("%v\n", b))
 		} else {
 			sb.WriteString(color.GreenString("%v\n", b))
 		}
