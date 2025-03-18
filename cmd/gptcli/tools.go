@@ -35,8 +35,8 @@ type Tool interface {
 	Define() internal.GptCliTool
 }
 
-func defineTools(ctx context.Context, input *bufio.Reader, apiKey string,
-	model string, depth int) []internal.GptCliTool {
+func defineTools(ctx context.Context, vendor string, input *bufio.Reader,
+	apiKey string, model string, depth int) []internal.GptCliTool {
 
 	tools := []internal.GptCliTool{
 		NewRunCommandTool(input),
@@ -51,7 +51,7 @@ func defineTools(ctx context.Context, input *bufio.Reader, apiKey string,
 		NewRetrieveUrlTool(input),
 	}
 	if depth <= MaxDepth {
-		tools = append(tools, NewPromptRunTool(ctx, input, apiKey, model,
+		tools = append(tools, NewPromptRunTool(ctx, vendor, input, apiKey, model,
 			depth))
 	}
 

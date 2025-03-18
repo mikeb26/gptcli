@@ -25,7 +25,7 @@ import (
 
 const (
 	CommandName           = "gptcli"
-	KeyFile               = ".openai.key"
+	KeyFileFmt            = ".%v.key"
 	PrefsFile             = "prefs.json"
 	ThreadsDir            = "threads"
 	ArchiveDir            = "archive_threads"
@@ -87,7 +87,8 @@ var subCommandTab = map[string]func(ctx context.Context,
 }
 
 type Prefs struct {
-	SummarizePrior bool `json:"summarize_prior"`
+	SummarizePrior bool   `json:"summarize_prior"`
+	Vendor         string `json:"vendor"`
 }
 
 type GptCliContext struct {
@@ -103,24 +104,17 @@ type GptCliContext struct {
 }
 
 func NewGptCliContext(ctx context.Context) *GptCliContext {
-	var clientLocal internal.GptCliAIClient
+
 	inputLocal := bufio.NewReader(os.Stdin)
-	needConfigLocal := false
-	keyText, err := loadKey()
-	if err != nil {
-		needConfigLocal = true
-	} else {
-		clientLocal = NewEINOAIClient(ctx, inputLocal, keyText, DefaultModel,
-			0)
-	}
 
 	gptCliCtx := &GptCliContext{
-		client:           clientLocal,
+		client:           nil,
 		input:            inputLocal,
-		needConfig:       needConfigLocal,
+		needConfig:       true,
 		curSummaryToggle: false,
 		prefs: Prefs{
 			SummarizePrior: false,
+			Vendor:         DefaultVendor,
 		},
 		archiveThreadGroup: nil,
 		mainThreadGroup:    nil,
@@ -145,24 +139,37 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 	gptCliCtx.mainThreadGroup = gptCliCtx.threadGroups[0]
 	gptCliCtx.archiveThreadGroup = gptCliCtx.threadGroups[1]
 	gptCliCtx.curThreadGroup = gptCliCtx.mainThreadGroup
+	err = gptCliCtx.loadPrefs()
+	if err == nil {
+		gptCliCtx.needConfig = false
+	}
 
 	return gptCliCtx
 }
 
-func (gptCliCtx *GptCliContext) load() error {
+func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
+
+	gptCliCtx.needConfig = true
 	err := gptCliCtx.loadPrefs()
 	if err != nil {
 		return err
 	}
-	if gptCliCtx.needConfig {
-		return nil
+	keyText, err := loadKey(gptCliCtx.prefs.Vendor)
+	if err != nil {
+		return err
 	}
+
+	gptCliCtx.client = NewEINOClient(ctx, gptCliCtx.prefs.Vendor,
+		gptCliCtx.input, keyText, DefaultModels[gptCliCtx.prefs.Vendor], 0)
+
 	for _, thrGrp := range gptCliCtx.threadGroups {
 		err := thrGrp.loadThreads()
 		if err != nil {
 			return err
 		}
 	}
+	gptCliCtx.needConfig = false
+
 	return nil
 }
 
@@ -460,7 +467,7 @@ func main() {
 		checkAndUpgradeConfig()
 	}
 
-	err := gptCliCtx.load()
+	err := gptCliCtx.load(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gptcli: Failed to load: %v\n", err)
 		os.Exit(1)

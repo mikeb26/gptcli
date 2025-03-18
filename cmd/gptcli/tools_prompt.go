@@ -38,13 +38,13 @@ func (t PromptRunTool) RequiresUserApproval() bool {
 	return false
 }
 
-func NewPromptRunTool(ctxIn context.Context, inputIn *bufio.Reader,
+func NewPromptRunTool(ctxIn context.Context, vendor string, inputIn *bufio.Reader,
 	apiKey string, model string, depthIn int) internal.GptCliTool {
 	t := &PromptRunTool{
 		ctx:    ctxIn,
 		input:  inputIn,
 		depth:  depthIn,
-		client: NewEINOAIClient(ctxIn, inputIn, apiKey, model, depthIn+1),
+		client: NewEINOClient(ctxIn, vendor, inputIn, apiKey, model, depthIn+1),
 	}
 
 	return t.Define()

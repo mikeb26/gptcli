@@ -15,10 +15,6 @@ import (
 )
 
 func (gptCliCtx *GptCliContext) loadPrefs() error {
-	if gptCliCtx.needConfig {
-		return nil
-	}
-
 	filePath, err := getPrefsPath()
 	if err != nil {
 		return fmt.Errorf("Failed to get prefs path: %w", err)
@@ -32,6 +28,9 @@ func (gptCliCtx *GptCliContext) loadPrefs() error {
 		return err
 	}
 	gptCliCtx.curSummaryToggle = gptCliCtx.prefs.SummarizePrior
+	if gptCliCtx.prefs.Vendor == "" {
+		gptCliCtx.prefs.Vendor = DefaultVendor
+	}
 
 	return nil
 }
@@ -80,12 +79,25 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 		return fmt.Errorf("Could not create config directory %v: %w",
 			configDir, err)
 	}
-	keyPath := path.Join(configDir, KeyFile)
+	fmt.Printf("Enter LLM vendor [openai or anthropic]: ")
+	vendor, err := gptCliCtx.input.ReadString('\n')
+	if err != nil {
+		return err
+	}
+	vendor = strings.ToLower(strings.TrimSpace(vendor))
+	_, ok := DefaultModels[vendor]
+	if !ok {
+		return fmt.Errorf("Vendor %v is not currently supported", vendor)
+	}
+	gptCliCtx.prefs.Vendor = vendor
+
+	keyPath := path.Join(configDir, fmt.Sprintf(KeyFileFmt, vendor))
 	_, err = os.Stat(keyPath)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("Could not open OpenAI API key file %v: %w", keyPath, err)
+		return fmt.Errorf("Could not open %v API key file %v: %w", vendor,
+			keyPath, err)
 	}
-	fmt.Printf("Enter your OpenAI API key: ")
+	fmt.Printf("Enter your %v API key: ", vendor)
 	key, err := gptCliCtx.input.ReadString('\n')
 	if err != nil {
 		return err
@@ -93,7 +105,8 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 	key = strings.TrimSpace(key)
 	err = os.WriteFile(keyPath, []byte(key), 0600)
 	if err != nil {
-		return fmt.Errorf("Could not write OpenAI API key file %v: %w", keyPath, err)
+		return fmt.Errorf("Could not write %v API key file %v: %w", vendor,
+			keyPath, err)
 	}
 	threadsPath := path.Join(configDir, ThreadsDir)
 	err = os.MkdirAll(threadsPath, 0700)
@@ -108,11 +121,8 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 			archivePath, err)
 	}
 
-	gptCliCtx.client = NewEINOAIClient(ctx, gptCliCtx.input, key, DefaultModel,
-		0)
-	gptCliCtx.needConfig = false
-
-	fmt.Printf("Summarize dialogue when continuing threads? (reduces costs for less precise replies from OpenAI) [N]: ")
+	fmt.Printf("Summarize dialogue when continuing threads? (reduces costs for less precise replies from %v) [N]: ",
+		vendor)
 	shouldSummarize, err := gptCliCtx.input.ReadString('\n')
 	if err != nil {
 		return err
@@ -125,7 +135,12 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 	gptCliCtx.prefs.SummarizePrior = (shouldSummarize[0] == 'Y')
 	gptCliCtx.curSummaryToggle = gptCliCtx.prefs.SummarizePrior
 
-	return gptCliCtx.savePrefs()
+	err = gptCliCtx.savePrefs()
+	if err != nil {
+		return err
+	}
+
+	return gptCliCtx.load(ctx)
 }
 
 func getConfigDir() (string, error) {
@@ -137,12 +152,12 @@ func getConfigDir() (string, error) {
 	return filepath.Join(homeDir, ".config", CommandName), nil
 }
 
-func getKeyPath() (string, error) {
+func getKeyPath(vendor string) (string, error) {
 	configDir, err := getConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(configDir, KeyFile), nil
+	return filepath.Join(configDir, fmt.Sprintf(KeyFileFmt, vendor)), nil
 }
 
 func getPrefsPath() (string, error) {
@@ -169,18 +184,18 @@ func getArchiveDir() (string, error) {
 	return filepath.Join(configDir, ArchiveDir), nil
 }
 
-func loadKey() (string, error) {
-	keyPath, err := getKeyPath()
+func loadKey(vendor string) (string, error) {
+	keyPath, err := getKeyPath(vendor)
 	if err != nil {
-		return "", fmt.Errorf("Could not load OpenAI API key: %w", err)
+		return "", fmt.Errorf("Could not load %v API key: %w", vendor, err)
 	}
 	data, err := os.ReadFile(keyPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("Could not load OpenAI API key: "+
-				"run `%v config` to configure", CommandName)
+			return "", fmt.Errorf("Could not load %v API key: "+
+				"run `%v config` to configure", vendor, CommandName)
 		}
-		return "", fmt.Errorf("Could not load OpenAI API key: %w", err)
+		return "", fmt.Errorf("Could not load %v API key: %w", vendor, err)
 	}
 	return string(data), nil
 }

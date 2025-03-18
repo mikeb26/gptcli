@@ -8,7 +8,9 @@ import (
 	"bufio"
 	"context"
 
+	"github.com/cloudwego/eino-ext/components/model/claude"
 	"github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/flow/agent/react"
@@ -20,8 +22,24 @@ type GptCliEINOAIClient struct {
 	reactAgent *react.Agent
 }
 
-func NewEINOAIClient(ctx context.Context, input *bufio.Reader, apiKey string,
-	model string, depth int) internal.GptCliAIClient {
+func NewEINOClient(ctx context.Context, vendor string,
+	input *bufio.Reader, apiKey string, model string,
+	depth int) internal.GptCliAIClient {
+
+	if vendor == "openai" {
+		return newOpenAIEINOClient(ctx, vendor, input, apiKey, model, depth)
+	} else if vendor == "anthropic" {
+		return newAnthropicEINOClient(ctx, vendor, input, apiKey, model, depth)
+	} // else
+
+	panic("unsupported vendor")
+	return nil
+}
+
+func newOpenAIEINOClient(ctx context.Context, vendor string,
+	input *bufio.Reader, apiKey string, model string,
+	depth int) internal.GptCliAIClient {
+
 	chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
 		Model:  model,
 		APIKey: apiKey,
@@ -29,7 +47,30 @@ func NewEINOAIClient(ctx context.Context, input *bufio.Reader, apiKey string,
 	if err != nil {
 		panic(err)
 	}
-	tools := defineTools(ctx, input, apiKey, model, depth)
+
+	return newEINOClient(ctx, vendor, chatModel, input, apiKey, model, depth)
+}
+
+func newAnthropicEINOClient(ctx context.Context, vendor string,
+	input *bufio.Reader, apiKey string, model string,
+	depth int) internal.GptCliAIClient {
+
+	chatModel, err := claude.NewChatModel(ctx, &claude.Config{
+		Model:  model,
+		APIKey: apiKey,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return newEINOClient(ctx, vendor, chatModel, input, apiKey, model, depth)
+}
+
+func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel,
+	input *bufio.Reader, apiKey string, model string,
+	depth int) internal.GptCliAIClient {
+
+	tools := defineTools(ctx, vendor, input, apiKey, model, depth)
 	baseTools := make([]tool.BaseTool, len(tools))
 	for ii, _ := range tools {
 		baseTools[ii] = tools[ii]
