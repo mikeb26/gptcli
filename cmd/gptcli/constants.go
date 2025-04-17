@@ -8,7 +8,7 @@ const DefaultVendor = "openai"
 
 var DefaultModels = map[string]string{
 	"anthropic": "claude-3-7-sonnet-20250219",
-	"openai":    "o3-mini",
+	"openai":    "o4-mini",
 }
 
 const MaxDepth = 3
