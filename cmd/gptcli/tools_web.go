@@ -59,7 +59,7 @@ func NewRetrieveUrlTool(inputIn *bufio.Reader) internal.GptCliTool {
 }
 
 func (t RetrieveUrlTool) Define() internal.GptCliTool {
-	ret, err := utils.InferTool(string(t.GetOp()), "retrieve the content of a url",
+	ret, err := utils.InferTool(string(t.GetOp()), "Retrieve the raw content of a url without any additional processing",
 		t.Invoke)
 	if err != nil {
 		panic(err)

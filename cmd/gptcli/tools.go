@@ -26,6 +26,7 @@ const (
 	EnvGet                 = "env_get"
 	EnvSet                 = "env_set"
 	RetrieveUrl            = "url_retrieve"
+	RenderUrl              = "url_render"
 	PromptRun              = "prompt_run"
 )
 
@@ -49,6 +50,7 @@ func defineTools(ctx context.Context, vendor string, input *bufio.Reader,
 		NewEnvGetTool(input),
 		NewEnvSetTool(input),
 		NewRetrieveUrlTool(input),
+		NewRenderWebTool(input),
 	}
 	if depth <= MaxDepth {
 		tools = append(tools, NewPromptRunTool(ctx, vendor, input, apiKey, model,
