@@ -21,6 +21,7 @@ const (
 	AppendFile             = "file_append"
 	ReadFile               = "file_read"
 	DeleteFile             = "file_delete"
+	FilePatch              = "file_patch"
 	Pwd                    = "dir_pwd"
 	Chdir                  = "dir_chdir"
 	EnvGet                 = "env_get"
@@ -43,6 +44,7 @@ func defineTools(ctx context.Context, vendor string, input *bufio.Reader,
 		NewRunCommandTool(input),
 		NewCreateFileTool(input),
 		NewAppendFileTool(input),
+		NewFilePatchTool(input),
 		NewReadFileTool(input),
 		NewDeleteFileTool(input),
 		NewPwdTool(input),
