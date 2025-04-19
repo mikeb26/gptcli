@@ -9,7 +9,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/chromedp/chromedp"
@@ -106,7 +105,6 @@ func (t RenderWebTool) Invoke(ctx context.Context, req *RenderWebReq) (*RenderWe
 		return resp, nil
 	}
 
-	_ = os.WriteFile("/tmp/output.html", []byte(pageText), 0644)
 	resp.Html = pageText
 	return resp, nil
 }

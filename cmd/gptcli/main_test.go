@@ -344,3 +344,7 @@ func TestArchiveThreadMain(t *testing.T) {
 	_, err = os.Stat(archiveFilePath)
 	assert.Nil(t, err)
 }
+
+func TestSystemMsgNoPlaceholder(t *testing.T) {
+	assert.NotContains(t, SystemMsg, "MISSING", "SystemMsg should not contain unexpanded %%v placeholders")
+}
