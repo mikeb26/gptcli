@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package main
+package internal
 
 import (
 	"bufio"
@@ -16,7 +16,7 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
-	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/types"
 	"google.golang.org/genai"
 )
 
@@ -26,7 +26,7 @@ type GptCliEINOAIClient struct {
 
 func NewEINOClient(ctx context.Context, vendor string,
 	input *bufio.Reader, apiKey string, model string,
-	depth int) internal.GptCliAIClient {
+	depth int) types.GptCliAIClient {
 
 	if vendor == "openai" {
 		return newOpenAIEINOClient(ctx, vendor, input, apiKey, model, depth)
@@ -42,7 +42,7 @@ func NewEINOClient(ctx context.Context, vendor string,
 
 func newOpenAIEINOClient(ctx context.Context, vendor string,
 	input *bufio.Reader, apiKey string, model string,
-	depth int) internal.GptCliAIClient {
+	depth int) types.GptCliAIClient {
 
 	chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
 		Model:  model,
@@ -57,7 +57,7 @@ func newOpenAIEINOClient(ctx context.Context, vendor string,
 
 func newAnthropicEINOClient(ctx context.Context, vendor string,
 	input *bufio.Reader, apiKey string, model string,
-	depth int) internal.GptCliAIClient {
+	depth int) types.GptCliAIClient {
 
 	chatModel, err := claude.NewChatModel(ctx, &claude.Config{
 		Model:  model,
@@ -72,7 +72,7 @@ func newAnthropicEINOClient(ctx context.Context, vendor string,
 
 func newGoogleEINOClient(ctx context.Context, vendor string,
 	input *bufio.Reader, apiKey string, model string,
-	depth int) internal.GptCliAIClient {
+	depth int) types.GptCliAIClient {
 
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey: apiKey,
@@ -94,7 +94,7 @@ func newGoogleEINOClient(ctx context.Context, vendor string,
 
 func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel,
 	input *bufio.Reader, apiKey string, model string,
-	depth int) internal.GptCliAIClient {
+	depth int) types.GptCliAIClient {
 
 	tools := defineTools(ctx, vendor, input, apiKey, model, depth)
 	baseTools := make([]tool.BaseTool, len(tools))
@@ -118,12 +118,13 @@ func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel
 }
 
 func (client GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
-	dialogueIn []*internal.GptCliMessage) (*internal.GptCliMessage, error) {
+	dialogueIn []*types.GptCliMessage) (*types.GptCliMessage, error) {
 
 	dialogue := make([]*schema.Message, len(dialogueIn))
 	for ii, msg := range dialogueIn {
 		dialogue[ii] = (*schema.Message)(msg)
 	}
+
 	msg, err := client.reactAgent.Generate(ctx, dialogue)
-	return (*internal.GptCliMessage)(msg), err
+	return (*types.GptCliMessage)(msg), err
 }

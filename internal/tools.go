@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package main
+package internal
 
 import (
 	"bufio"
@@ -10,37 +10,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/types"
 )
-
-type ToolCallOp string
-
-const (
-	RunCommand  ToolCallOp = "cmd_run"
-	CreateFile             = "file_create"
-	AppendFile             = "file_append"
-	ReadFile               = "file_read"
-	DeleteFile             = "file_delete"
-	FilePatch              = "file_patch"
-	Pwd                    = "dir_pwd"
-	Chdir                  = "dir_chdir"
-	EnvGet                 = "env_get"
-	EnvSet                 = "env_set"
-	RetrieveUrl            = "url_retrieve"
-	RenderUrl              = "url_render"
-	PromptRun              = "prompt_run"
-)
-
-type Tool interface {
-	GetOp() ToolCallOp
-	RequiresUserApproval() bool
-	Define() internal.GptCliTool
-}
 
 func defineTools(ctx context.Context, vendor string, input *bufio.Reader,
-	apiKey string, model string, depth int) []internal.GptCliTool {
+	apiKey string, model string, depth int) []types.GptCliTool {
 
-	tools := []internal.GptCliTool{
+	tools := []types.GptCliTool{
 		NewRunCommandTool(input),
 		NewCreateFileTool(input),
 		NewAppendFileTool(input),
@@ -55,14 +31,14 @@ func defineTools(ctx context.Context, vendor string, input *bufio.Reader,
 		NewRenderWebTool(input),
 	}
 	if depth <= MaxDepth {
-		tools = append(tools, NewPromptRunTool(ctx, vendor, input, apiKey, model,
-			depth))
+		tools = append(tools, NewPromptRunTool(ctx, vendor, input, apiKey,
+			model, depth))
 	}
 
 	return tools
 }
 
-func getUserApproval(input *bufio.Reader, t Tool, arg any) error {
+func getUserApproval(input *bufio.Reader, t types.Tool, arg any) error {
 	if !t.RequiresUserApproval() {
 		return nil
 	}

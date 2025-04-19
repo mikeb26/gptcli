@@ -17,15 +17,16 @@ import (
 
 	"github.com/fatih/color"
 
-	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/prompts"
+	"github.com/mikeb26/gptcli/internal/types"
 )
 
 type GptCliThread struct {
-	Name       string                    `json:"name"`
-	CreateTime time.Time                 `json:"ctime"`
-	AccessTime time.Time                 `json:"atime"`
-	ModTime    time.Time                 `json:"mtime"`
-	Dialogue   []*internal.GptCliMessage `json:"dialogue"`
+	Name       string                 `json:"name"`
+	CreateTime time.Time              `json:"ctime"`
+	AccessTime time.Time              `json:"atime"`
+	ModTime    time.Time              `json:"mtime"`
+	Dialogue   []*types.GptCliMessage `json:"dialogue"`
 
 	fileName string
 }
@@ -250,11 +251,11 @@ func (thread *GptCliThread) String() string {
 	var sb strings.Builder
 
 	for _, msg := range thread.Dialogue {
-		if msg.Role == internal.GptCliMessageRoleSystem {
+		if msg.Role == types.GptCliMessageRoleSystem {
 			continue
 		}
 
-		if msg.Role == internal.GptCliMessageRoleAssistant {
+		if msg.Role == types.GptCliMessageRoleAssistant {
 			blocks := splitBlocks(msg.Content)
 			for idx, b := range blocks {
 				if idx%2 == 0 {
@@ -264,7 +265,7 @@ func (thread *GptCliThread) String() string {
 				}
 			}
 			continue
-		} else if msg.Role == internal.GptCliMessageRoleUser {
+		} else if msg.Role == types.GptCliMessageRoleUser {
 			sb.WriteString(fmt.Sprintf("gptcli/%v> %v\n",
 				thread.Name, msg.Content))
 		}
@@ -289,8 +290,9 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	cTime := time.Now()
 	fileName := genUniqFileName(name, cTime)
 
-	dialogue := []*internal.GptCliMessage{
-		{Role: internal.GptCliMessageRoleSystem, Content: SystemMsg},
+	dialogue := []*types.GptCliMessage{
+		{Role: types.GptCliMessageRoleSystem,
+			Content: prompts.SystemMsg},
 	}
 
 	curThread := &GptCliThread{
@@ -401,8 +403,8 @@ func (srcThrGrp *GptCliThreadGroup) moveThread(threadNum int,
 func interactiveThreadWork(ctx context.Context,
 	gptCliCtx *GptCliContext, prompt string) error {
 
-	reqMsg := &internal.GptCliMessage{
-		Role:    internal.GptCliMessageRoleUser,
+	reqMsg := &types.GptCliMessage{
+		Role:    types.GptCliMessageRoleUser,
 		Content: prompt,
 	}
 
@@ -427,7 +429,7 @@ func interactiveThreadWork(ctx context.Context,
 		workingDialogue = summaryDialogue
 	}
 
-	var replyMsg *internal.GptCliMessage
+	var replyMsg *types.GptCliMessage
 	fmt.Printf("gptcli: processing...\n")
 	// @todo need ReasoningEffort: "high",
 	replyMsg, err = gptCliCtx.client.CreateChatCompletion(ctx, workingDialogue)

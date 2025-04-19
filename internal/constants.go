@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package main
+package internal
 
 const DefaultVendor = "openai"
 

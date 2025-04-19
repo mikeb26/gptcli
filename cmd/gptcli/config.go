@@ -12,6 +12,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/mikeb26/gptcli/internal"
 )
 
 func (gptCliCtx *GptCliContext) loadPrefs() error {
@@ -29,7 +31,7 @@ func (gptCliCtx *GptCliContext) loadPrefs() error {
 	}
 	gptCliCtx.curSummaryToggle = gptCliCtx.prefs.SummarizePrior
 	if gptCliCtx.prefs.Vendor == "" {
-		gptCliCtx.prefs.Vendor = DefaultVendor
+		gptCliCtx.prefs.Vendor = internal.DefaultVendor
 	}
 
 	return nil
@@ -85,7 +87,7 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 		return err
 	}
 	vendor = strings.ToLower(strings.TrimSpace(vendor))
-	_, ok := DefaultModels[vendor]
+	_, ok := internal.DefaultModels[vendor]
 	if !ok {
 		return fmt.Errorf("Vendor %v is not currently supported", vendor)
 	}

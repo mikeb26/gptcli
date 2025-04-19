@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package main
+package internal
 
 import (
 	"bufio"
@@ -10,7 +10,7 @@ import (
 	"os"
 
 	"github.com/cloudwego/eino/components/tool/utils"
-	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/types"
 )
 
 type PwdTool struct {
@@ -63,15 +63,15 @@ type EnvSetResp struct {
 	Error string `json:"error" jsonschema:"description=The error status of the envset call"`
 }
 
-func (t PwdTool) GetOp() ToolCallOp {
-	return Pwd
+func (t PwdTool) GetOp() types.ToolCallOp {
+	return types.Pwd
 }
 
 func (t PwdTool) RequiresUserApproval() bool {
 	return false
 }
 
-func NewPwdTool(inputIn *bufio.Reader) internal.GptCliTool {
+func NewPwdTool(inputIn *bufio.Reader) types.GptCliTool {
 	t := &PwdTool{
 		input: inputIn,
 	}
@@ -79,7 +79,7 @@ func NewPwdTool(inputIn *bufio.Reader) internal.GptCliTool {
 	return t.Define()
 }
 
-func (t PwdTool) Define() internal.GptCliTool {
+func (t PwdTool) Define() types.GptCliTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "print the current working directory",
 		t.Invoke)
 	if err != nil {
@@ -108,15 +108,15 @@ func (t PwdTool) Invoke(ctx context.Context, _ *PwdReq) (*PwdResp, error) {
 	return ret, nil
 }
 
-func (t ChdirTool) GetOp() ToolCallOp {
-	return Chdir
+func (t ChdirTool) GetOp() types.ToolCallOp {
+	return types.Chdir
 }
 
 func (t ChdirTool) RequiresUserApproval() bool {
 	return true
 }
 
-func NewChdirTool(inputIn *bufio.Reader) internal.GptCliTool {
+func NewChdirTool(inputIn *bufio.Reader) types.GptCliTool {
 	t := &ChdirTool{
 		input: inputIn,
 	}
@@ -124,7 +124,7 @@ func NewChdirTool(inputIn *bufio.Reader) internal.GptCliTool {
 	return t.Define()
 }
 
-func (t ChdirTool) Define() internal.GptCliTool {
+func (t ChdirTool) Define() types.GptCliTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "change the current working directory",
 		t.Invoke)
 	if err != nil {
@@ -153,15 +153,15 @@ func (t ChdirTool) Invoke(ctx context.Context,
 	return ret, nil
 }
 
-func (t EnvGetTool) GetOp() ToolCallOp {
-	return EnvGet
+func (t EnvGetTool) GetOp() types.ToolCallOp {
+	return types.EnvGet
 }
 
 func (t EnvGetTool) RequiresUserApproval() bool {
 	return true
 }
 
-func NewEnvGetTool(inputIn *bufio.Reader) internal.GptCliTool {
+func NewEnvGetTool(inputIn *bufio.Reader) types.GptCliTool {
 	t := &EnvGetTool{
 		input: inputIn,
 	}
@@ -169,7 +169,7 @@ func NewEnvGetTool(inputIn *bufio.Reader) internal.GptCliTool {
 	return t.Define()
 }
 
-func (t EnvGetTool) Define() internal.GptCliTool {
+func (t EnvGetTool) Define() types.GptCliTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "get an environment variable",
 		t.Invoke)
 	if err != nil {
@@ -195,15 +195,15 @@ func (t EnvGetTool) Invoke(ctx context.Context,
 	return ret, nil
 }
 
-func (t EnvSetTool) GetOp() ToolCallOp {
-	return EnvSet
+func (t EnvSetTool) GetOp() types.ToolCallOp {
+	return types.EnvSet
 }
 
 func (t EnvSetTool) RequiresUserApproval() bool {
 	return true
 }
 
-func NewEnvSetTool(inputIn *bufio.Reader) internal.GptCliTool {
+func NewEnvSetTool(inputIn *bufio.Reader) types.GptCliTool {
 	t := &EnvSetTool{
 		input: inputIn,
 	}
@@ -211,7 +211,7 @@ func NewEnvSetTool(inputIn *bufio.Reader) internal.GptCliTool {
 	return t.Define()
 }
 
-func (t EnvSetTool) Define() internal.GptCliTool {
+func (t EnvSetTool) Define() types.GptCliTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "set an environment variable",
 		t.Invoke)
 	if err != nil {

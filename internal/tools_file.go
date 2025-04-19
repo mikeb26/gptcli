@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package main
+package internal
 
 import (
 	"bufio"
@@ -10,7 +10,7 @@ import (
 	"os"
 
 	"github.com/cloudwego/eino/components/tool/utils"
-	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/types"
 )
 
 type CreateFileTool struct {
@@ -26,8 +26,8 @@ type CreateFileResp struct {
 	Error string `json:"error" jsonschema:"description=The error status of the create call"`
 }
 
-func (g CreateFileTool) GetOp() ToolCallOp {
-	return CreateFile
+func (g CreateFileTool) GetOp() types.ToolCallOp {
+	return types.CreateFile
 }
 
 func (t CreateFileTool) RequiresUserApproval() bool {
@@ -47,8 +47,8 @@ type AppendFileResp struct {
 	Error string `json:"error" jsonschema:"description=The error status of the append call"`
 }
 
-func (t AppendFileTool) GetOp() ToolCallOp {
-	return AppendFile
+func (t AppendFileTool) GetOp() types.ToolCallOp {
+	return types.AppendFile
 }
 func (t AppendFileTool) RequiresUserApproval() bool {
 	return true
@@ -67,8 +67,8 @@ type ReadFileResp struct {
 	Content string `json:"content" jsonschema:"description=The content of the file"`
 }
 
-func (t ReadFileTool) GetOp() ToolCallOp {
-	return ReadFile
+func (t ReadFileTool) GetOp() types.ToolCallOp {
+	return types.ReadFile
 }
 
 func (t ReadFileTool) RequiresUserApproval() bool {
@@ -87,15 +87,15 @@ type DeleteFileResp struct {
 	Error string `json:"error" jsonschema:"description=The error status of the delete call"`
 }
 
-func (t DeleteFileTool) GetOp() ToolCallOp {
-	return DeleteFile
+func (t DeleteFileTool) GetOp() types.ToolCallOp {
+	return types.DeleteFile
 }
 
 func (t DeleteFileTool) RequiresUserApproval() bool {
 	return true
 }
 
-func NewReadFileTool(inputIn *bufio.Reader) internal.GptCliTool {
+func NewReadFileTool(inputIn *bufio.Reader) types.GptCliTool {
 	t := &ReadFileTool{
 		input: inputIn,
 	}
@@ -103,7 +103,7 @@ func NewReadFileTool(inputIn *bufio.Reader) internal.GptCliTool {
 	return t.Define()
 }
 
-func (t ReadFileTool) Define() internal.GptCliTool {
+func (t ReadFileTool) Define() types.GptCliTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "read a file on the local filesystem",
 		t.Invoke)
 	if err != nil {
@@ -113,7 +113,7 @@ func (t ReadFileTool) Define() internal.GptCliTool {
 	return ret
 }
 
-func (t DeleteFileTool) Define() internal.GptCliTool {
+func (t DeleteFileTool) Define() types.GptCliTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "delete a file on the local filesystem",
 		t.Invoke)
 	if err != nil {
@@ -123,7 +123,7 @@ func (t DeleteFileTool) Define() internal.GptCliTool {
 	return ret
 }
 
-func NewAppendFileTool(inputIn *bufio.Reader) internal.GptCliTool {
+func NewAppendFileTool(inputIn *bufio.Reader) types.GptCliTool {
 	t := &AppendFileTool{
 		input: inputIn,
 	}
@@ -131,7 +131,7 @@ func NewAppendFileTool(inputIn *bufio.Reader) internal.GptCliTool {
 	return t.Define()
 }
 
-func (t AppendFileTool) Define() internal.GptCliTool {
+func (t AppendFileTool) Define() types.GptCliTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "append to an existing file on the local filesystem",
 		t.Invoke)
 	if err != nil {
@@ -141,7 +141,7 @@ func (t AppendFileTool) Define() internal.GptCliTool {
 	return ret
 }
 
-func NewCreateFileTool(inputIn *bufio.Reader) internal.GptCliTool {
+func NewCreateFileTool(inputIn *bufio.Reader) types.GptCliTool {
 	t := &CreateFileTool{
 		input: inputIn,
 	}
@@ -149,7 +149,7 @@ func NewCreateFileTool(inputIn *bufio.Reader) internal.GptCliTool {
 	return t.Define()
 }
 
-func (t CreateFileTool) Define() internal.GptCliTool {
+func (t CreateFileTool) Define() types.GptCliTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "create or overwrite a file on the local filesystem",
 		t.Invoke)
 	if err != nil {
@@ -224,7 +224,7 @@ func (t ReadFileTool) Invoke(ctx context.Context,
 	return ret, nil
 }
 
-func NewDeleteFileTool(inputIn *bufio.Reader) internal.GptCliTool {
+func NewDeleteFileTool(inputIn *bufio.Reader) types.GptCliTool {
 	t := &DeleteFileTool{
 		input: inputIn,
 	}

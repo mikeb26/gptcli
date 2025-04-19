@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package main
+package internal
 
 import (
 	"bufio"
@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool/utils"
-	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/types"
 )
 
 type RunCommandTool struct {
@@ -30,15 +30,15 @@ type CmdRunResp struct {
 	Stderr string `json:"stderr" jsonschema:"description=The standard error emitted by the command"`
 }
 
-func (t RunCommandTool) GetOp() ToolCallOp {
-	return RunCommand
+func (t RunCommandTool) GetOp() types.ToolCallOp {
+	return types.RunCommand
 }
 
 func (t RunCommandTool) RequiresUserApproval() bool {
 	return true
 }
 
-func NewRunCommandTool(inputIn *bufio.Reader) internal.GptCliTool {
+func NewRunCommandTool(inputIn *bufio.Reader) types.GptCliTool {
 	t := &RunCommandTool{
 		input: inputIn,
 	}
@@ -46,7 +46,7 @@ func NewRunCommandTool(inputIn *bufio.Reader) internal.GptCliTool {
 	return t.Define()
 }
 
-func (t RunCommandTool) Define() internal.GptCliTool {
+func (t RunCommandTool) Define() types.GptCliTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "Run a command on the user's behalf",
 		t.Invoke)
 	if err != nil {

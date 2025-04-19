@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package internal
+package types
 
 import (
 	"context"
@@ -22,7 +22,7 @@ const GptCliMessageRoleSystem = schema.System
 const GptCliMessageRoleAssistant = schema.Assistant
 const GptCliMessageRoleUser = schema.User
 
-//go:generate mockgen --build_flags=--mod=mod -destination=openai_client_mock.go -package=$GOPACKAGE github.com/mikeb26/gptcli/internal GptCliAIClient
+//go:generate mockgen --build_flags=--mod=mod -destination=openai_client_mock.go -package=$GOPACKAGE github.com/mikeb26/gptcli/internal/types GptCliAIClient
 type GptCliAIClient interface {
 	CreateChatCompletion(context.Context, []*GptCliMessage) (*GptCliMessage, error)
 }

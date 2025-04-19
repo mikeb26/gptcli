@@ -21,6 +21,8 @@ import (
 	"golang.org/x/term"
 
 	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/prompts"
+	"github.com/mikeb26/gptcli/internal/types"
 )
 
 const (
@@ -36,17 +38,6 @@ const (
 	RowFmt                = "| %8v | %18v | %18v | %18v | %-18v\n"
 	RowSpacer             = "----------------------------------------------------------------------------------------------\n"
 )
-
-//go:embed system_msg.txt
-var SystemMsgFmt string
-var SystemMsg = fmt.Sprintf(SystemMsgFmt, RetrieveUrl, RenderUrl, RetrieveUrl,
-	RenderUrl, ReadFile, FilePatch, FilePatch, CreateFile, AppendFile,
-	CreateFile)
-
-const SummarizeMsg = `Please summarize the entire prior conversation
-history. The resulting summary should be optimized for consumption by a more
-recent version of GPT than yourself. The purpose of the summary is to reduce the
-costs of using GPT by reducing token counts.`
 
 var subCommandTab = map[string]func(ctx context.Context,
 	gptCliCtx *GptCliContext, args []string) error{
@@ -74,7 +65,7 @@ type Prefs struct {
 }
 
 type GptCliContext struct {
-	client             internal.GptCliAIClient
+	client             types.GptCliAIClient
 	input              *bufio.Reader
 	needConfig         bool
 	curSummaryToggle   bool
@@ -96,7 +87,7 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 		curSummaryToggle: false,
 		prefs: Prefs{
 			SummarizePrior: false,
-			Vendor:         DefaultVendor,
+			Vendor:         internal.DefaultVendor,
 		},
 		archiveThreadGroup: nil,
 		mainThreadGroup:    nil,
@@ -141,8 +132,8 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 		return err
 	}
 
-	gptCliCtx.client = NewEINOClient(ctx, gptCliCtx.prefs.Vendor,
-		gptCliCtx.input, keyText, DefaultModels[gptCliCtx.prefs.Vendor], 0)
+	gptCliCtx.client = internal.NewEINOClient(ctx, gptCliCtx.prefs.Vendor,
+		gptCliCtx.input, keyText, internal.DefaultModels[gptCliCtx.prefs.Vendor], 0)
 
 	for _, thrGrp := range gptCliCtx.threadGroups {
 		err := thrGrp.loadThreads()
@@ -257,7 +248,7 @@ func summaryToggleMain(ctx context.Context, gptCliCtx *GptCliContext,
 
 func threadContainsSearchStr(t *GptCliThread, searchStr string) bool {
 	for _, msg := range t.Dialogue {
-		if msg.Role == internal.GptCliMessageRoleSystem {
+		if msg.Role == types.GptCliMessageRoleSystem {
 			continue
 		}
 
@@ -358,15 +349,16 @@ func getCmdOrPrompt(gptCliCtx *GptCliContext) (string, error) {
 // in order to reduce costs, summarize the prior dialogue history with
 // the GPT4oMini when resending the thread to OpenAI
 func summarizeDialogue(ctx context.Context, gptCliCtx *GptCliContext,
-	dialogue []*internal.GptCliMessage) ([]*internal.GptCliMessage, error) {
+	dialogue []*types.GptCliMessage) ([]*types.GptCliMessage, error) {
 
-	summaryDialogue := []*internal.GptCliMessage{
-		{Role: internal.GptCliMessageRoleSystem, Content: SystemMsg},
+	summaryDialogue := []*types.GptCliMessage{
+		{Role: types.GptCliMessageRoleSystem,
+			Content: prompts.SystemMsg},
 	}
 
-	msg := &internal.GptCliMessage{
-		Role:    internal.GptCliMessageRoleSystem,
-		Content: SummarizeMsg,
+	msg := &types.GptCliMessage{
+		Role:    types.GptCliMessageRoleSystem,
+		Content: prompts.SummarizeMsg,
 	}
 	dialogue = append(dialogue, msg)
 

@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package main
+package internal
 
 import (
 	"bufio"
@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/components/tool/utils"
-	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/types"
 )
 
 type RetrieveUrlTool struct {
@@ -42,15 +42,15 @@ type RetrieveUrlResp struct {
 	ContentLength int64       `json:"contentlen" jsonschema:"description=The length of the content returned by the response to the request"`
 }
 
-func (t RetrieveUrlTool) GetOp() ToolCallOp {
-	return RetrieveUrl
+func (t RetrieveUrlTool) GetOp() types.ToolCallOp {
+	return types.RetrieveUrl
 }
 
 func (t RetrieveUrlTool) RequiresUserApproval() bool {
 	return true
 }
 
-func NewRetrieveUrlTool(inputIn *bufio.Reader) internal.GptCliTool {
+func NewRetrieveUrlTool(inputIn *bufio.Reader) types.GptCliTool {
 	t := &RetrieveUrlTool{
 		input: inputIn,
 	}
@@ -58,7 +58,7 @@ func NewRetrieveUrlTool(inputIn *bufio.Reader) internal.GptCliTool {
 	return t.Define()
 }
 
-func (t RetrieveUrlTool) Define() internal.GptCliTool {
+func (t RetrieveUrlTool) Define() types.GptCliTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "Retrieve the raw content of a url without any additional processing",
 		t.Invoke)
 	if err != nil {

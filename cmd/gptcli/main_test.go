@@ -16,7 +16,8 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/prompts"
+	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -76,14 +77,14 @@ func TestInteractiveThreadWork(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockOpenAIClient := internal.NewMockGptCliAIClient(ctrl)
+	mockOpenAIClient := types.NewMockGptCliAIClient(ctrl)
 
-	expectedDialogue := []*internal.GptCliMessage{
-		{Role: internal.GptCliMessageRoleUser, Content: "test prompt"},
+	expectedDialogue := []*types.GptCliMessage{
+		{Role: types.GptCliMessageRoleUser, Content: "test prompt"},
 	}
 
-	expectedResponse := &internal.GptCliMessage{
-		Role:    internal.GptCliMessageRoleAssistant,
+	expectedResponse := &types.GptCliMessage{
+		Role:    types.GptCliMessageRoleAssistant,
 		Content: "test response",
 	}
 
@@ -205,7 +206,7 @@ func TestThreadSwitchMain(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockOpenAIClient := internal.NewMockGptCliAIClient(ctrl)
+	mockOpenAIClient := types.NewMockGptCliAIClient(ctrl)
 
 	tmpFile, err := os.CreateTemp("", "gptcli.testThreadSwitch.*")
 	assert.Nil(t, err)
@@ -271,25 +272,25 @@ func TestSummarizeDialogue(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockClient := internal.NewMockGptCliAIClient(ctrl)
+	mockClient := types.NewMockGptCliAIClient(ctrl)
 	gptCliCtx := GptCliContext{
 		client: mockClient,
 	}
 
-	initialDialogue := []*internal.GptCliMessage{
-		{Role: internal.GptCliMessageRoleUser, Content: "Hello!"},
-		{Role: internal.GptCliMessageRoleAssistant, Content: "Hi! How can I assist you today?"},
+	initialDialogue := []*types.GptCliMessage{
+		{Role: types.GptCliMessageRoleUser, Content: "Hello!"},
+		{Role: types.GptCliMessageRoleAssistant, Content: "Hi! How can I assist you today?"},
 	}
 
 	expectedSummaryContent := "User greeted and asked for assistance."
-	expectedSummaryMessage := &internal.GptCliMessage{
-		Role:    internal.GptCliMessageRoleAssistant,
+	expectedSummaryMessage := &types.GptCliMessage{
+		Role:    types.GptCliMessageRoleAssistant,
 		Content: expectedSummaryContent,
 	}
 
-	initialDialogueWithSummary := append(initialDialogue, &internal.GptCliMessage{
-		Role:    internal.GptCliMessageRoleSystem,
-		Content: SummarizeMsg,
+	initialDialogueWithSummary := append(initialDialogue, &types.GptCliMessage{
+		Role:    types.GptCliMessageRoleSystem,
+		Content: prompts.SummarizeMsg,
 	})
 
 	mockClient.EXPECT().
@@ -329,7 +330,7 @@ func TestArchiveThreadMain(t *testing.T) {
 		CreateTime: now,
 		AccessTime: now,
 		ModTime:    now,
-		Dialogue:   []*internal.GptCliMessage{},
+		Dialogue:   []*types.GptCliMessage{},
 		fileName:   strconv.Itoa(threadNum) + ".json",
 	}
 	gptCliCtx.mainThreadGroup.curThreadNum = gptCliCtx.mainThreadGroup.addThread(thread)
@@ -343,8 +344,4 @@ func TestArchiveThreadMain(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 	_, err = os.Stat(archiveFilePath)
 	assert.Nil(t, err)
-}
-
-func TestSystemMsgNoPlaceholder(t *testing.T) {
-	assert.NotContains(t, SystemMsg, "MISSING", "SystemMsg should not contain unexpanded %%v placeholders")
 }

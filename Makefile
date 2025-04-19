@@ -17,9 +17,9 @@ cmd/gptcli/version.txt:
 
 .PHONY: mocks
 mocks:
-	cd internal; go generate
+	cd internal/types; go generate
 
-TESTPKGS=github.com/mikeb26/gptcli/cmd/gptcli
+TESTPKGS=github.com/mikeb26/gptcli/cmd/gptcli github.com/mikeb26/gptcli/internal github.com/mikeb26/gptcli/internal/prompts
 
 .PHONY: test
 test: mocks
@@ -34,7 +34,7 @@ lint:
 
 .PHONY: clean
 clean:
-	rm -f gptcli unit-tests.xml internal/openai_client_mock.go
+	rm -f gptcli unit-tests.xml internal/types/openai_client_mock.go
 
 .PHONY: deps
 deps:

@@ -1,9 +1,8 @@
-/*
-Copyright © 2025 Mike Brown. All Rights Reserved.
-
-See LICENSE file at the root of this package for license terms
-*/
-package main
+/* Copyright © 2025 Mike Brown. All Rights Reserved.
+ *
+ * See LICENSE file at the root of this package for license terms
+ */
+package internal
 
 import (
 	"bufio"
@@ -13,7 +12,7 @@ import (
 
 	"github.com/chromedp/chromedp"
 	"github.com/cloudwego/eino/components/tool/utils"
-	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/types"
 )
 
 // RenderWebTool implements a tool for rendering web pages with JavaScript execution.
@@ -44,8 +43,8 @@ type RenderWebResp struct {
 }
 
 // GetOp returns the operation name for this tool.
-func (t RenderWebTool) GetOp() ToolCallOp {
-	return RenderUrl
+func (t RenderWebTool) GetOp() types.ToolCallOp {
+	return types.RenderUrl
 }
 
 // RequiresUserApproval indicates whether the tool action requires explicit user approval.
@@ -54,7 +53,7 @@ func (t RenderWebTool) RequiresUserApproval() bool {
 }
 
 // NewRenderWebTool initializes a new instance of the RenderWebTool.
-func NewRenderWebTool(inputIn *bufio.Reader) internal.GptCliTool {
+func NewRenderWebTool(inputIn *bufio.Reader) types.GptCliTool {
 	t := &RenderWebTool{
 		input: inputIn,
 	}
@@ -62,7 +61,7 @@ func NewRenderWebTool(inputIn *bufio.Reader) internal.GptCliTool {
 }
 
 // Define registers the tool with gptcli using utilities in the utils package.
-func (t RenderWebTool) Define() internal.GptCliTool {
+func (t RenderWebTool) Define() types.GptCliTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "Retrieve the content of a url and locally render it with JavaScript execution", t.Invoke)
 	if err != nil {
 		panic(err)

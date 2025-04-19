@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package main
+package internal
 
 import (
 	"bufio"
@@ -16,7 +16,7 @@ import (
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool/utils"
-	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/types"
 )
 
 type FilePatchTool struct {
@@ -31,15 +31,15 @@ type FilePatchResp struct {
 	Error string `json:"error" jsonschema:"description=The error status of the apply_patch call"`
 }
 
-func (g FilePatchTool) GetOp() ToolCallOp {
-	return FilePatch
+func (g FilePatchTool) GetOp() types.ToolCallOp {
+	return types.FilePatch
 }
 
 func (t FilePatchTool) RequiresUserApproval() bool {
 	return true
 }
 
-func NewFilePatchTool(inputIn *bufio.Reader) internal.GptCliTool {
+func NewFilePatchTool(inputIn *bufio.Reader) types.GptCliTool {
 	t := &FilePatchTool{
 		input: inputIn,
 	}
@@ -50,7 +50,7 @@ func NewFilePatchTool(inputIn *bufio.Reader) internal.GptCliTool {
 //go:embed apply_patch.txt
 var ApplyPatchDesc string
 
-func (t FilePatchTool) Define() internal.GptCliTool {
+func (t FilePatchTool) Define() types.GptCliTool {
 	ret, err := utils.InferTool(string(t.GetOp()), ApplyPatchDesc, t.Invoke)
 	if err != nil {
 		panic(err)
