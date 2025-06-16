@@ -20,6 +20,8 @@ import (
 
 	"golang.org/x/term"
 
+	laclopenai "github.com/cloudwego/eino-ext/libs/acl/openai"
+
 	"github.com/mikeb26/gptcli/internal"
 	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
@@ -57,6 +59,7 @@ var subCommandTab = map[string]func(ctx context.Context,
 	"quit":      exitMain,
 	"search":    searchMain,
 	"cat":       catMain,
+	"reasoning": reasoningMain,
 }
 
 type Prefs struct {
@@ -293,6 +296,30 @@ func searchMain(ctx context.Context, gptCliCtx *GptCliContext,
 
 	fmt.Printf("%v", sb.String())
 
+	return nil
+}
+
+func reasoningMain(ctx context.Context, gptCliCtx *GptCliContext,
+	args []string) error {
+
+	usageErr := fmt.Errorf("Syntax is 'reasoning <low|medium|high>'\n")
+
+	if len(args) != 2 {
+		return usageErr
+	}
+	reasoningLvl := laclopenai.ReasoningEffortLevel(strings.ToLower(args[1]))
+	switch reasoningLvl {
+	case laclopenai.ReasoningEffortLevelHigh:
+		fallthrough
+	case laclopenai.ReasoningEffortLevelMedium:
+		fallthrough
+	case laclopenai.ReasoningEffortLevelLow:
+		break
+	default:
+		return fmt.Errorf("Unknown reasoning effort: %v", args[1])
+	}
+
+	gptCliCtx.client.SetReasoning(reasoningLvl)
 	return nil
 }
 

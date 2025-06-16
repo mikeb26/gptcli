@@ -11,9 +11,11 @@ import (
 	"github.com/cloudwego/eino-ext/components/model/claude"
 	"github.com/cloudwego/eino-ext/components/model/gemini"
 	"github.com/cloudwego/eino-ext/components/model/openai"
+	laclopenai "github.com/cloudwego/eino-ext/libs/acl/openai"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/flow/agent"
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
 	"github.com/mikeb26/gptcli/internal/types"
@@ -21,7 +23,8 @@ import (
 )
 
 type GptCliEINOAIClient struct {
-	reactAgent *react.Agent
+	reactAgent      *react.Agent
+	reasoningEffort laclopenai.ReasoningEffortLevel
 }
 
 func NewEINOClient(ctx context.Context, vendor string,
@@ -114,7 +117,15 @@ func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel
 		panic(err)
 	}
 
-	return GptCliEINOAIClient{reactAgent: client}
+	return &GptCliEINOAIClient{
+		reactAgent:      client,
+		reasoningEffort: laclopenai.ReasoningEffortLevelMedium,
+	}
+}
+
+func (client *GptCliEINOAIClient) SetReasoning(
+	reasoningEffort laclopenai.ReasoningEffortLevel) {
+	client.reasoningEffort = reasoningEffort
 }
 
 func (client GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
@@ -125,6 +136,10 @@ func (client GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
 		dialogue[ii] = (*schema.Message)(msg)
 	}
 
-	msg, err := client.reactAgent.Generate(ctx, dialogue)
+	modelOpt := laclopenai.WithReasoningEffort(client.reasoningEffort)
+	composeOpt := compose.WithChatModelOption(modelOpt)
+	agentOpt := agent.WithComposeOptions(composeOpt)
+
+	msg, err := client.reactAgent.Generate(ctx, dialogue, agentOpt)
 	return (*types.GptCliMessage)(msg), err
 }
