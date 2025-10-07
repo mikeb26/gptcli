@@ -475,7 +475,7 @@ func main() {
 	}
 
 	err := gptCliCtx.load(ctx)
-	if err != nil {
+	if err != nil && !gptCliCtx.needConfig {
 		fmt.Fprintf(os.Stderr, "gptcli: Failed to load: %v\n", err)
 		os.Exit(1)
 	}
