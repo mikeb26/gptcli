@@ -7,8 +7,9 @@ package main
 const DefaultVendor = "openai"
 
 var DefaultModels = map[string]string{
-	"anthropic": "claude-3-7-sonnet-20250219",
-	"openai":    "o4-mini",
+	"google":    "gemini-3-pro-preview",
+	"anthropic": "claude-sonnet-4-5-20250929",
+	"openai":    "gpt-5.1",
 }
 
 const MaxDepth = 3

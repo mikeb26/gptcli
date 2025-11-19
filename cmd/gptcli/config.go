@@ -79,7 +79,7 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 		return fmt.Errorf("Could not create config directory %v: %w",
 			configDir, err)
 	}
-	fmt.Printf("Enter LLM vendor [openai or anthropic]: ")
+	fmt.Printf("Enter LLM vendor [openai, anthropic, or google]: ")
 	vendor, err := gptCliCtx.input.ReadString('\n')
 	if err != nil {
 		return err

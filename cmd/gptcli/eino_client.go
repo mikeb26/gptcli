@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/cloudwego/eino-ext/components/model/claude"
+	"github.com/cloudwego/eino-ext/components/model/gemini"
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -16,6 +17,7 @@ import (
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
 	"github.com/mikeb26/gptcli/internal"
+	"google.golang.org/genai"
 )
 
 type GptCliEINOAIClient struct {
@@ -30,6 +32,8 @@ func NewEINOClient(ctx context.Context, vendor string,
 		return newOpenAIEINOClient(ctx, vendor, input, apiKey, model, depth)
 	} else if vendor == "anthropic" {
 		return newAnthropicEINOClient(ctx, vendor, input, apiKey, model, depth)
+	} else if vendor == "google" {
+		return newGoogleEINOClient(ctx, vendor, input, apiKey, model, depth)
 	} // else
 
 	panic("unsupported vendor")
@@ -58,6 +62,28 @@ func newAnthropicEINOClient(ctx context.Context, vendor string,
 	chatModel, err := claude.NewChatModel(ctx, &claude.Config{
 		Model:  model,
 		APIKey: apiKey,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return newEINOClient(ctx, vendor, chatModel, input, apiKey, model, depth)
+}
+
+func newGoogleEINOClient(ctx context.Context, vendor string,
+	input *bufio.Reader, apiKey string, model string,
+	depth int) internal.GptCliAIClient {
+
+	client, err := genai.NewClient(ctx, &genai.ClientConfig{
+		APIKey: apiKey,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	chatModel, err := gemini.NewChatModel(ctx, &gemini.Config{
+		Model:  model,
+		Client: client,
 	})
 	if err != nil {
 		panic(err)
