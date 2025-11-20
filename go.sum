@@ -62,8 +62,6 @@ github.com/cloudwego/eino v0.6.1 h1:vYRg3kFJBY8GkULKS/MlidbbHQGlgnLLef5vLeRtkIM=
 github.com/cloudwego/eino v0.6.1/go.mod h1:JNapfU+QUrFFpboNDrNOFvmz0m9wjBFHHCr77RH6a50=
 github.com/cloudwego/eino-ext/components/model/claude v0.1.10 h1:UgYDk+4qBg6G0MQOJ5qYjFkoe1oLkyqONhaoj+v7RW4=
 github.com/cloudwego/eino-ext/components/model/claude v0.1.10/go.mod h1:lPQZg8LudfhI4B9Apr9txCe5wbCY/9d/IB7Vv/sdcU8=
-github.com/cloudwego/eino-ext/components/model/gemini v0.1.13 h1:Dyqw9Cl2tFI1pOXBf5a0E+lc5f/NoUfXPzIfoAozeX8=
-github.com/cloudwego/eino-ext/components/model/gemini v0.1.13/go.mod h1:HSmcfbR/L6JJcbU/6m4HphzOP5Xw/UszcBtfz+ODjHU=
 github.com/cloudwego/eino-ext/components/model/openai v0.1.5 h1:+yvGbTPw93li9GSmdm6Rix88Yy8AXg5NNBcRbWx3CQU=
 github.com/cloudwego/eino-ext/components/model/openai v0.1.5/go.mod h1:IPVYMFoZcuHeVEsDTGN6SZjvue0xr1iZFhdpq1SBWdQ=
 github.com/cloudwego/eino-ext/libs/acl/openai v0.1.2 h1:r9Id2wzJ05PoHl+Km7jQgNMgciaZI93TVnUYso89esM=
@@ -153,6 +151,8 @@ github.com/meguminnnnnnnnn/go-openai v0.1.0 h1:BGzB1PlS2Epq0mBB2TGLwzMihbR7BANrl
 github.com/meguminnnnnnnnn/go-openai v0.1.0/go.mod h1:qs96ysDmxhE4BZoU45I43zcyfnaYxU3X+aRzLko/htY=
 github.com/mgutz/ansi v0.0.0-20170206155736-9520e82c474b h1:j7+1HpAFS1zy5+Q4qx1fWh90gTKwiN4QCGoY9TWyyO4=
 github.com/mgutz/ansi v0.0.0-20170206155736-9520e82c474b/go.mod h1:01TrycV0kFyexm33Z7vhZRXopbI8J3TDReVlkTgMUxE=
+github.com/mikeb26/cloudwego-eino-ext/components/model/gemini v0.1.14 h1:8IoVMzsUqHqgQEWOeTUNHdx9irFcue0A66LIYUcpiLk=
+github.com/mikeb26/cloudwego-eino-ext/components/model/gemini v0.1.14/go.mod h1:HSmcfbR/L6JJcbU/6m4HphzOP5Xw/UszcBtfz+ODjHU=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=

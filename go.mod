@@ -4,10 +4,12 @@ go 1.24.0
 
 toolchain go1.24.10
 
+replace github.com/cloudwego/eino-ext/components/model/gemini => github.com/mikeb26/cloudwego-eino-ext/components/model/gemini v0.1.14
+
 require (
 	github.com/cloudwego/eino v0.6.1
 	github.com/cloudwego/eino-ext/components/model/claude v0.1.10
-	github.com/cloudwego/eino-ext/components/model/gemini v0.1.13
+	github.com/cloudwego/eino-ext/components/model/gemini v0.0.0-00010101000000-000000000000
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.5
 	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.2
 	github.com/fatih/color v1.18.0
