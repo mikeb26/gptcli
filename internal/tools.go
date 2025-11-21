@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/mikeb26/gptcli/internal/types"
 )
@@ -38,10 +39,15 @@ func defineTools(ctx context.Context, vendor string, input *bufio.Reader,
 	return tools
 }
 
+var userApprovalMu sync.Mutex
+
 func getUserApproval(input *bufio.Reader, t types.Tool, arg any) error {
 	if !t.RequiresUserApproval() {
 		return nil
 	}
+
+	userApprovalMu.Lock()
+	defer userApprovalMu.Unlock()
 
 	fmt.Printf("gptcli would like to '%v'('%v')\n", t.GetOp(), arg)
 	fmt.Printf("allow? (Y/N) [N]: ")
