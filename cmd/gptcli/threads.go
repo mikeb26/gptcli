@@ -159,19 +159,44 @@ func threadGroupFooterString() string {
 }
 
 func (t *GptCliThread) HeaderString(threadNum string) string {
-	cTime := t.CreateTime.Format("01/02/2006 03:04pm")
-	aTime := t.AccessTime.Format("01/02/2006 03:04pm")
-	mTime := t.ModTime.Format("01/02/2006 03:04pm")
-	today := time.Now().UTC().Truncate(24 * time.Hour).Format("01/02/2006")
-	yesterday := time.Now().UTC().Add(-24 * time.Hour).Truncate(24 * time.Hour).Format("01/02/2006")
-	cTime = strings.ReplaceAll(cTime, today, "Today")
-	aTime = strings.ReplaceAll(aTime, today, "Today")
-	mTime = strings.ReplaceAll(mTime, today, "Today")
-	cTime = strings.ReplaceAll(cTime, yesterday, "Yesterday")
-	aTime = strings.ReplaceAll(aTime, yesterday, "Yesterday")
-	mTime = strings.ReplaceAll(mTime, yesterday, "Yesterday")
+	now := time.Now()
+
+	cTime := formatHeaderTime(t.CreateTime, now)
+	aTime := formatHeaderTime(t.AccessTime, now)
+	mTime := formatHeaderTime(t.ModTime, now)
 
 	return fmt.Sprintf(RowFmt, threadNum, aTime, mTime, cTime, t.Name)
+}
+
+// formatHeaderTime renders a timestamp for use in the thread list header.
+// If the time falls on the same local calendar day as "now", the date
+// portion is replaced with "Today". If it falls on the preceding
+// calendar day, it is replaced with "Yesterday". Otherwise, the full
+// date is shown. Calendar-day comparisons are done in the local time
+// zone associated with "now" to avoid off-by-one errors around
+// midnight or when using non-UTC locations.
+func formatHeaderTime(ts time.Time, now time.Time) string {
+	// Normalize the target time into the same location as "now" so
+	// that calendar-day comparisons are meaningful.
+	ts = ts.In(now.Location())
+
+	full := ts.Format("01/02/2006 03:04pm")
+	datePart := ts.Format("01/02/2006")
+
+	y, m, d := now.Date()
+	todayY, todayM, todayD := y, m, d
+	yest := now.AddDate(0, 0, -1)
+	yestY, yestM, yestD := yest.Date()
+	ty, tm, td := ts.Date()
+
+	switch {
+	case ty == todayY && tm == todayM && td == todayD:
+		return strings.Replace(full, datePart, "Today", 1)
+	case ty == yestY && tm == yestM && td == yestD:
+		return strings.Replace(full, datePart, "Yesterday", 1)
+	default:
+		return full
+	}
 }
 
 func (thrGrp *GptCliThreadGroup) String(header bool, footer bool) string {
