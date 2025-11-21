@@ -275,7 +275,7 @@ func searchMain(ctx context.Context, gptCliCtx *GptCliContext,
 
 	var sb strings.Builder
 
-	sb.WriteString(threadGroupHeaderString())
+	sb.WriteString(threadGroupHeaderString(true))
 
 	for _, thrGrp := range gptCliCtx.threadGroups {
 		for tidx, t := range thrGrp.threads {

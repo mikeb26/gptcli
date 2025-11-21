@@ -41,6 +41,7 @@ deps:
 	rm -rf go.mod go.sum vendor
 	go mod init github.com/mikeb26/gptcli
 	go mod edit -replace=github.com/cloudwego/eino-ext/components/model/gemini=github.com/mikeb26/cloudwego-eino-ext/components/model/gemini@v0.1.14
+	go mod edit -replace=github.com/gbin/goncurses=github.com/mikeb26/gobin-goncurses@39be5170905868a7d76f9b21df4738b37b6adaf7
 	GOPROXY=direct go mod tidy
 	go mod vendor
 

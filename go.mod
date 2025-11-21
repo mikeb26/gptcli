@@ -6,15 +6,19 @@ toolchain go1.24.10
 
 replace github.com/cloudwego/eino-ext/components/model/gemini => github.com/mikeb26/cloudwego-eino-ext/components/model/gemini v0.1.14
 
+replace github.com/gbin/goncurses => github.com/mikeb26/gobin-goncurses v0.0.0-20251121204828-39be51709058
+
 require (
 	github.com/chromedp/chromedp v0.14.2
 	github.com/cloudwego/eino v0.7.0
 	github.com/cloudwego/eino-ext/components/model/claude v0.1.10
 	github.com/cloudwego/eino-ext/components/model/gemini v0.0.0-00010101000000-000000000000
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.5
+	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.3
+	github.com/famz/SetLocale v0.0.0-20140414113655-0457ad1065dd
 	github.com/fatih/color v1.18.0
+	github.com/gbin/goncurses v0.0.0-00010101000000-000000000000
 	github.com/golang/mock v1.6.0
-	github.com/rthornton128/goncurses v0.0.0-20240804152857-da6485a3b6d7
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/term v0.37.0
 	google.golang.org/genai v1.36.0
@@ -47,7 +51,6 @@ require (
 	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
-	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/eino-contrib/jsonschema v1.0.2 // indirect

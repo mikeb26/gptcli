@@ -31,6 +31,26 @@ type GptCliThread struct {
 	fileName string
 }
 
+// RenderBlockKind identifies the semantic type of a block of text in a
+// thread dialogue. This is UI-agnostic so that different frontends
+// (classic CLI, ncurses, etc.) can render the same logical content with
+// their own styling.
+type RenderBlockKind int
+
+const (
+	RenderBlockUserPrompt RenderBlockKind = iota
+	RenderBlockAssistantText
+	RenderBlockAssistantCode
+)
+
+// RenderBlock represents a contiguous span of text with a particular
+// semantic role. It does not contain any ANSI color or formatting
+// information; callers are expected to style it appropriately.
+type RenderBlock struct {
+	Kind RenderBlockKind
+	Text string
+}
+
 type GptCliThreadGroup struct {
 	prefix       string
 	threads      []*GptCliThread
@@ -142,14 +162,18 @@ func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
 	return nil
 }
 
-func threadGroupHeaderString() string {
+func threadGroupHeaderString(includeSpacers bool) string {
 	var sb strings.Builder
 
-	sb.WriteString(RowSpacer)
+	if includeSpacers {
+		sb.WriteString(RowSpacer)
+	}
 	sb.WriteString(fmt.Sprintf(RowFmt, "Thread#", "Last Accessed", "Last Modified",
 		"Created", "Name"))
 
-	sb.WriteString(RowSpacer)
+	if includeSpacers {
+		sb.WriteString(RowSpacer)
+	}
 
 	return sb.String()
 }
@@ -203,7 +227,7 @@ func (thrGrp *GptCliThreadGroup) String(header bool, footer bool) string {
 	var sb strings.Builder
 
 	if header {
-		sb.WriteString(threadGroupHeaderString())
+		sb.WriteString(threadGroupHeaderString(true))
 	}
 
 	for idx, t := range thrGrp.threads {
@@ -216,6 +240,26 @@ func (thrGrp *GptCliThreadGroup) String(header bool, footer bool) string {
 	}
 
 	return sb.String()
+}
+
+// activateThread updates the thread group's current thread state,
+// refreshes the access time, and persists the thread to disk. It
+// performs no user-facing I/O and is therefore safe to call from
+// different UIs (CLI, ncurses, etc.).
+func (thrGrp *GptCliThreadGroup) activateThread(threadNum int) (*GptCliThread, error) {
+	if threadNum > thrGrp.totThreads || threadNum == 0 {
+		threadNumPrint := fmt.Sprintf("%v%v", thrGrp.prefix, threadNum)
+		return nil, fmt.Errorf(ThreadNoExistErrFmt, threadNumPrint)
+	}
+
+	thrGrp.curThreadNum = threadNum
+	thread := thrGrp.threads[thrGrp.curThreadNum-1]
+	thread.AccessTime = time.Now()
+	if err := thread.save(thrGrp.dir); err != nil {
+		return nil, err
+	}
+
+	return thread, nil
 }
 
 func parseThreadNum(gptCliCtx *GptCliContext,
@@ -254,15 +298,7 @@ func threadSwitchMain(ctx context.Context, gptCliCtx *GptCliContext,
 }
 
 func (thrGrp *GptCliThreadGroup) threadSwitch(threadNum int) error {
-	if threadNum > thrGrp.totThreads || threadNum == 0 {
-		threadNumPrint := fmt.Sprintf("%v%v", thrGrp.prefix, threadNum)
-		return fmt.Errorf(ThreadNoExistErrFmt, threadNumPrint)
-	}
-
-	thrGrp.curThreadNum = threadNum
-	thread := thrGrp.threads[thrGrp.curThreadNum-1]
-	thread.AccessTime = time.Now()
-	err := thread.save(thrGrp.dir)
+	thread, err := thrGrp.activateThread(threadNum)
 	if err != nil {
 		return err
 	}
@@ -275,24 +311,15 @@ func (thrGrp *GptCliThreadGroup) threadSwitch(threadNum int) error {
 func (thread *GptCliThread) String() string {
 	var sb strings.Builder
 
-	for _, msg := range thread.Dialogue {
-		if msg.Role == types.GptCliMessageRoleSystem {
-			continue
-		}
-
-		if msg.Role == types.GptCliMessageRoleAssistant {
-			blocks := splitBlocks(msg.Content)
-			for idx, b := range blocks {
-				if idx%2 == 0 {
-					sb.WriteString(color.BlueString("%v\n", b))
-				} else {
-					sb.WriteString(color.GreenString("%v\n", b))
-				}
-			}
-			continue
-		} else if msg.Role == types.GptCliMessageRoleUser {
-			sb.WriteString(fmt.Sprintf("gptcli/%v> %v\n",
-				thread.Name, msg.Content))
+	blocks := thread.RenderBlocks()
+	for _, b := range blocks {
+		switch b.Kind {
+		case RenderBlockUserPrompt:
+			sb.WriteString(fmt.Sprintf("gptcli/%v> %v\n", thread.Name, b.Text))
+		case RenderBlockAssistantText:
+			sb.WriteString(color.BlueString("%v\n", b.Text))
+		case RenderBlockAssistantCode:
+			sb.WriteString(color.GreenString("%v\n", b.Text))
 		}
 	}
 
@@ -312,6 +339,14 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 		return err
 	}
 	name = strings.TrimSpace(name)
+
+	return createNewThread(gptCliCtx, name)
+}
+
+// createNewThread encapsulates the logic to allocate and register a new
+// thread in the main thread group. It is used both by the CLI "new"
+// subcommand and the ncurses menu UI so their behavior stays in sync.
+func createNewThread(gptCliCtx *GptCliContext, name string) error {
 	cTime := time.Now()
 	fileName := genUniqFileName(name, cTime)
 
@@ -328,6 +363,7 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 		Dialogue:   dialogue,
 		fileName:   fileName,
 	}
+
 	gptCliCtx.mainThreadGroup.curThreadNum =
 		gptCliCtx.mainThreadGroup.addThread(curThread)
 
@@ -425,18 +461,63 @@ func (srcThrGrp *GptCliThreadGroup) moveThread(threadNum int,
 	return srcThrGrp.loadThreads()
 }
 
-func interactiveThreadWork(ctx context.Context,
-	gptCliCtx *GptCliContext, prompt string) error {
+// RenderBlocks flattens the thread dialogue into a sequence of
+// RenderBlocks that capture the semantic structure (user prompt,
+// assistant text, assistant code) without imposing any particular UI
+// representation.
+func (thread *GptCliThread) RenderBlocks() []RenderBlock {
+	blocks := make([]RenderBlock, 0)
+
+	for _, msg := range thread.Dialogue {
+		if msg.Role == types.GptCliMessageRoleSystem {
+			continue
+		}
+
+		switch msg.Role {
+		case types.GptCliMessageRoleUser:
+			blocks = append(blocks, RenderBlock{
+				Kind: RenderBlockUserPrompt,
+				Text: msg.Content,
+			})
+		case types.GptCliMessageRoleAssistant:
+			parts := splitBlocks(msg.Content)
+			for idx, p := range parts {
+				kind := RenderBlockAssistantText
+				if idx%2 == 1 {
+					kind = RenderBlockAssistantCode
+				}
+				blocks = append(blocks, RenderBlock{
+					Kind: kind,
+					Text: p,
+				})
+			}
+		}
+	}
+
+	return blocks
+}
+
+// ChatOnceInCurrentThread encapsulates the core request/response flow
+// for sending a prompt to the current thread, updating dialogue
+// history, and persisting the result. It performs no direct terminal
+// I/O so callers can render the assistant reply however they choose.
+func (gptCliCtx *GptCliContext) ChatOnceInCurrentThread(
+	ctx context.Context, prompt string,
+) (*types.GptCliMessage, error) {
+
+	thrGrp := gptCliCtx.curThreadGroup
+	if thrGrp == gptCliCtx.archiveThreadGroup {
+		return nil, fmt.Errorf("Cannot edit archived thread; use unarchive first")
+	}
+	if thrGrp.curThreadNum == 0 || thrGrp.curThreadNum > thrGrp.totThreads {
+		return nil, fmt.Errorf("No thread is currently selected. Select one with 'thread <thread#>'.")
+	}
 
 	reqMsg := &types.GptCliMessage{
 		Role:    types.GptCliMessageRoleUser,
 		Content: prompt,
 	}
 
-	thrGrp := gptCliCtx.curThreadGroup
-	if thrGrp == gptCliCtx.archiveThreadGroup {
-		return fmt.Errorf("Cannot edit archived thread; use unarchive first")
-	}
 	thread := thrGrp.threads[thrGrp.curThreadNum-1]
 	fullDialogue := thread.Dialogue
 	summaryDialogue := fullDialogue
@@ -448,21 +529,37 @@ func interactiveThreadWork(ctx context.Context,
 	if gptCliCtx.curSummaryToggle && len(fullDialogue) > 2 {
 		summaryDialogue, err = summarizeDialogue(ctx, gptCliCtx, summaryDialogue)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		summaryDialogue = append(summaryDialogue, reqMsg)
 		workingDialogue = summaryDialogue
 	}
 
-	var replyMsg *types.GptCliMessage
-	fmt.Printf("gptcli: processing...\n")
-	// @todo need ReasoningEffort: "high",
-	replyMsg, err = gptCliCtx.client.CreateChatCompletion(ctx, workingDialogue)
+	replyMsg, err := gptCliCtx.client.CreateChatCompletion(ctx, workingDialogue)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	fullDialogue = append(fullDialogue, replyMsg)
+	thread.Dialogue = fullDialogue
+	thread.ModTime = time.Now()
+	thread.AccessTime = time.Now()
+
+	if err := thread.save(thrGrp.dir); err != nil {
+		return nil, err
+	}
+
+	return replyMsg, nil
+}
+
+func interactiveThreadWork(ctx context.Context,
+	gptCliCtx *GptCliContext, prompt string) error {
+	fmt.Printf("gptcli: processing...\n")
+
+	replyMsg, err := gptCliCtx.ChatOnceInCurrentThread(ctx, prompt)
+	if err != nil {
+		return err
+	}
 
 	var sb strings.Builder
 	blocks := splitBlocks(replyMsg.Content)
@@ -475,15 +572,6 @@ func interactiveThreadWork(ctx context.Context,
 	}
 
 	printToScreen(sb.String())
-
-	thread.Dialogue = fullDialogue
-	thread.ModTime = time.Now()
-	thread.AccessTime = time.Now()
-
-	err = thread.save(thrGrp.dir)
-	if err != nil {
-		return err
-	}
 
 	return nil
 }
