@@ -5,7 +5,6 @@
 package internal
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"time"
@@ -21,7 +20,7 @@ import (
 // Future extensions can add screenshot capture or other outputs without breaking the API.
 
 type RenderWebTool struct {
-	input *bufio.Reader
+	approvalUI ToolApprovalUI
 }
 
 // RenderWebReq defines the input for the render web tool.
@@ -53,9 +52,9 @@ func (t RenderWebTool) RequiresUserApproval() bool {
 }
 
 // NewRenderWebTool initializes a new instance of the RenderWebTool.
-func NewRenderWebTool(inputIn *bufio.Reader) types.GptCliTool {
+func NewRenderWebTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &RenderWebTool{
-		input: inputIn,
+		approvalUI: approvalUI,
 	}
 	return t.Define()
 }
@@ -77,7 +76,7 @@ func (t RenderWebTool) Invoke(ctx context.Context, req *RenderWebReq) (*RenderWe
 	resp := &RenderWebResp{}
 
 	// Require user approval before proceeding
-	err := getUserApproval(t.input, t, req)
+	err := getUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, nil

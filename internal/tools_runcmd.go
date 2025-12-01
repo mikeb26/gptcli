@@ -5,7 +5,6 @@
 package internal
 
 import (
-	"bufio"
 	"context"
 	"os"
 	"os/exec"
@@ -16,7 +15,7 @@ import (
 )
 
 type RunCommandTool struct {
-	input *bufio.Reader
+	approvalUI ToolApprovalUI
 }
 
 type CmdRunReq struct {
@@ -37,10 +36,9 @@ func (t RunCommandTool) GetOp() types.ToolCallOp {
 func (t RunCommandTool) RequiresUserApproval() bool {
 	return true
 }
-
-func NewRunCommandTool(inputIn *bufio.Reader) types.GptCliTool {
+func NewRunCommandTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &RunCommandTool{
-		input: inputIn,
+		approvalUI: approvalUI,
 	}
 
 	return t.Define()
@@ -61,7 +59,7 @@ func (t RunCommandTool) Invoke(ctx context.Context,
 
 	resp := &CmdRunResp{}
 
-	err := getUserApproval(t.input, t, req)
+	err := getUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, nil

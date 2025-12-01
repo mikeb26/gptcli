@@ -7,6 +7,7 @@ package internal
 import (
 	"bufio"
 	"context"
+	"os"
 
 	"github.com/cloudwego/eino-ext/components/model/claude"
 	"github.com/cloudwego/eino-ext/components/model/gemini"
@@ -31,12 +32,14 @@ func NewEINOClient(ctx context.Context, vendor string,
 	input *bufio.Reader, apiKey string, model string,
 	depth int) types.GptCliAIClient {
 
+	approvalUI := NewStdioApprovalUI(input, os.Stdout)
+
 	if vendor == "openai" {
-		return newOpenAIEINOClient(ctx, vendor, input, apiKey, model, depth)
+		return newOpenAIEINOClient(ctx, vendor, approvalUI, apiKey, model, depth)
 	} else if vendor == "anthropic" {
-		return newAnthropicEINOClient(ctx, vendor, input, apiKey, model, depth)
+		return newAnthropicEINOClient(ctx, vendor, approvalUI, apiKey, model, depth)
 	} else if vendor == "google" {
-		return newGoogleEINOClient(ctx, vendor, input, apiKey, model, depth)
+		return newGoogleEINOClient(ctx, vendor, approvalUI, apiKey, model, depth)
 	} // else
 
 	panic("unsupported vendor")
@@ -44,7 +47,7 @@ func NewEINOClient(ctx context.Context, vendor string,
 }
 
 func newOpenAIEINOClient(ctx context.Context, vendor string,
-	input *bufio.Reader, apiKey string, model string,
+	approvalUI ToolApprovalUI, apiKey string, model string,
 	depth int) types.GptCliAIClient {
 
 	chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
@@ -55,11 +58,11 @@ func newOpenAIEINOClient(ctx context.Context, vendor string,
 		panic(err)
 	}
 
-	return newEINOClient(ctx, vendor, chatModel, input, apiKey, model, depth)
+	return newEINOClient(ctx, vendor, chatModel, approvalUI, apiKey, model, depth)
 }
 
 func newAnthropicEINOClient(ctx context.Context, vendor string,
-	input *bufio.Reader, apiKey string, model string,
+	approvalUI ToolApprovalUI, apiKey string, model string,
 	depth int) types.GptCliAIClient {
 
 	chatModel, err := claude.NewChatModel(ctx, &claude.Config{
@@ -70,11 +73,11 @@ func newAnthropicEINOClient(ctx context.Context, vendor string,
 		panic(err)
 	}
 
-	return newEINOClient(ctx, vendor, chatModel, input, apiKey, model, depth)
+	return newEINOClient(ctx, vendor, chatModel, approvalUI, apiKey, model, depth)
 }
 
 func newGoogleEINOClient(ctx context.Context, vendor string,
-	input *bufio.Reader, apiKey string, model string,
+	approvalUI ToolApprovalUI, apiKey string, model string,
 	depth int) types.GptCliAIClient {
 
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
@@ -92,14 +95,14 @@ func newGoogleEINOClient(ctx context.Context, vendor string,
 		panic(err)
 	}
 
-	return newEINOClient(ctx, vendor, chatModel, input, apiKey, model, depth)
+	return newEINOClient(ctx, vendor, chatModel, approvalUI, apiKey, model, depth)
 }
 
 func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel,
-	input *bufio.Reader, apiKey string, model string,
+	approvalUI ToolApprovalUI, apiKey string, model string,
 	depth int) types.GptCliAIClient {
 
-	tools := defineTools(ctx, vendor, input, apiKey, model, depth)
+	tools := defineTools(ctx, vendor, approvalUI, apiKey, model, depth)
 	baseTools := make([]tool.BaseTool, len(tools))
 	for ii, _ := range tools {
 		baseTools[ii] = tools[ii]

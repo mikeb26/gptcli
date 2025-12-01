@@ -5,7 +5,6 @@
 package internal
 
 import (
-	"bufio"
 	"context"
 	"os"
 
@@ -14,7 +13,7 @@ import (
 )
 
 type CreateFileTool struct {
-	input *bufio.Reader
+	approvalUI ToolApprovalUI
 }
 
 type CreateFileReq struct {
@@ -35,7 +34,7 @@ func (t CreateFileTool) RequiresUserApproval() bool {
 }
 
 type AppendFileTool struct {
-	input *bufio.Reader
+	approvalUI ToolApprovalUI
 }
 
 type AppendFileReq struct {
@@ -55,7 +54,7 @@ func (t AppendFileTool) RequiresUserApproval() bool {
 }
 
 type ReadFileTool struct {
-	input *bufio.Reader
+	approvalUI ToolApprovalUI
 }
 
 type ReadFileReq struct {
@@ -76,7 +75,7 @@ func (t ReadFileTool) RequiresUserApproval() bool {
 }
 
 type DeleteFileTool struct {
-	input *bufio.Reader
+	approvalUI ToolApprovalUI
 }
 
 type DeleteFileReq struct {
@@ -95,9 +94,17 @@ func (t DeleteFileTool) RequiresUserApproval() bool {
 	return true
 }
 
-func NewReadFileTool(inputIn *bufio.Reader) types.GptCliTool {
+func NewDeleteFileTool(approvalUI ToolApprovalUI) types.GptCliTool {
+	t := &DeleteFileTool{
+		approvalUI: approvalUI,
+	}
+
+	return t.Define()
+}
+
+func NewReadFileTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &ReadFileTool{
-		input: inputIn,
+		approvalUI: approvalUI,
 	}
 
 	return t.Define()
@@ -123,9 +130,9 @@ func (t DeleteFileTool) Define() types.GptCliTool {
 	return ret
 }
 
-func NewAppendFileTool(inputIn *bufio.Reader) types.GptCliTool {
+func NewAppendFileTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &AppendFileTool{
-		input: inputIn,
+		approvalUI: approvalUI,
 	}
 
 	return t.Define()
@@ -141,9 +148,9 @@ func (t AppendFileTool) Define() types.GptCliTool {
 	return ret
 }
 
-func NewCreateFileTool(inputIn *bufio.Reader) types.GptCliTool {
+func NewCreateFileTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &CreateFileTool{
-		input: inputIn,
+		approvalUI: approvalUI,
 	}
 
 	return t.Define()
@@ -164,7 +171,7 @@ func (t CreateFileTool) Invoke(ctx context.Context,
 
 	ret := &CreateFileResp{}
 
-	err := getUserApproval(t.input, t, req)
+	err := getUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -183,7 +190,7 @@ func (t AppendFileTool) Invoke(ctx context.Context,
 
 	ret := &AppendFileResp{}
 
-	err := getUserApproval(t.input, t, req)
+	err := getUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -208,7 +215,7 @@ func (t ReadFileTool) Invoke(ctx context.Context,
 
 	ret := &ReadFileResp{}
 
-	err := getUserApproval(t.input, t, req)
+	err := getUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -224,20 +231,12 @@ func (t ReadFileTool) Invoke(ctx context.Context,
 	return ret, nil
 }
 
-func NewDeleteFileTool(inputIn *bufio.Reader) types.GptCliTool {
-	t := &DeleteFileTool{
-		input: inputIn,
-	}
-
-	return t.Define()
-}
-
 func (t DeleteFileTool) Invoke(ctx context.Context,
 	req *DeleteFileReq) (*DeleteFileResp, error) {
 
 	ret := &DeleteFileResp{}
 
-	err := getUserApproval(t.input, t, req)
+	err := getUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

@@ -5,7 +5,6 @@
 package internal
 
 import (
-	"bufio"
 	"context"
 	"os"
 
@@ -14,7 +13,7 @@ import (
 )
 
 type PwdTool struct {
-	input *bufio.Reader
+	approvalUI ToolApprovalUI
 }
 
 type PwdReq struct {
@@ -26,7 +25,7 @@ type PwdResp struct {
 }
 
 type ChdirTool struct {
-	input *bufio.Reader
+	approvalUI ToolApprovalUI
 }
 
 type ChdirReq struct {
@@ -38,7 +37,7 @@ type ChdirResp struct {
 }
 
 type EnvGetTool struct {
-	input *bufio.Reader
+	approvalUI ToolApprovalUI
 }
 
 type EnvGetReq struct {
@@ -51,7 +50,7 @@ type EnvGetResp struct {
 }
 
 type EnvSetTool struct {
-	input *bufio.Reader
+	approvalUI ToolApprovalUI
 }
 
 type EnvSetReq struct {
@@ -70,10 +69,9 @@ func (t PwdTool) GetOp() types.ToolCallOp {
 func (t PwdTool) RequiresUserApproval() bool {
 	return false
 }
-
-func NewPwdTool(inputIn *bufio.Reader) types.GptCliTool {
+func NewPwdTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &PwdTool{
-		input: inputIn,
+		approvalUI: approvalUI,
 	}
 
 	return t.Define()
@@ -92,7 +90,7 @@ func (t PwdTool) Define() types.GptCliTool {
 func (t PwdTool) Invoke(ctx context.Context, _ *PwdReq) (*PwdResp, error) {
 	ret := &PwdResp{}
 
-	err := getUserApproval(t.input, t, "")
+	err := getUserApproval(t.approvalUI, t, "")
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -115,10 +113,9 @@ func (t ChdirTool) GetOp() types.ToolCallOp {
 func (t ChdirTool) RequiresUserApproval() bool {
 	return true
 }
-
-func NewChdirTool(inputIn *bufio.Reader) types.GptCliTool {
+func NewChdirTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &ChdirTool{
-		input: inputIn,
+		approvalUI: approvalUI,
 	}
 
 	return t.Define()
@@ -139,7 +136,7 @@ func (t ChdirTool) Invoke(ctx context.Context,
 
 	ret := &ChdirResp{}
 
-	err := getUserApproval(t.input, t, req)
+	err := getUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -160,10 +157,9 @@ func (t EnvGetTool) GetOp() types.ToolCallOp {
 func (t EnvGetTool) RequiresUserApproval() bool {
 	return true
 }
-
-func NewEnvGetTool(inputIn *bufio.Reader) types.GptCliTool {
+func NewEnvGetTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &EnvGetTool{
-		input: inputIn,
+		approvalUI: approvalUI,
 	}
 
 	return t.Define()
@@ -184,7 +180,7 @@ func (t EnvGetTool) Invoke(ctx context.Context,
 
 	ret := &EnvGetResp{}
 
-	err := getUserApproval(t.input, t, req)
+	err := getUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -202,10 +198,9 @@ func (t EnvSetTool) GetOp() types.ToolCallOp {
 func (t EnvSetTool) RequiresUserApproval() bool {
 	return true
 }
-
-func NewEnvSetTool(inputIn *bufio.Reader) types.GptCliTool {
+func NewEnvSetTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &EnvSetTool{
-		input: inputIn,
+		approvalUI: approvalUI,
 	}
 
 	return t.Define()
@@ -226,7 +221,7 @@ func (t EnvSetTool) Invoke(ctx context.Context,
 
 	ret := &EnvSetResp{}
 
-	err := getUserApproval(t.input, t, req)
+	err := getUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

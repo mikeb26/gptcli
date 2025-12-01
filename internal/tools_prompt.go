@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool/utils"
@@ -15,10 +16,10 @@ import (
 )
 
 type PromptRunTool struct {
-	ctx    context.Context
-	client types.GptCliAIClient
-	input  *bufio.Reader
-	depth  int
+	ctx        context.Context
+	client     types.GptCliAIClient
+	approvalUI ToolApprovalUI
+	depth      int
 }
 
 type PromptRunReq struct {
@@ -37,15 +38,14 @@ func (t PromptRunTool) GetOp() types.ToolCallOp {
 func (t PromptRunTool) RequiresUserApproval() bool {
 	return false
 }
-
-func NewPromptRunTool(ctxIn context.Context, vendor string, inputIn *bufio.Reader,
+func NewPromptRunTool(ctxIn context.Context, vendor string, approvalUI ToolApprovalUI,
 	apiKey string, model string, depthIn int) types.GptCliTool {
 
 	t := &PromptRunTool{
-		ctx:    ctxIn,
-		input:  inputIn,
-		depth:  depthIn,
-		client: NewEINOClient(ctxIn, vendor, inputIn, apiKey, model, depthIn+1),
+		ctx:        ctxIn,
+		approvalUI: approvalUI,
+		depth:      depthIn,
+		client:     NewEINOClient(ctxIn, vendor, bufio.NewReader(os.Stdin), apiKey, model, depthIn+1),
 	}
 
 	return t.Define()
@@ -72,7 +72,7 @@ func (t PromptRunTool) Invoke(ctx context.Context,
 
 	ret := &PrompRunResp{}
 
-	err := getUserApproval(t.input, t, req.String())
+	err := getUserApproval(t.approvalUI, t, req.String())
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

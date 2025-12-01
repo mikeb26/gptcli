@@ -5,7 +5,6 @@
 package internal
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -18,7 +17,7 @@ import (
 )
 
 type RetrieveUrlTool struct {
-	input *bufio.Reader
+	approvalUI ToolApprovalUI
 }
 
 type RetrieveUrlRequestHeader struct {
@@ -49,10 +48,9 @@ func (t RetrieveUrlTool) GetOp() types.ToolCallOp {
 func (t RetrieveUrlTool) RequiresUserApproval() bool {
 	return true
 }
-
-func NewRetrieveUrlTool(inputIn *bufio.Reader) types.GptCliTool {
+func NewRetrieveUrlTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &RetrieveUrlTool{
-		input: inputIn,
+		approvalUI: approvalUI,
 	}
 
 	return t.Define()
@@ -73,7 +71,7 @@ func (t RetrieveUrlTool) Invoke(ctx context.Context,
 
 	ret := &RetrieveUrlResp{}
 
-	err := getUserApproval(t.input, t, req)
+	err := getUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

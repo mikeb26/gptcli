@@ -5,7 +5,6 @@
 package internal
 
 import (
-	"bufio"
 	"context"
 	_ "embed"
 	"errors"
@@ -20,7 +19,7 @@ import (
 )
 
 type FilePatchTool struct {
-	input *bufio.Reader
+	approvalUI ToolApprovalUI
 }
 
 type FilePatchReq struct {
@@ -38,10 +37,9 @@ func (g FilePatchTool) GetOp() types.ToolCallOp {
 func (t FilePatchTool) RequiresUserApproval() bool {
 	return true
 }
-
-func NewFilePatchTool(inputIn *bufio.Reader) types.GptCliTool {
+func NewFilePatchTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &FilePatchTool{
-		input: inputIn,
+		approvalUI: approvalUI,
 	}
 
 	return t.Define()
@@ -62,7 +60,7 @@ func (t FilePatchTool) Define() types.GptCliTool {
 func (t FilePatchTool) Invoke(ctx context.Context, req *FilePatchReq) (*FilePatchResp, error) {
 	ret := &FilePatchResp{}
 
-	err := getUserApproval(t.input, t, req)
+	err := getUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
