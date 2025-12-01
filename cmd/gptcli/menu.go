@@ -1112,19 +1112,29 @@ func drawThreadInput(scr *gc.Window, st *inputState, focus threadViewFocus, blin
 		label = "Input*"
 	}
 
-	// Clear area
-	for y := startY; y < endY; y++ {
-		scr.Move(y, 0)
-		scr.HLine(y, 0, ' ', maxX)
-	}
-
-	_ = scr.AttrSet(gc.A_BOLD)
+	// Draw a dedicated separator / mode-line style row between the
+	// history pane and the input area. This mirrors the visual split
+	// that editors like Emacs use between windows: a full-width line
+	// with a distinct background carrying the "[Input]" label.
 	labelText := fmt.Sprintf("[%s]", label)
 	if len([]rune(labelText)) > maxX {
 		labelText = string([]rune(labelText)[:maxX])
 	}
+	var sepAttr gc.Char = gc.A_REVERSE
+	if globalUseColors {
+		sepAttr = gc.ColorPair(menuColorStatus)
+	}
+	_ = scr.AttrSet(sepAttr | gc.A_BOLD)
+	scr.Move(startY, 0)
+	scr.HLine(startY, 0, ' ', maxX)
 	scr.MovePrint(startY, 0, labelText)
 	_ = scr.AttrSet(gc.A_NORMAL)
+
+	// Clear the input text area below the separator line.
+	for y := startY + 1; y < endY; y++ {
+		scr.Move(y, 0)
+		scr.HLine(y, 0, ' ', maxX)
+	}
 
 	// Render logical lines into the remaining rows below the label.
 	visibleLines := st.lines
