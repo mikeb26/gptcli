@@ -27,12 +27,23 @@ const (
 	menuColorSelected  int16 = 3
 	menuColorStatusKey int16 = 4
 
+	// Height (in rows) of the multi-line input box in the thread view.
+	// This sits directly above the status bar.
+	threadInputHeight = 6
+
 	// Additional color pairs for the thread view. These are initialized
 	// alongside the menu colors in initUI so they can be reused by any
 	// ncurses-based views.
 	threadColorUser      int16 = 5
 	threadColorAssistant int16 = 6
 	threadColorCode      int16 = 7
+
+	//	scrollPointChar rune = '#'
+	//	scrollTrackChar rune = '|'
+	scrollPointChar  rune = '█'
+	scrollTrackChar  rune = '│'
+	scrollTopChar    rune = '▲'
+	scrollBottomChar rune = '▼'
 )
 
 // globalUseColors mirrors the color capability detected in initUI so
@@ -364,7 +375,10 @@ func promptForThreadNameNCurses(scr *gc.Window) (string, error) {
 	for {
 		// Clear input line inside the box area
 		for x := 1; x < width-1; x++ {
-			win.MoveAddChar(inputY, x, ' ')
+			// Use MovePrint so spaces are written via the multibyte-safe
+			// path; this keeps behavior consistent if the prompt ever
+			// contains UTF-8 characters.
+			win.MovePrint(inputY, x, " ")
 		}
 		// Render current buffer
 		text := truncateToWidth(string(buf), width-2)
@@ -552,29 +566,29 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 				}
 			}
 		case gc.KEY_ENTER, gc.KEY_RETURN:
-				// Enter: activate the selected thread and transition into the
-				// ncurses-based thread view instead of dropping back to the
-				// basic CLI prompt.
-				if len(ui.items) == 0 {
-					continue
-				}
-				threadIndex := ui.selected + 1 // threads are 1-based
-				gptCliCtx.curThreadGroup = gptCliCtx.mainThreadGroup
-				thread, err := gptCliCtx.mainThreadGroup.activateThread(threadIndex)
-				if err != nil {
-					// Propagate the error so the caller can handle it and
-					// exit ncurses cleanly.
-					return err
-				}
-				// Run the (stub) ncurses thread view. For now this does not yet
-				// implement full in-menu interaction, but it keeps all
-				// interaction within the ncurses UI instead of falling back to
-				// the basic CLI prompt.
-				if err := runThreadView(ctx, scr, gptCliCtx, thread); err != nil {
-					return err
-				}
-				// After returning from the thread view, redraw the menu.
-				needErase = true
+			// Enter: activate the selected thread and transition into the
+			// ncurses-based thread view instead of dropping back to the
+			// basic CLI prompt.
+			if len(ui.items) == 0 {
+				continue
+			}
+			threadIndex := ui.selected + 1 // threads are 1-based
+			gptCliCtx.curThreadGroup = gptCliCtx.mainThreadGroup
+			thread, err := gptCliCtx.mainThreadGroup.activateThread(threadIndex)
+			if err != nil {
+				// Propagate the error so the caller can handle it and
+				// exit ncurses cleanly.
+				return err
+			}
+			// Run the (stub) ncurses thread view. For now this does not yet
+			// implement full in-menu interaction, but it keeps all
+			// interaction within the ncurses UI instead of falling back to
+			// the basic CLI prompt.
+			if err := runThreadView(ctx, scr, gptCliCtx, thread); err != nil {
+				return err
+			}
+			// After returning from the thread view, redraw the menu.
+			needErase = true
 		case 'n', 'N':
 			needErase = true
 			// Create a new thread (equivalent to the "new" subcommand), but
@@ -935,57 +949,159 @@ func drawThreadHeader(scr *gc.Window, thread *GptCliThread) {
 func drawThreadHistory(scr *gc.Window, lines []visualLine, offset int) {
 	maxY, maxX := scr.MaxYX()
 	startY := menuHeaderHeight
-	endY := maxY - menuStatusHeight - 3 // 3-line input box above status
+	endY := maxY - menuStatusHeight - threadInputHeight // input box above status
 	if endY <= startY {
 		return
 	}
 	height := endY - startY
+	if height < 1 {
+		height = 1
+	}
+
+	// Compute scrollbar parameters based on the total number of lines and
+	// the current offset. The scrollbar is rendered in the last column.
+	// We map the scroll range [0, total-height] onto the visual track.
+	// The thumb is always exactly one row tall so that it never visually
+	// "grows" when there is little content. When there is enough vertical
+	// space we reserve the first and last rows of the track for arrow
+	// glyphs (▲ at the top, ▼ at the bottom) and map the thumb into the
+	// rows between them.
+	total := len(lines)
+	sbX := maxX - 1
+	barStart := -1 // -1 means "no thumb" (no scrolling needed)
+	barEnd := -1
+	hasScrollbar := total > height && height > 0
+	useArrows := hasScrollbar && height >= 3
+	if hasScrollbar {
+		scrollRange := total - height
+		if scrollRange < 1 {
+			scrollRange = 1
+		}
+		barSize := 1
+		if useArrows {
+			// Track rows are between the arrows.
+			trackHeight := height - 2
+			if trackHeight < 1 {
+				trackHeight = 1
+			}
+			trackSteps := trackHeight - barSize
+			if trackSteps < 1 {
+				trackSteps = 1
+			}
+			clampedOffset := offset
+			if clampedOffset < 0 {
+				clampedOffset = 0
+			}
+			if clampedOffset > scrollRange {
+				clampedOffset = scrollRange
+			}
+			pos := clampedOffset * trackSteps / scrollRange
+			barStart = 1 + pos
+			barEnd = barStart + barSize
+		} else {
+			// Fallback when there is not enough room for arrows; map the
+			// thumb across the entire height.
+			track := height - barSize
+			if track < 1 {
+				track = 1
+			}
+			clampedOffset := offset
+			if clampedOffset < 0 {
+				clampedOffset = 0
+			}
+			if clampedOffset > scrollRange {
+				clampedOffset = scrollRange
+			}
+			barStart = clampedOffset * track / scrollRange
+			barEnd = barStart + barSize
+		}
+	}
 
 	for row := 0; row < height; row++ {
 		idx := offset + row
 		rowY := startY + row
 		scr.Move(rowY, 0)
 		scr.HLine(rowY, 0, ' ', maxX)
-		if idx >= len(lines) {
-			continue
+		if idx < len(lines) {
+			vl := lines[idx]
+			// Choose color/attributes based on role and code flag.
+			attr := gc.A_NORMAL
+			if globalUseColors {
+				if vl.isCode {
+					attr = gc.ColorPair(threadColorCode)
+				} else if vl.isUser {
+					attr = gc.ColorPair(threadColorUser)
+				} else {
+					attr = gc.ColorPair(threadColorAssistant)
+				}
+			} else {
+				if vl.isCode {
+					attr = gc.A_BOLD
+				} else if vl.isUser {
+					attr = gc.A_BOLD
+				} else {
+					attr = gc.A_NORMAL
+				}
+			}
+			_ = scr.AttrSet(attr)
+			// Leave the last column free for the scrollbar.
+			limit := maxX
+			if limit > 0 {
+				limit--
+			}
+			text := vl.text
+			runes := []rune(text)
+			if len(runes) > limit {
+				text = string(runes[:limit])
+			}
+			scr.MovePrint(rowY, 0, text)
 		}
 
-		vl := lines[idx]
-		// Choose color/attributes based on role and code flag.
-		attr := gc.A_NORMAL
-		if globalUseColors {
-			if vl.isCode {
-				attr = gc.ColorPair(threadColorCode)
-			} else if vl.isUser {
-				attr = gc.ColorPair(threadColorUser)
+		// Draw the scrollbar track, thumb, and arrow glyphs in the last
+		// column, but only when scrolling is actually possible. When no
+		// scrollbar is needed we leave the column blank to avoid visual
+		// noise.
+		if hasScrollbar && sbX >= 0 {
+			_ = scr.AttrSet(gc.A_NORMAL)
+			var ch rune
+			if useArrows {
+				// Top and bottom rows show arrow glyphs; the rows between
+				// form the scroll track that hosts the thumb.
+				if row == 0 {
+					ch = scrollTopChar
+				} else if row == height-1 {
+					ch = scrollBottomChar
+				} else {
+					ch = scrollTrackChar
+					if row >= barStart && row < barEnd {
+						ch = scrollPointChar
+					}
+				}
 			} else {
-				attr = gc.ColorPair(threadColorAssistant)
+				// No room for arrows; just render track + thumb.
+				ch = scrollTrackChar
+				if row >= barStart && row < barEnd {
+					ch = scrollPointChar
+				}
 			}
-		} else {
-			if vl.isCode {
-				attr = gc.A_BOLD
-			} else if vl.isUser {
-				attr = gc.A_BOLD
-			} else {
-				attr = gc.A_NORMAL
-			}
+			// Use MovePrint with a single-rune string so that UTF-8
+			// scrollbar glyphs (e.g. box-drawing characters and arrows)
+			// are rendered correctly via ncurses' multibyte path instead
+			// of the single-byte waddch API.
+			scr.MovePrint(rowY, sbX, string(ch))
 		}
-		_ = scr.AttrSet(attr)
-		text := vl.text
-		runes := []rune(text)
-		if len(runes) > maxX {
-			text = string(runes[:maxX])
-		}
-		scr.MovePrint(rowY, 0, text)
 	}
 	_ = scr.AttrSet(gc.A_NORMAL)
 }
 
-// drawThreadInput renders the 3-line input box above the status bar
-// and positions the cursor according to the current inputState.
-func drawThreadInput(scr *gc.Window, st *inputState, focus threadViewFocus) {
+// drawThreadInput renders the multi-line input box above the status bar
+// and, when focusInput is active, overlays a simple software "blinking
+// cursor" at the logical cursor position. The real terminal cursor is
+// kept hidden (see initUI) so this function is responsible for giving
+// the user a clear visual caret.
+func drawThreadInput(scr *gc.Window, st *inputState, focus threadViewFocus, blinkOn bool) {
 	maxY, maxX := scr.MaxYX()
-	inputHeight := 3
+	inputHeight := threadInputHeight
 	startY := maxY - menuStatusHeight - inputHeight
 	if startY < menuHeaderHeight {
 		startY = menuHeaderHeight
@@ -1010,32 +1126,126 @@ func drawThreadInput(scr *gc.Window, st *inputState, focus threadViewFocus) {
 	scr.MovePrint(startY, 0, labelText)
 	_ = scr.AttrSet(gc.A_NORMAL)
 
-	// Render logical lines into the remaining 2 rows (or 3 if label is inline).
+	// Render logical lines into the remaining rows below the label.
 	visibleLines := st.lines
 	if st.scroll > 0 && st.scroll < len(visibleLines) {
 		visibleLines = visibleLines[st.scroll:]
 	}
 
+	// Compute scrollbar parameters for the input area. The scrollbar is
+	// rendered in the last column of the input region. As with the
+	// history view, when there is enough space we reserve the first and
+	// last rows of the track for arrow glyphs and map the thumb into the
+	// rows between them.
+	total := len(st.lines)
+	height := inputHeight - 1 // rows available for text under the label
+	sbX := maxX - 1
+	barStart := -1 // -1 means "no thumb" (no scrolling needed)
+	barEnd := -1
+	hasScrollbar := total > height && height > 0
+	useArrows := hasScrollbar && height >= 3
+	if hasScrollbar {
+		scrollRange := total - height
+		if scrollRange < 1 {
+			scrollRange = 1
+		}
+		barSize := 1
+		if useArrows {
+			trackHeight := height - 2
+			if trackHeight < 1 {
+				trackHeight = 1
+			}
+			trackSteps := trackHeight - barSize
+			if trackSteps < 1 {
+				trackSteps = 1
+			}
+			clampedScroll := st.scroll
+			if clampedScroll < 0 {
+				clampedScroll = 0
+			}
+			if clampedScroll > scrollRange {
+				clampedScroll = scrollRange
+			}
+			pos := clampedScroll * trackSteps / scrollRange
+			barStart = 1 + pos
+			barEnd = barStart + barSize
+		} else {
+			track := height - barSize
+			if track < 1 {
+				track = 1
+			}
+			clampedScroll := st.scroll
+			if clampedScroll < 0 {
+				clampedScroll = 0
+			}
+			if clampedScroll > scrollRange {
+				clampedScroll = scrollRange
+			}
+			barStart = clampedScroll * track / scrollRange
+			barEnd = barStart + barSize
+		}
+	}
+
 	// For simplicity, map each logical line to a single visual row with
 	// soft truncation. This keeps input editing predictable while still
 	// supporting multi-line prompts.
-	for i := 0; i < inputHeight-1 && i < len(visibleLines); i++ {
+	for i := 0; i < height && i < len(visibleLines); i++ {
 		rowY := startY + 1 + i
 		text := string(visibleLines[i])
 		runes := []rune(text)
-		if len(runes) > maxX {
+		// Leave the last column free for the scrollbar.
+		limit := maxX
+		if limit > 0 {
+			limit--
+		}
+		if len(runes) > limit {
 			// Indicate wrap with a trailing '\\'.
-			if maxX > 1 {
-				text = string(runes[:maxX-1]) + "\\"
+			if limit > 1 {
+				text = string(runes[:limit-1]) + "\\"
+			} else if limit == 1 {
+				text = "\\"
 			} else {
-				text = string(runes[:maxX])
+				text = ""
 			}
 		}
 		scr.MovePrint(rowY, 0, text)
+
+		// Draw scrollbar for this row only when scrolling is needed. When
+		// the content fits within the visible area we leave the last
+		// column blank so no scrollbar is shown.
+		if hasScrollbar && sbX >= 0 {
+			var ch rune
+			if useArrows {
+				// Top and bottom rows of the input area show arrow glyphs;
+				// rows between form the track.
+				if i == 0 {
+					ch = scrollTopChar
+				} else if i == height-1 {
+					ch = scrollBottomChar
+				} else {
+					ch = scrollTrackChar
+					if i >= barStart && i < barEnd {
+						ch = scrollPointChar
+					}
+				}
+			} else {
+				ch = scrollTrackChar
+				if i >= barStart && i < barEnd {
+					ch = scrollPointChar
+				}
+			}
+			// Use MovePrint with a single-rune string so that UTF-8
+			// scrollbar glyphs are handled safely.
+			scr.MovePrint(rowY, sbX, string(ch))
+		}
 	}
 
-	// Position the cursor if we are in input focus.
-	if focus == focusInput {
+	// Software blinking cursor for the input area. When the input pane has
+	// focus we draw a reversed character at the logical cursor position
+	// whenever blinkOn is true. The underlying text is still rendered
+	// normally above; this overlay simply inverts the cell so the caret is
+	// always visible even with the real terminal cursor hidden.
+	if focus == focusInput && blinkOn {
 		cy := startY + 1 + (st.cursorLine - st.scroll)
 		if cy < startY+1 {
 			cy = startY + 1
@@ -1043,14 +1253,37 @@ func drawThreadInput(scr *gc.Window, st *inputState, focus threadViewFocus) {
 		if cy >= endY {
 			cy = endY - 1
 		}
+
 		cx := st.cursorCol
-		if cx >= maxX {
-			cx = maxX - 1
+		// Keep the cursor inside the text area, not on top of the
+		// scrollbar column. Reserve the last column (maxX-1) for the
+		// scrollbar glyph so the cursor never overwrites it.
+		if maxX > 1 && cx >= maxX-1 {
+			cx = maxX - 2
+		} else if maxX == 1 {
+			cx = 0
 		}
 		if cx < 0 {
 			cx = 0
 		}
-		scr.Move(cy, cx)
+
+		// Determine the underlying rune at the cursor position so we can
+		// invert it instead of drawing a generic block. When the cursor is
+		// at the end of the line we simply highlight a space.
+		ch := ' '
+		if st.cursorLine >= 0 && st.cursorLine < len(st.lines) {
+			lineRunes := st.lines[st.cursorLine]
+			if st.cursorCol >= 0 && st.cursorCol < len(lineRunes) {
+				ch = lineRunes[st.cursorCol]
+			}
+		}
+
+		_ = scr.AttrOn(gc.A_REVERSE)
+		// Use MovePrint with a single-rune string so that the software
+		// cursor correctly inverts UTF-8 characters without corrupting
+		// ncurses attributes.
+		scr.MovePrint(cy, cx, string(ch))
+		_ = scr.AttrOff(gc.A_REVERSE)
 	}
 }
 
@@ -1077,12 +1310,19 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 	focus := focusInput
 	needRedraw := true
 
+	// Simple blink state for the software cursor in the input area. We
+	// toggle blinkOn after a small number of input polling ticks so it
+	// blinks even when the user is idle.
+	blinkOn := true
+	blinkCounter := 0
+	const blinkTicks = 6 // ~300ms at the menu's 50ms timeout
+
 	for {
 		if needRedraw {
 			scr.Erase()
 			drawThreadHeader(scr, thread)
 			drawThreadHistory(scr, historyLines, historyOffset)
-			drawThreadInput(scr, input, focus)
+			drawThreadInput(scr, input, focus, blinkOn)
 			drawThreadStatus(scr, focus, "")
 			scr.Refresh()
 			needRedraw = false
@@ -1102,13 +1342,23 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 		default:
 			ch = scr.GetChar()
 			if ch == 0 {
+				// Timeout/no key pressed: advance the blink timer for the
+				// software cursor in the input area.
+				blinkCounter++
+				if blinkCounter >= blinkTicks {
+					blinkCounter = 0
+					blinkOn = !blinkOn
+					if focus == focusInput {
+						needRedraw = true
+					}
+				}
 				continue
 			}
 		}
 
 		// Compute history view height for scrolling calculations.
 		startY := menuHeaderHeight
-		endY := maxY - menuStatusHeight - 3
+		endY := maxY - menuStatusHeight - threadInputHeight
 		if endY <= startY {
 			endY = startY + 1
 		}
@@ -1181,6 +1431,90 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 			case gc.Key(27): // ESC
 				focus = focusHistory
 				needRedraw = true
+			case gc.KEY_HOME:
+				// Move to the very beginning of the input buffer (first
+				// character of the first line), mirroring HOME behavior in
+				// the history view.
+				input.cursorLine = 0
+				input.cursorCol = 0
+				input.scroll = 0
+				needRedraw = true
+			case gc.KEY_END:
+				// Move to the very end of the input buffer (last character
+				// of the last line), mirroring END behavior in the history
+				// view.
+				if len(input.lines) > 0 {
+					input.cursorLine = len(input.lines) - 1
+					input.cursorCol = len(input.lines[input.cursorLine])
+					// Ensure the last line is visible; adjust scroll based on
+					// the height of the input area.
+					visible := threadInputHeight - 1
+					if visible < 1 {
+						visible = 1
+					}
+					maxScroll := len(input.lines) - visible
+					if maxScroll < 0 {
+						maxScroll = 0
+					}
+					if input.cursorLine < input.scroll {
+						input.scroll = input.cursorLine
+					} else if input.cursorLine >= input.scroll+visible {
+						input.scroll = input.cursorLine - visible + 1
+					}
+					if input.scroll > maxScroll {
+						input.scroll = maxScroll
+					}
+					if input.scroll < 0 {
+						input.scroll = 0
+					}
+				}
+				needRedraw = true
+			case gc.KEY_PAGEUP:
+				// Scroll and move the cursor up by one visible page.
+				visible := threadInputHeight - 1
+				if visible < 1 {
+					visible = 1
+				}
+				input.cursorLine -= visible
+				if input.cursorLine < 0 {
+					input.cursorLine = 0
+				}
+				input.scroll -= visible
+				if input.scroll < 0 {
+					input.scroll = 0
+				}
+				if input.cursorLine < input.scroll {
+					input.scroll = input.cursorLine
+				}
+				if input.cursorLine >= 0 && input.cursorLine < len(input.lines) && input.cursorCol > len(input.lines[input.cursorLine]) {
+					input.cursorCol = len(input.lines[input.cursorLine])
+				}
+				needRedraw = true
+			case gc.KEY_PAGEDOWN:
+				// Scroll and move the cursor down by one visible page.
+				visible := threadInputHeight - 1
+				if visible < 1 {
+					visible = 1
+				}
+				input.cursorLine += visible
+				if input.cursorLine > len(input.lines)-1 {
+					input.cursorLine = len(input.lines) - 1
+				}
+				maxScroll := len(input.lines) - visible
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				input.scroll += visible
+				if input.scroll > maxScroll {
+					input.scroll = maxScroll
+				}
+				if input.cursorLine >= input.scroll+visible {
+					input.scroll = input.cursorLine - visible + 1
+				}
+				if input.cursorLine >= 0 && input.cursorLine < len(input.lines) && input.cursorCol > len(input.lines[input.cursorLine]) {
+					input.cursorCol = len(input.lines[input.cursorLine])
+				}
+				needRedraw = true
 			case gc.KEY_LEFT:
 				input.moveCursorLeft()
 				needRedraw = true
@@ -1195,8 +1529,12 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 				needRedraw = true
 			case gc.KEY_DOWN:
 				input.moveCursorDown()
-				if input.cursorLine > input.scroll+1 {
-					input.scroll = input.cursorLine - 1
+				visible := threadInputHeight - 1
+				if visible < 1 {
+					visible = 1
+				}
+				if input.cursorLine >= input.scroll+visible {
+					input.scroll = input.cursorLine - visible + 1
 				}
 				needRedraw = true
 			case gc.KEY_BACKSPACE, 127, 8:
@@ -1207,8 +1545,12 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 				needRedraw = true
 			case gc.KEY_ENTER, gc.KEY_RETURN:
 				input.insertNewline()
-				if input.cursorLine > input.scroll+1 {
-					input.scroll = input.cursorLine - 1
+				visible := threadInputHeight - 1
+				if visible < 1 {
+					visible = 1
+				}
+				if input.cursorLine >= input.scroll+visible {
+					input.scroll = input.cursorLine - visible + 1
 				}
 				needRedraw = true
 			case 'd' - 'a' + 1: // Ctrl-D sends the input buffer
