@@ -25,6 +25,7 @@ import (
 	"github.com/mikeb26/gptcli/internal"
 	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
+	"github.com/mikeb26/gptcli/internal/ui"
 )
 
 const (
@@ -70,6 +71,7 @@ type Prefs struct {
 type GptCliContext struct {
 	client             types.GptCliAIClient
 	input              *bufio.Reader
+	ui                 types.GptCliUI
 	needConfig         bool
 	curSummaryToggle   bool
 	prefs              Prefs
@@ -86,6 +88,7 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 	gptCliCtx := &GptCliContext{
 		client:           nil,
 		input:            inputLocal,
+		ui:               ui.NewStdioUI().WithBufReader(inputLocal),
 		needConfig:       true,
 		curSummaryToggle: false,
 		prefs: Prefs{
@@ -136,7 +139,7 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 	}
 
 	gptCliCtx.client = internal.NewEINOClient(ctx, gptCliCtx.prefs.Vendor,
-		gptCliCtx.input, keyText, internal.DefaultModels[gptCliCtx.prefs.Vendor], 0)
+		gptCliCtx.ui, keyText, internal.DefaultModels[gptCliCtx.prefs.Vendor], 0)
 
 	for _, thrGrp := range gptCliCtx.threadGroups {
 		err := thrGrp.loadThreads()

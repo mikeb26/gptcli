@@ -11,9 +11,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/types"
 )
 
 func (gptCliCtx *GptCliContext) loadPrefs() error {
@@ -81,14 +83,24 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 		return fmt.Errorf("Could not create config directory %v: %w",
 			configDir, err)
 	}
-	fmt.Printf("Enter LLM vendor [openai, anthropic, or google]: ")
-	vendor, err := gptCliCtx.input.ReadString('\n')
+
+	// Build vendor options from internal.DefaultModels so the list stays in sync
+	vendorKeys := make([]string, 0, len(internal.DefaultModels))
+	for v := range internal.DefaultModels {
+		vendorKeys = append(vendorKeys, v)
+	}
+	sort.Strings(vendorKeys)
+	choices := make([]types.GptCliUIOption, 0, len(vendorKeys))
+	for _, v := range vendorKeys {
+		choices = append(choices, types.GptCliUIOption{Key: v, Label: v})
+	}
+
+	selection, err := gptCliCtx.ui.SelectOption("Choose an LLM vendor:", choices)
 	if err != nil {
 		return err
 	}
-	vendor = strings.ToLower(strings.TrimSpace(vendor))
-	_, ok := internal.DefaultModels[vendor]
-	if !ok {
+	vendor := strings.ToLower(strings.TrimSpace(selection.Key))
+	if _, ok := internal.DefaultModels[vendor]; !ok {
 		return fmt.Errorf("Vendor %v is not currently supported", vendor)
 	}
 	gptCliCtx.prefs.Vendor = vendor
@@ -99,8 +111,8 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 		return fmt.Errorf("Could not open %v API key file %v: %w", vendor,
 			keyPath, err)
 	}
-	fmt.Printf("Enter your %v API key: ", vendor)
-	key, err := gptCliCtx.input.ReadString('\n')
+	keyPrompt := fmt.Sprintf("Enter your %v API key: ", vendor)
+	key, err := gptCliCtx.ui.Get(keyPrompt)
 	if err != nil {
 		return err
 	}
@@ -123,18 +135,20 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) er
 			archivePath, err)
 	}
 
-	fmt.Printf("Summarize dialogue when continuing threads? (reduces costs for less precise replies from %v) [N]: ",
-		vendor)
-	shouldSummarize, err := gptCliCtx.input.ReadString('\n')
+	summarizePrompt := fmt.Sprintf(
+		"Summarize dialogue when continuing threads? (reduces costs for less precise replies from %v) (y/n) [n]: ",
+		vendor,
+	)
+	defaultSummarize := false
+	trueOpt := types.GptCliUIOption{Key: "y", Label: "y"}
+	falseOpt := types.GptCliUIOption{Key: "n", Label: "n"}
+
+	summarize, err := gptCliCtx.ui.SelectBool(summarizePrompt, trueOpt, falseOpt, &defaultSummarize)
 	if err != nil {
 		return err
 	}
 
-	shouldSummarize = strings.ToUpper(strings.TrimSpace(shouldSummarize))
-	if len(shouldSummarize) == 0 {
-		shouldSummarize = "N"
-	}
-	gptCliCtx.prefs.SummarizePrior = (shouldSummarize[0] == 'Y')
+	gptCliCtx.prefs.SummarizePrior = summarize
 	gptCliCtx.curSummaryToggle = gptCliCtx.prefs.SummarizePrior
 
 	err = gptCliCtx.savePrefs()

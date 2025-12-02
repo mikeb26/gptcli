@@ -5,12 +5,8 @@
 package internal
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
-	"strings"
-	"sync"
 
 	"github.com/mikeb26/gptcli/internal/types"
 )
@@ -23,47 +19,39 @@ type ToolApprovalUI interface {
 	// AskApproval should return true if the user approves running this tool
 	// with the given argument, false otherwise.
 	AskApproval(t types.Tool, arg any) (bool, error)
+	// GetUI gets the underlying ui component that the approval ui was built
+	// from
+	GetUI() types.GptCliUI
 }
 
 // StdioApprovalUI is a ToolApprovalUI implementation that uses a bufio.Reader
 // for input and an io.Writer for output (typically os.Stdout).
-type StdioApprovalUI struct {
-	mu  sync.Mutex
-	in  *bufio.Reader
-	out io.Writer
+type approvalUI struct {
+	ui types.GptCliUI
 }
 
-func NewStdioApprovalUI(in *bufio.Reader, out io.Writer) *StdioApprovalUI {
-	return &StdioApprovalUI{in: in, out: out}
+func newApprovalUI(uiIn types.GptCliUI) *approvalUI {
+	return &approvalUI{ui: uiIn}
 }
 
-func (ui *StdioApprovalUI) AskApproval(t types.Tool, arg any) (bool, error) {
-	ui.mu.Lock()
-	defer ui.mu.Unlock()
-
-	if _, err := fmt.Fprintf(ui.out, "gptcli would like to '%v'('%v')\n", t.GetOp(), arg); err != nil {
-		return false, err
-	}
-	if _, err := fmt.Fprintf(ui.out, "allow? (Y/N) [N]: "); err != nil {
-		return false, err
-	}
-
-	line, err := ui.in.ReadString('\n')
-	if err != nil {
-		return false, fmt.Errorf("gptcli was unable to read user input: %w", err)
-	}
-
-	s := strings.ToUpper(strings.TrimSpace(line))
-	if s == "" {
-		s = "N"
-	}
-
-	return s[0] == 'Y', nil
+func (aui *approvalUI) GetUI() types.GptCliUI {
+	return aui.ui
 }
 
-func defineTools(ctx context.Context, vendor string, approvalUI ToolApprovalUI,
+func (aui *approvalUI) AskApproval(t types.Tool, arg any) (bool, error) {
+
+	prompt := fmt.Sprintf("gptcli would like to '%v'('%v')\nallow?",
+		t.GetOp(), arg)
+	trueOpt := types.GptCliUIOption{Key: "y", Label: "y"}
+	falseOpt := types.GptCliUIOption{Key: "n", Label: "n"}
+
+	return aui.ui.SelectBool(prompt+" (y/n): ", trueOpt, falseOpt, nil)
+}
+
+func defineTools(ctx context.Context, vendor string, ui types.GptCliUI,
 	apiKey string, model string, depth int) []types.GptCliTool {
 
+	approvalUI := newApprovalUI(ui)
 	tools := []types.GptCliTool{
 		NewRunCommandTool(approvalUI),
 		NewCreateFileTool(approvalUI),

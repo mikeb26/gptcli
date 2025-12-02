@@ -333,8 +333,7 @@ func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 		return fmt.Errorf("You must run 'config' before creating a thread.\n")
 	}
 
-	fmt.Printf("Enter new thread's name: ")
-	name, err := gptCliCtx.input.ReadString('\n')
+	name, err := gptCliCtx.ui.Get("Enter new thread's name: ")
 	if err != nil {
 		return err
 	}

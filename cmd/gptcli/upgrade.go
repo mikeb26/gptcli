@@ -14,9 +14,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
+
+	"github.com/mikeb26/gptcli/internal/types"
 )
 
 //go:embed version.txt
@@ -45,18 +46,17 @@ func upgradeMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) e
 		return nil
 	}
 
-	fmt.Printf("A new version of gptcli is available (%v). Upgrade? (Y/N) [Y]: ",
+	prompt := fmt.Sprintf("A new version of gptcli is available (%v). Upgrade?",
 		latestVer)
-	shouldUpgrade, err := gptCliCtx.input.ReadString('\n')
+	trueOpt := types.GptCliUIOption{Key: "y", Label: "y"}
+	falseOpt := types.GptCliUIOption{Key: "n", Label: "n"}
+	defaultYes := true
+	shouldUpgrade, err := gptCliCtx.ui.SelectBool(prompt+" (y/n) [y]: ",
+		trueOpt, falseOpt, &defaultYes)
 	if err != nil {
 		return err
 	}
-
-	shouldUpgrade = strings.ToUpper(strings.TrimSpace(shouldUpgrade))
-	if len(shouldUpgrade) == 0 {
-		shouldUpgrade = "Y"
-	}
-	if shouldUpgrade[0] != 'Y' {
+	if !shouldUpgrade {
 		return nil
 	}
 

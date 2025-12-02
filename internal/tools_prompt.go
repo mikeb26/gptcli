@@ -5,10 +5,8 @@
 package internal
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool/utils"
@@ -45,7 +43,8 @@ func NewPromptRunTool(ctxIn context.Context, vendor string, approvalUI ToolAppro
 		ctx:        ctxIn,
 		approvalUI: approvalUI,
 		depth:      depthIn,
-		client:     NewEINOClient(ctxIn, vendor, bufio.NewReader(os.Stdin), apiKey, model, depthIn+1),
+		client: NewEINOClient(ctxIn, vendor, approvalUI.GetUI(), apiKey,
+			model, depthIn+1),
 	}
 
 	return t.Define()
