@@ -45,8 +45,9 @@ func NewRunCommandTool(approvalUI ToolApprovalUI) types.GptCliTool {
 }
 
 func (t RunCommandTool) Define() types.GptCliTool {
-	ret, err := utils.InferTool(string(t.GetOp()), "Run a command on the user's behalf",
-		t.Invoke)
+	const cmdRunDesc = "Execute a single OS-level program directly (no shell by default). Do NOT call shell interpreters such as bash, sh, or zsh, and do NOT use `-lc`, unless the user has explicitly requested shell features (pipes, redirects, &&, ||, etc.)."
+
+	ret, err := utils.InferTool(string(t.GetOp()), cmdRunDesc, t.Invoke)
 	if err != nil {
 		panic(err)
 	}
