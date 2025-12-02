@@ -13,6 +13,17 @@ type GptCliUIOptionDialogue interface {
 	SelectOption(userPrompt string, choices []GptCliUIOption) (GptCliUIOption, error)
 }
 
+type GptCliUIBoolDialogue interface {
+	SelectBool(userPrompt string, trueOption, falseOption GptCliUIOption,
+		defaultOpt *bool) (bool, error)
+}
+
 type GptCliUIInputDialogue interface {
 	Get(userPrompt string) (string, error)
+}
+
+type GptCliUI interface {
+	GptCliUIOptionDialogue
+	GptCliUIBoolDialogue
+	GptCliUIInputDialogue
 }
