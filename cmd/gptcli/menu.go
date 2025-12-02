@@ -17,6 +17,9 @@ import (
 	"github.com/famz/SetLocale"
 	gc "github.com/gbin/goncurses"
 	"golang.org/x/term"
+
+	"github.com/mikeb26/gptcli/internal/types"
+	"github.com/mikeb26/gptcli/internal/ui"
 )
 
 const (
@@ -78,6 +81,132 @@ type inputState struct {
 	cursorLine int
 	cursorCol  int
 	scroll     int // first visible logical line index in the input area
+}
+
+// statusSegment represents a slice of text within a status bar and
+// whether it should be highlighted as a key (bold / different color).
+type statusSegment struct {
+	text string
+	bold bool
+}
+
+// drawStatusSegments renders a status bar composed of the provided
+// segments on the given row. It applies a uniform background (reverse
+// video or the menuColorStatus pair) and highlights bold segments using
+// either A_BOLD or the menuColorStatusKey pair when colors are active.
+func drawStatusSegments(scr *gc.Window, y, maxX int, segments []statusSegment, useColors bool) {
+	if y < 0 {
+		return
+	}
+
+	var baseAttr gc.Char = gc.A_REVERSE
+	if useColors {
+		baseAttr = gc.ColorPair(menuColorStatus)
+	}
+	_ = scr.AttrSet(baseAttr)
+	scr.Move(y, 0)
+	scr.HLine(y, 0, ' ', maxX)
+
+	x := 0
+	for _, seg := range segments {
+		if x >= maxX {
+			break
+		}
+		if seg.bold {
+			if useColors {
+				_ = scr.AttrSet(gc.ColorPair(menuColorStatusKey))
+			} else {
+				_ = scr.AttrOn(gc.A_BOLD)
+			}
+		} else {
+			_ = scr.AttrSet(baseAttr)
+		}
+
+		remaining := maxX - x
+		if remaining <= 0 {
+			break
+		}
+		runes := []rune(seg.text)
+		if len(runes) > remaining {
+			runes = runes[:remaining]
+		}
+		text := string(runes)
+
+		scr.MovePrint(y, x, text)
+		x += len(runes)
+	}
+}
+
+// drawStatusBar is a convenience wrapper for thread-view style status
+// lines where the entire bar is plain text without highlighted key
+// segments.
+func drawStatusBar(scr *gc.Window, y int, text string, useColors bool) {
+	maxY, maxX := scr.MaxYX()
+	if y < 0 || y >= maxY {
+		return
+	}
+	segments := []statusSegment{{text: text, bold: false}}
+	drawStatusSegments(scr, y, maxX, segments, useColors)
+}
+
+// scrollbar describes the visual layout of a vertical scrollbar for a
+// given logical content height and scroll offset.
+type scrollbar struct {
+	hasScrollbar bool
+	useArrows    bool
+	barStart     int
+	barEnd       int
+}
+
+// computeScrollbar calculates how a scrollbar should be rendered for a
+// region with the given visible height, total number of logical rows,
+// and current scroll offset. The thumb is always one row tall and, when
+// there is enough vertical space, arrow glyphs are assumed to occupy the
+// first and last rows of the track.
+func computeScrollbar(total, height, offset int) scrollbar {
+	if height <= 0 || total <= height {
+		return scrollbar{hasScrollbar: false}
+	}
+
+	sb := scrollbar{hasScrollbar: true}
+	sb.useArrows = height >= 3
+	scrollRange := total - height
+	if scrollRange < 1 {
+		scrollRange = 1
+	}
+	barSize := 1
+
+	clamped := offset
+	if clamped < 0 {
+		clamped = 0
+	}
+	if clamped > scrollRange {
+		clamped = scrollRange
+	}
+
+	if sb.useArrows {
+		trackHeight := height - 2
+		if trackHeight < 1 {
+			trackHeight = 1
+		}
+		trackSteps := trackHeight - barSize
+		if trackSteps < 1 {
+			trackSteps = 1
+		}
+		pos := clamped * trackSteps / scrollRange
+		sb.barStart = 1 + pos
+		sb.barEnd = sb.barStart + barSize
+	} else {
+		track := height - barSize
+		if track < 1 {
+			track = 1
+		}
+		pos := clamped * track / scrollRange
+		sb.barStart = pos
+		sb.barEnd = sb.barStart + barSize
+	}
+
+	return sb
 }
 
 type threadMenuUI struct {
@@ -155,14 +284,7 @@ func (ui *threadMenuUI) adjustOffset() {
 // column cell, which holds for the common box-drawing and arrow glyphs
 // used in the menu UI.
 func truncateToWidth(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max])
+	return ui.TruncateRunes(s, max)
 }
 
 func (ui *threadMenuUI) draw() {
@@ -218,77 +340,29 @@ func (ui *threadMenuUI) draw() {
 	_ = scr.AttrSet(gc.A_NORMAL)
 	statusY := maxY - 1
 	if statusY >= 0 {
-		// Build a status line where key bindings are visually highlighted
-		// (bold) while keeping a consistent background color or reverse
-		// video across the entire bar.
-		segments := []struct {
-			text string
-			bold bool
-		}{
-			{"Nav:", false},
-			{"↑", true},
-			{"/", false},
-			{"↓", true},
-			{"/", false},
-			{"PgUp", true},
-			{"/", false},
-			{"PgDn", true},
-			{"/", false},
-			{"Home", true},
-			{"/", false},
-			{"End", true},
-			{" Sel:", false},
-			{"⏎", true},
-			{" New:", false},
-			{"n", true},
-			{" Archive:", false},
-			{"a", true},
-			{" Quit:", false},
-			{"q", true},
+		segments := []statusSegment{
+			{text: "Nav:", bold: false},
+			{text: "↑", bold: true},
+			{text: "/", bold: false},
+			{text: "↓", bold: true},
+			{text: "/", bold: false},
+			{text: "PgUp", bold: true},
+			{text: "/", bold: false},
+			{text: "PgDn", bold: true},
+			{text: "/", bold: false},
+			{text: "Home", bold: true},
+			{text: "/", bold: false},
+			{text: "End", bold: true},
+			{text: " Sel:", bold: false},
+			{text: "⏎", bold: true},
+			{text: " New:", bold: false},
+			{text: "n", bold: true},
+			{text: " Archive:", bold: false},
+			{text: "a", bold: true},
+			{text: " Quit:", bold: false},
+			{text: "q", bold: true},
 		}
-
-		// Base attributes for the status bar background. Use the goncurses
-		// Char type explicitly so it matches the AttrSet signature.
-		var baseAttr gc.Char = gc.A_REVERSE
-		if ui.useColors {
-			baseAttr = gc.ColorPair(menuColorStatus)
-		}
-		_ = scr.AttrSet(baseAttr)
-
-		// Clear the status line first so the background spans the width.
-		scr.Move(statusY, 0)
-		scr.HLine(statusY, 0, ' ', maxX)
-
-		// Render each segment, enabling bold (and red foreground when colors
-		// are active) only for the key tokens.
-		x := 0
-		for _, seg := range segments {
-			if x >= maxX {
-				break
-			}
-			if seg.bold {
-				if ui.useColors {
-					_ = scr.AttrSet(gc.ColorPair(menuColorStatusKey))
-				} else {
-					_ = scr.AttrOn(gc.A_BOLD)
-				}
-			} else {
-				_ = scr.AttrSet(baseAttr)
-			}
-
-			remaining := maxX - x
-			if remaining <= 0 {
-				break
-			}
-			runes := []rune(seg.text)
-			if len(runes) > remaining {
-				runes = runes[:remaining]
-			}
-			text := string(runes)
-
-			scr.MovePrint(statusY, x, text)
-			x += len(runes)
-		}
+		drawStatusSegments(scr, statusY, maxX, segments, ui.useColors)
 	}
 
 	_ = scr.AttrSet(gc.A_NORMAL)
@@ -340,141 +414,32 @@ func initUI(scr *gc.Window, menuText string) (*threadMenuUI, error) {
 // surrounding whitespace trimmed) or an empty string if the user cancels
 // with ESC. All interaction happens via ncurses so it is safe to call while
 // the main menu UI is active.
-func promptForThreadNameNCurses(scr *gc.Window) (string, error) {
-	maxY, maxX := scr.MaxYX()
-
-	// Basic modal dimensions
-	height := 5
-	width := 50
-	if width > maxX-2 {
-		width = maxX - 2
-	}
-	if height > maxY-2 {
-		height = maxY - 2
-	}
-	startY := (maxY - height) / 2
-	startX := (maxX - width) / 2
-
-	win, err := gc.NewWindow(height, width, startY, startX)
+func promptForThreadNameNCurses(nui *ui.NcursesUI) (string, error) {
+	// Delegate to the shared NcursesUI helper so we don't duplicate
+	// modal input handling. ESC is treated as cancellation and mapped to
+	// an empty string by NcursesUI.Get.
+	name, err := nui.Get("Enter new thread name (ESC to cancel):")
 	if err != nil {
 		return "", err
 	}
-	defer win.Delete()
 
-	win.Keypad(true)
-	win.Box(0, 0)
-	prompt := "Enter new thread name (ESC to cancel):"
-	if len([]rune(prompt)) > width-2 {
-		prompt = string([]rune(prompt)[:width-2])
-	}
-	win.MovePrint(1, 1, prompt)
-
-	var buf []rune
-	cursorX := 1
-	inputY := 2
-	for {
-		// Clear input line inside the box area
-		for x := 1; x < width-1; x++ {
-			// Use MovePrint so spaces are written via the multibyte-safe
-			// path; this keeps behavior consistent if the prompt ever
-			// contains UTF-8 characters.
-			win.MovePrint(inputY, x, " ")
-		}
-		// Render current buffer
-		text := truncateToWidth(string(buf), width-2)
-		win.MovePrint(inputY, 1, text)
-		cursorX = 1 + len([]rune(text))
-		if cursorX >= width-1 {
-			cursorX = width - 2
-		}
-		win.Move(inputY, cursorX)
-		win.Refresh()
-
-		ch := win.GetChar()
-		if ch == 0 {
-			continue
-		}
-
-		switch ch {
-		case gc.Key(27): // ESC
-			return "", nil
-		case gc.KEY_ENTER, gc.KEY_RETURN:
-			name := strings.TrimSpace(string(buf))
-			if name == "" {
-				// Ignore empty name, keep prompting
-				continue
-			}
-			return name, nil
-		case gc.KEY_BACKSPACE, 127, 8:
-			if len(buf) > 0 {
-				buf = buf[:len(buf)-1]
-			}
-		default:
-			// Only accept printable ASCII / UTF-8 runes
-			if ch >= 32 && ch < 127 {
-				buf = append(buf, rune(ch))
-			}
-		}
-	}
+	return name, nil
 }
 
-// showErrorRetryModal displays a centered modal box with the provided
-// error message and asks the user whether to retry the last
-// operation. It returns true if the user chooses to retry.
-func showErrorRetryModal(scr *gc.Window, message string) (bool, error) {
-	maxY, maxX := scr.MaxYX()
-	height := 7
-	width := 60
-	if width > maxX-2 {
-		width = maxX - 2
-	}
-	if height > maxY-2 {
-		height = maxY - 2
-	}
-	startY := (maxY - height) / 2
-	startX := (maxX - width) / 2
+// showErrorRetryModal displays a simple yes/no prompt using NcursesUI
+// and returns true if the user chooses to retry. The prompt includes
+// the error message followed by "Retry? (y/n)". ESC or an empty
+// response are treated the same as selecting "n" (do not retry).
+func showErrorRetryModal(nui *ui.NcursesUI, message string) (bool, error) {
+	// Build a compact prompt that shows the error text and asks whether
+	// to retry. NcursesUI.SelectBool handles rendering the modal and
+	// collecting the response.
+	prompt := fmt.Sprintf("Error: %s\nRetry? (y/n)", message)
+	trueOpt := types.GptCliUIOption{Key: "y", Label: "y"}
+	falseOpt := types.GptCliUIOption{Key: "n", Label: "n"}
+	defaultNo := false
 
-	win, err := gc.NewWindow(height, width, startY, startX)
-	if err != nil {
-		return false, err
-	}
-	defer win.Delete()
-
-	win.Keypad(true)
-	win.Box(0, 0)
-
-	title := "Error"
-	if len([]rune(title)) > width-2 {
-		title = string([]rune(title)[:width-2])
-	}
-	win.MovePrint(1, 2, title)
-
-	// Render the error message trimmed to a single line inside the box.
-	msgRunes := []rune(message)
-	if len(msgRunes) > width-4 {
-		msgRunes = msgRunes[:width-4]
-	}
-	win.MovePrint(2, 2, string(msgRunes))
-
-	prompt := "Retry? (y/n)"
-	if len([]rune(prompt)) > width-2 {
-		prompt = string([]rune(prompt)[:width-2])
-	}
-	win.MovePrint(4, 2, prompt)
-	win.Refresh()
-
-	for {
-		ch := win.GetChar()
-		if ch == 0 {
-			continue
-		}
-		switch ch {
-		case 'y', 'Y':
-			return true, nil
-		case 'n', 'N', gc.Key(27): // ESC
-			return false, nil
-		}
-	}
+	return nui.SelectBool(prompt, trueOpt, falseOpt, &defaultNo)
 }
 
 func (ui *threadMenuUI) resetItems(menuText string) error {
@@ -495,8 +460,9 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 	}
 
 	SetLocale.SetLocale(SetLocale.LC_ALL, "en_US.UTF-8")
-	//LC_ALL="en_US.UTF-8"	os.Setenv("LANG", )
-	os.Setenv("LC_ALL", "en_US.UTF-8")
+	// Ensure environment is consistent for UTF-8 rendering.
+	_ = os.Setenv("LANG", "en_US.UTF-8")
+	_ = os.Setenv("LC_ALL", "en_US.UTF-8")
 	scr, err := gc.Init()
 	if err != nil {
 		return fmt.Errorf("Failed to initialize screen: %w", err)
@@ -510,8 +476,9 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 	signal.Notify(sigCh, syscall.SIGWINCH)
 	defer signal.Stop(sigCh)
 
-	ui, err := initUI(scr, menuText)
+	menuUI, err := initUI(scr, menuText)
 	needErase := true
+	ncui := ui.NewNcursesUI(scr)
 
 	for {
 		if needErase {
@@ -519,7 +486,7 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 			needErase = false
 		}
 
-		ui.draw()
+		menuUI.draw()
 
 		var ch gc.Key
 		select {
@@ -538,41 +505,41 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 		case 'q', 'Q', 'd' - 'a' + 1: // q/Q, ctrl-d
 			return nil
 		case gc.KEY_UP:
-			if ui.selected > 0 {
-				ui.selected--
+			if menuUI.selected > 0 {
+				menuUI.selected--
 			}
 		case gc.KEY_DOWN:
-			if ui.selected < len(ui.items)-1 {
-				ui.selected++
+			if menuUI.selected < len(menuUI.items)-1 {
+				menuUI.selected++
 			}
 		case gc.KEY_HOME:
-			ui.selected = 0
+			menuUI.selected = 0
 		case gc.KEY_END:
-			if len(ui.items) > 0 {
-				ui.selected = len(ui.items) - 1
+			if len(menuUI.items) > 0 {
+				menuUI.selected = len(menuUI.items) - 1
 			}
 		case gc.KEY_PAGEUP:
-			if vh := ui.viewHeight(); vh > 0 {
-				ui.selected -= vh
-				if ui.selected < 0 {
-					ui.selected = 0
+			if vh := menuUI.viewHeight(); vh > 0 {
+				menuUI.selected -= vh
+				if menuUI.selected < 0 {
+					menuUI.selected = 0
 				}
 			}
 		case gc.KEY_PAGEDOWN:
-			if vh := ui.viewHeight(); vh > 0 {
-				ui.selected += vh
-				if ui.selected > len(ui.items)-1 {
-					ui.selected = len(ui.items) - 1
+			if vh := menuUI.viewHeight(); vh > 0 {
+				menuUI.selected += vh
+				if menuUI.selected > len(menuUI.items)-1 {
+					menuUI.selected = len(menuUI.items) - 1
 				}
 			}
 		case gc.KEY_ENTER, gc.KEY_RETURN:
 			// Enter: activate the selected thread and transition into the
 			// ncurses-based thread view instead of dropping back to the
 			// basic CLI prompt.
-			if len(ui.items) == 0 {
+			if len(menuUI.items) == 0 {
 				continue
 			}
-			threadIndex := ui.selected + 1 // threads are 1-based
+			threadIndex := menuUI.selected + 1 // threads are 1-based
 			gptCliCtx.curThreadGroup = gptCliCtx.mainThreadGroup
 			thread, err := gptCliCtx.mainThreadGroup.activateThread(threadIndex)
 			if err != nil {
@@ -594,7 +561,7 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 			// Create a new thread (equivalent to the "new" subcommand), but
 			// prompt for the name using an ncurses modal so we don't mix
 			// stdio with the UI.
-			name, err := promptForThreadNameNCurses(scr)
+			name, err := promptForThreadNameNCurses(ncui)
 			if err != nil {
 				return fmt.Errorf("gptcli: failed to prompt for new thread name: %w", err)
 			}
@@ -606,21 +573,21 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 			}
 
 			// Refresh the menu items from the updated main thread group.
-			if err := ui.resetItems(gptCliCtx.mainThreadGroup.String(false, false)); err != nil {
+			if err := menuUI.resetItems(gptCliCtx.mainThreadGroup.String(false, false)); err != nil {
 				return err
 			}
-			if ui.selected >= len(ui.items) {
-				ui.selected = len(ui.items) - 1
+			if menuUI.selected >= len(menuUI.items) {
+				menuUI.selected = len(menuUI.items) - 1
 			}
 		case 'a':
 			needErase = true
 			// Archive the currently selected thread from the main thread group.
 			// This mirrors the behavior of archiveThreadMain(), but uses the
 			// selection from the menu UI instead of parsing a CLI argument.
-			if len(ui.items) == 0 {
+			if len(menuUI.items) == 0 {
 				continue
 			}
-			threadIndex := ui.selected + 1 // threads are 1-based
+			threadIndex := menuUI.selected + 1 // threads are 1-based
 
 			// Only main-thread-group entries are shown in the menu, so we move
 			// from mainThreadGroup to archiveThreadGroup directly.
@@ -636,9 +603,9 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 			}
 
 			// Refresh the menu items from the updated main thread group.
-			ui.resetItems(gptCliCtx.mainThreadGroup.String(false, false))
-			if ui.selected >= len(ui.items) {
-				ui.selected = len(ui.items) - 1
+			menuUI.resetItems(gptCliCtx.mainThreadGroup.String(false, false))
+			if menuUI.selected >= len(menuUI.items) {
+				menuUI.selected = len(menuUI.items) - 1
 			}
 		case gc.KEY_RESIZE:
 			resizeScreen(scr)
@@ -911,15 +878,7 @@ func drawThreadStatus(scr *gc.Window, focus threadViewFocus, msg string) {
 		full = string([]rune(full)[:maxX])
 	}
 
-	var attr gc.Char = gc.A_REVERSE
-	if globalUseColors {
-		attr = gc.ColorPair(menuColorStatus)
-	}
-	_ = scr.AttrSet(attr)
-	scr.Move(statusY, 0)
-	scr.HLine(statusY, 0, ' ', maxX)
-	scr.MovePrint(statusY, 0, full)
-	_ = scr.AttrSet(gc.A_NORMAL)
+	drawStatusBar(scr, statusY, full, globalUseColors)
 }
 
 // drawThreadHeader renders a single-line header for the thread view.
@@ -1313,6 +1272,7 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 	defer signal.Stop(sigCh)
 
 	maxY, maxX := scr.MaxYX()
+	ncui := ui.NewNcursesUI(scr)
 	historyLines := buildHistoryLines(thread, maxX)
 	historyOffset := 0
 	input := &inputState{}
@@ -1581,7 +1541,7 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 					}
 
 					// Show error modal asking whether to retry.
-					wantRetry, modalErr := showErrorRetryModal(scr, err.Error())
+					wantRetry, modalErr := showErrorRetryModal(ncui, err.Error())
 					if modalErr != nil || !wantRetry {
 						retry = false
 						break
