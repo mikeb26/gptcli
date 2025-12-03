@@ -125,30 +125,57 @@ func (n *NcursesUI) newCenteredBox(height, width int) (*gc.Window, int, int, err
 // readLineModal displays a simple centered modal window with the provided
 // prompt and returns the line of user input (without a trailing newline).
 func (n *NcursesUI) readLineModal(userPrompt string) (string, error) {
-	prompt := strings.TrimRight(userPrompt, "\n")
-	promptRunes := []rune(prompt)
+	// Allow multi-line prompts by splitting on explicit newlines. This keeps
+	// sizing and rendering consistent with the actual on-screen layout so
+	// that we never write outside the inner content box.
+	trimmed := strings.TrimRight(userPrompt, "\n")
+	promptLines := strings.Split(trimmed, "\n")
 
-	// Basic modal dimensions: borders + prompt + input line.
-	desiredHeight := 5
-	innerWidth := len(promptRunes) + 2
+	// Basic modal dimensions: borders + prompt lines + input line.
+	desiredHeight := len(promptLines) + 3
+	if desiredHeight < 5 {
+		desiredHeight = 5
+	}
+
+	// Width is based on the longest prompt line.
+	maxRunes := 0
+	for _, line := range promptLines {
+		if l := len([]rune(line)); l > maxRunes {
+			maxRunes = l
+		}
+	}
+	innerWidth := maxRunes + 2
 	if innerWidth < 30 {
 		innerWidth = 30
 	}
-	win, contentWidth, _, err := n.newCenteredBox(desiredHeight, innerWidth)
+	win, contentWidth, contentHeight, err := n.newCenteredBox(desiredHeight, innerWidth)
 	if err != nil {
 		return "", err
 	}
 	defer win.Delete()
-
-	// Render prompt on the first inner row.
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	prompt = TruncateRunes(prompt, contentWidth)
-	win.MovePrint(1, 1, prompt)
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	// Render each prompt line starting at the first inner row. Any excess
+	// lines are silently dropped if the terminal is extremely small.
+	for i, line := range promptLines {
+		if 1+i > contentHeight {
+			break
+		}
+		win.MovePrint(1+i, 1, TruncateRunes(line, contentWidth))
+	}
 
 	var buf []rune
-	inputY := 2
+	// Place the input row directly after the last rendered prompt line,
+	// clamped to the last available inner row so we stay inside the box.
+	inputY := 1 + len(promptLines)
+	if inputY > contentHeight {
+		inputY = contentHeight
+	}
 	for {
 		// Clear input line inside the box area.
 		for x := 1; x < contentWidth+1; x++ {
@@ -253,8 +280,11 @@ func (n *NcursesUI) SelectOption(userPrompt string,
 		win.MovePrint(2+i, 1, TruncateRunes(optionLines[i], contentWidth))
 	}
 
-	// Input line at the second-to-last row within the content area.
-	inputY := contentHeight + 1
+	// Input line on the last inner row of the content area (just above
+	// the bottom border). contentHeight is the count of inner rows, so
+	// its coordinate within the window is already the last valid
+	// content row.
+	inputY := contentHeight
 	basePrompt := fmt.Sprintf("Enter choice number (1-%d): ", len(choices))
 
 	var buf []rune
