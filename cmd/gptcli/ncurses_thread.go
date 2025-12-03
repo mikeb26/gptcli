@@ -390,9 +390,14 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 				input.reset()
 				needRedraw = true
 			default:
-				// Printable runes are appended to the buffer.
-				if ch >= 32 && ch < 127 {
-					input.insertRune(rune(ch))
+				// Treat any printable byte (including high‑bit bytes from
+				// UTF‑8 sequences) as input. When running in a UTF-8
+				// locale, ncurses/GetChar returns each byte of the sequence
+				// separately; group those bytes into a single rune so that
+				// characters like emoji render correctly.
+				if ch >= 32 && ch < 256 {
+					r := readUTF8KeyRune(scr, ch)
+					input.insertRune(r)
 					needRedraw = true
 				}
 			}

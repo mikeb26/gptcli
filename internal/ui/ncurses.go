@@ -185,10 +185,12 @@ func (n *NcursesUI) readLineModal(userPrompt string) (string, error) {
 				buf = buf[:len(buf)-1]
 			}
 		default:
-			// Only accept printable ASCII / UTF-8 runes in the
-			// common range. This mirrors the stdio behavior which
-			// reads a line of text.
-			if ch >= 32 && ch < 127 {
+			// Accept any non-control byte (including high-bit bytes from
+			// UTF-8 sequences) as literal input. goncurses/wgetch reports
+			// regular characters as values in the 0-255 range and uses
+			// larger values for KEY_* constants, so we clamp at 256 to
+			// avoid accidentally treating special keys as text.
+			if ch >= 32 && ch < 256 {
 				buf = append(buf, rune(ch))
 			}
 		}

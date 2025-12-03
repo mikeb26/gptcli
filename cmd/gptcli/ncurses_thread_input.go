@@ -8,6 +8,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	gc "github.com/gbin/goncurses"
 )
@@ -25,6 +26,73 @@ type inputState struct {
 	cursorLine int
 	cursorCol  int
 	scroll     int // first visible logical line index in the input area
+}
+
+// readUTF8KeyRune attempts to reconstruct a full UTF-8 rune from the
+// first key code returned by ncurses. In UTF-8 locales, ncurses/GetChar
+// delivers each byte of a multi-byte sequence as a separate "character".
+// This helper groups those bytes into a single rune so that characters
+// like emoji are stored correctly in the input buffer and rendered as a
+// single glyph rather than mojibake.
+//
+// It is intentionally conservative: if we see anything that looks like a
+// special KEY_* value or an invalid UTF-8 continuation, we fall back to
+// treating the first byte as an individual rune. This avoids consuming
+// unrelated key presses at the cost of occasionally splitting unusual
+// input sequences.
+func readUTF8KeyRune(scr *gc.Window, first gc.Key) rune {
+	// We only ever call this for values in the 0-255 range that ncurses
+	// reports for regular character input.
+	b0 := byte(int(first) & 0xFF)
+	if b0 < 0x80 {
+		return rune(b0)
+	}
+
+	// Determine expected sequence length from the first byte according to
+	// UTF-8 rules.
+	var need int
+	switch {
+	case b0&0xE0 == 0xC0:
+		need = 2
+	case b0&0xF0 == 0xE0:
+		need = 3
+	case b0&0xF8 == 0xF0:
+		need = 4
+	default:
+		// Not a valid UTF-8 leading byte; treat as a single-byte rune.
+		return rune(b0)
+	}
+
+	buf := []byte{b0}
+	for len(buf) < need {
+		ch := scr.GetChar()
+		if ch == 0 {
+			// Timeout / no further bytes available; decode whatever we
+			// have so far. utf8.DecodeRune will return RuneError on
+			// invalid or truncated sequences, which we handle below.
+			break
+		}
+		if ch < 0 || ch > 255 {
+			// Likely a KEY_* constant; stop extending this sequence so we
+			// don't accidentally consume non-text keys.
+			break
+		}
+		b := byte(int(ch) & 0xFF)
+		if b&0xC0 != 0x80 {
+			// Not a valid continuation byte; avoid eating what is probably
+			// the start of the next key sequence.
+			break
+		}
+		buf = append(buf, b)
+	}
+
+	r, _ := utf8.DecodeRune(buf)
+	if r == utf8.RuneError {
+		// Fall back to the original leading byte so we at least preserve a
+		// visible character instead of dropping input entirely.
+		return rune(b0)
+	}
+	return r
 }
 
 // reset recomputes the internal representation of the input buffer
@@ -224,23 +292,30 @@ func drawThreadInput(scr *gc.Window, st *inputState, focus threadViewFocus,
 	// supporting multi-line prompts.
 	for i := 0; i < height && i < len(visibleLines); i++ {
 		rowY := startY + 1 + i
-		text := string(visibleLines[i])
-		runes := []rune(text)
+		lineRunes := visibleLines[i]
+
 		// Leave the last column free for the scrollbar.
 		limit := maxX
 		if limit > 0 {
 			limit--
 		}
-		if len(runes) > limit {
-			// Indicate wrap with a trailing '\\'.
-			if limit > 1 {
-				text = string(runes[:limit-1]) + "\\"
+
+		// Truncate the line by rune count rather than bytes so we never
+		// split a UTF‑8 sequence in the middle. This assumes all runes are
+		// single‑cell wide, which is sufficient for common use‑cases.
+		textRunes := lineRunes
+		if len(textRunes) > limit {
+			if limit <= 0 {
+				textRunes = nil
 			} else if limit == 1 {
-				text = "\\"
+				// Just draw a continuation marker.
+				textRunes = []rune{'\\'}
 			} else {
-				text = ""
+				// Reserve the last column for a continuation marker.
+				textRunes = append(append([]rune{}, textRunes[:limit-1]...), '\\')
 			}
 		}
+		text := string(textRunes)
 		scr.MovePrint(rowY, 0, text)
 
 		// Draw scrollbar for this row via the shared helper. When the
