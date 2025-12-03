@@ -29,22 +29,13 @@ type NcursesUI struct {
 // responsible for having called goncurses.Init() and for calling
 // goncurses.End() when the application is finished with ncurses.
 func NewNcursesUI(scrIn *gc.Window) *NcursesUI {
-	if scrIn != nil {
-		_ = scrIn.Keypad(true)
+	if scrIn == nil {
+		panic("non-nil screen required to init ncursesui")
 	}
+
+	_ = scrIn.Keypad(true)
 
 	return &NcursesUI{scr: scrIn}
-}
-
-// ensureScreen returns an error if the underlying ncurses screen/window
-// has not been initialized. This allows callers (and tests) to
-// construct a NcursesUI with a nil screen and still receive a regular
-// Go error instead of a panic when methods are invoked.
-func (n *NcursesUI) ensureScreen() error {
-	if n.scr == nil {
-		return fmt.Errorf("ncurses screen not initialized")
-	}
-	return nil
 }
 
 // TruncateRunes returns a prefix of s that fits in max runes. It is
@@ -69,10 +60,6 @@ func TruncateRunes(s string, max int) string {
 // least one row/column of content. It returns the window along with the
 // inner content width and height (excluding borders).
 func (n *NcursesUI) newCenteredBox(height, width int) (*gc.Window, int, int, error) {
-	if err := n.ensureScreen(); err != nil {
-		return nil, 0, 0, err
-	}
-
 	maxY, maxX := n.scr.MaxYX()
 	if maxY < 3 || maxX < 4 {
 		return nil, 0, 0, fmt.Errorf("terminal too small for ncurses window")
@@ -122,6 +109,16 @@ func (n *NcursesUI) newCenteredBox(height, width int) (*gc.Window, int, int, err
 	return win, innerW, innerH, nil
 }
 
+// Delete the modal window and force the root screen to be treated as
+// fully "touched" so that a subsequent Refresh repaintes the entire
+// area the dialog occupied. This prevents modal artifacts from being
+// left on the physical terminal.
+func deleteModelAndRefreshParent(modal, parent *gc.Window) {
+	_ = modal.Delete()
+	_ = parent.Touch()
+	parent.Refresh()
+}
+
 // readLineModal displays a simple centered modal window with the provided
 // prompt and returns the line of user input (without a trailing newline).
 func (n *NcursesUI) readLineModal(userPrompt string) (string, error) {
@@ -152,7 +149,7 @@ func (n *NcursesUI) readLineModal(userPrompt string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer win.Delete()
+	defer deleteModelAndRefreshParent(win, n.scr)
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
@@ -263,7 +260,7 @@ func (n *NcursesUI) SelectOption(userPrompt string,
 	if err != nil {
 		return types.GptCliUIOption{}, err
 	}
-	defer win.Delete()
+	defer deleteModelAndRefreshParent(win, n.scr)
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
