@@ -8,7 +8,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"strings"
 
 	gc "github.com/gbin/goncurses"
@@ -79,11 +78,6 @@ func initUI(scr *gc.Window, menuText string) (*threadMenuUI, error) {
 
 func menuMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
-
-	if gptCliCtx.mainThreadGroup.totThreads == 0 {
-		fmt.Printf("%v.\n", ErrNoThreadsExist)
-		return nil
-	}
 
 	f := flag.NewFlagSet("ls", flag.ContinueOnError)
 	_ = f.Parse(args[1:])

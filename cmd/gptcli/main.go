@@ -5,22 +5,17 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	_ "embed"
-	"errors"
 	"fmt"
 	"hash/crc32"
-	"io"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
-	"golang.org/x/term"
-
 	laclopenai "github.com/cloudwego/eino-ext/libs/acl/openai"
+	gc "github.com/gbin/goncurses"
 
 	"github.com/mikeb26/gptcli/internal"
 	"github.com/mikeb26/gptcli/internal/prompts"
@@ -38,30 +33,9 @@ const (
 	CodeBlockDelimNewline = "```\n"
 	ThreadParseErrFmt     = "Could not parse %v. Please enter a valid thread number.\n"
 	ThreadNoExistErrFmt   = "Thread %v does not exist. To list threads try 'ls'.\n"
-	RowFmt                = "| %8v | %18v | %18v | %18v | %-18v\n"
-	RowSpacer             = "----------------------------------------------------------------------------------------------\n"
+	RowFmt                = "│ %8v │ %18v │ %18v │ %18v │ %-18v\n"
+	RowSpacer             = "──────────────────────────────────────────────────────────────────────────────────────────────\n"
 )
-
-var subCommandTab = map[string]func(ctx context.Context,
-	gptCliCtx *GptCliContext, args []string) error{
-
-	"help":      helpMain,
-	"version":   versionMain,
-	"upgrade":   upgradeMain,
-	"config":    configMain,
-	"ls":        lsThreadsMain,
-	"menu":      menuMain,
-	"thread":    threadSwitchMain,
-	"new":       newThreadMain,
-	"summary":   summaryToggleMain,
-	"archive":   archiveThreadMain,
-	"unarchive": unarchiveThreadMain,
-	"exit":      exitMain,
-	"quit":      exitMain,
-	"search":    searchMain,
-	"cat":       catMain,
-	"reasoning": reasoningMain,
-}
 
 type Prefs struct {
 	SummarizePrior bool   `json:"summarize_prior"`
@@ -69,9 +43,10 @@ type Prefs struct {
 }
 
 type GptCliContext struct {
-	client             types.GptCliAIClient
-	input              *bufio.Reader
+	client types.GptCliAIClient
+	//	input              *bufio.Reader
 	ui                 types.GptCliUI
+	scr                *gc.Window
 	needConfig         bool
 	curSummaryToggle   bool
 	prefs              Prefs
@@ -81,14 +56,28 @@ type GptCliContext struct {
 	curThreadGroup     *GptCliThreadGroup
 }
 
-func NewGptCliContext(ctx context.Context) *GptCliContext {
+func NewGptCliContext(ctx context.Context, ncurses bool) *GptCliContext {
 
-	inputLocal := bufio.NewReader(os.Stdin)
+	//	inputLocal := bufio.NewReader(os.Stdin)
+
+	var uiLocal types.GptCliUI
+	var err error
+	var scrLocal *gc.Window
+	if ncurses {
+		scrLocal, err = gcInit()
+		if err != nil {
+			panic("fix me")
+		}
+		uiLocal = ui.NewNcursesUI(scrLocal)
+	} else {
+		//		uiLocal = ui.NewStdioUI().WithBufReader(inputLocal)
+	}
 
 	gptCliCtx := &GptCliContext{
-		client:           nil,
-		input:            inputLocal,
-		ui:               ui.NewStdioUI().WithBufReader(inputLocal),
+		client: nil,
+		//		input:            inputLocal,
+		ui:               uiLocal,
+		scr:              scrLocal,
 		needConfig:       true,
 		curSummaryToggle: false,
 		prefs: Prefs{
@@ -152,72 +141,6 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 	return nil
 }
 
-//go:embed help.txt
-var helpText string
-
-func helpMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) error {
-	fmt.Print(helpText)
-
-	return nil
-}
-
-func exitMain(ctx context.Context, gptCliCtx *GptCliContext,
-	args []string) error {
-
-	if gptCliCtx.curThreadGroup.curThreadNum == 0 {
-		return io.EOF
-	}
-
-	gptCliCtx.curThreadGroup.curThreadNum = 0
-	gptCliCtx.curThreadGroup = gptCliCtx.mainThreadGroup
-
-	return nil
-}
-
-func printStringViaPager(content string) error {
-	cmd := exec.Command("less", "-r", "-X")
-	cmd.Stdout = os.Stdout
-	inPipe, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stdin pipe: %w", err)
-	}
-
-	err = cmd.Start()
-	if err != nil {
-		inPipe.Close()
-		return fmt.Errorf("failed to start less command: %w", err)
-	}
-	_, err = inPipe.Write([]byte(content))
-	if err != nil {
-		inPipe.Close()
-		return fmt.Errorf("failed to write to stdin pipe: %w", err)
-	}
-	inPipe.Close()
-
-	err = cmd.Wait()
-	if err != nil {
-		return fmt.Errorf("less command failed: %w", err)
-	}
-
-	return nil
-}
-
-func printToScreen(str2print string) {
-	_, height, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil {
-		height = 25
-		err = nil
-	}
-	if strings.Count(str2print, "\n") >= height {
-		err = printStringViaPager(str2print)
-		if err != nil {
-			return
-		} // else
-	} // else
-
-	fmt.Printf("%v", str2print)
-}
-
 func genUniqFileName(name string, cTime time.Time) string {
 	return fmt.Sprintf("%v_%v.json",
 		strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(name))), 16),
@@ -227,6 +150,7 @@ func genUniqFileName(name string, cTime time.Time) string {
 func summaryToggleMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
+	// @todo convert to dialogue
 	usageErr := fmt.Errorf("Syntax is 'summary [<on|off>]' e.g. 'summary on'\n")
 
 	if len(args) == 1 {
@@ -269,6 +193,7 @@ func threadContainsSearchStr(t *GptCliThread, searchStr string) bool {
 func searchMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
+	// @todo convert to dialogue. also need search results submenu
 	usageErr := fmt.Errorf("Syntax is 'search <search_string>[,<search_string>...] e.g. 'search foo'\n")
 
 	if len(args) < 2 {
@@ -305,6 +230,7 @@ func searchMain(ctx context.Context, gptCliCtx *GptCliContext,
 func reasoningMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
+	// @todo convert to options dialogue
 	usageErr := fmt.Errorf("Syntax is 'reasoning <low|medium|high>'\n")
 
 	if len(args) != 2 {
@@ -326,56 +252,6 @@ func reasoningMain(ctx context.Context, gptCliCtx *GptCliContext,
 	return nil
 }
 
-func getMultiLineInputRemainder(gptCliCtx *GptCliContext) (string, error) {
-	var ret string
-	var tmp string
-	var err error
-
-	for !strings.HasSuffix(tmp, CodeBlockDelim) &&
-		!strings.HasSuffix(tmp, CodeBlockDelimNewline) {
-
-		tmp, err = gptCliCtx.input.ReadString('\n')
-		if err != nil {
-			return "", err
-		}
-
-		ret = fmt.Sprintf("%v%v", ret, tmp)
-	}
-
-	return ret, nil
-}
-
-func getCmdOrPrompt(gptCliCtx *GptCliContext) (string, error) {
-	var cmdOrPrompt string
-	var err error
-	thrGrp := gptCliCtx.curThreadGroup
-	for len(cmdOrPrompt) == 0 {
-		if thrGrp.curThreadNum == 0 {
-			fmt.Printf("gptcli> ")
-		} else {
-			fmt.Printf("gptcli/%v> ",
-				thrGrp.threads[thrGrp.curThreadNum-1].Name)
-		}
-		cmdOrPrompt, err = gptCliCtx.input.ReadString('\n')
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return "exit", nil
-			}
-			return "", err
-		}
-		cmdOrPrompt = strings.TrimSpace(cmdOrPrompt)
-		if strings.HasSuffix(cmdOrPrompt, CodeBlockDelim) {
-			text2append, err := getMultiLineInputRemainder(gptCliCtx)
-			if err != nil {
-				return "", err
-			}
-			cmdOrPrompt = fmt.Sprintf("%v\n%v", cmdOrPrompt, text2append)
-		}
-	}
-
-	return cmdOrPrompt, nil
-}
-
 // in order to reduce costs, summarize the prior dialogue history with
 // the GPT4oMini when resending the thread to OpenAI
 func summarizeDialogue(ctx context.Context, gptCliCtx *GptCliContext,
@@ -392,7 +268,6 @@ func summarizeDialogue(ctx context.Context, gptCliCtx *GptCliContext,
 	}
 	dialogue = append(dialogue, msg)
 
-	fmt.Printf("gptcli: summarizing...\n")
 	msg, err := gptCliCtx.client.CreateChatCompletion(ctx, dialogue)
 	if err != nil {
 		return summaryDialogue, err
@@ -433,80 +308,17 @@ func splitBlocks(text string) []string {
 	return blocks
 }
 
-func (gptCliCtx *GptCliContext) getSubCmd(
-	cmdOrPrompt string) func(context.Context, *GptCliContext, []string) error {
-
-	subCmdFunc, ok := subCommandTab[cmdOrPrompt]
-	if ok {
-		return subCmdFunc
-	}
-	if gptCliCtx.curThreadGroup.curThreadNum != 0 {
-		return nil
-	} // else we're not in a current thread; find closest match to allow
-	// aliasing. e.g. allow user to type 'a' instead of 'archive' if there's
-	// no other subcommand that starts with 'a'.
-
-	var subCmdFound string
-	for k, _ := range subCommandTab {
-		if strings.HasPrefix(k, cmdOrPrompt) {
-			if subCmdFound != "" {
-				// ambiguous
-				return nil
-			}
-
-			subCmdFound = k
-		}
-	}
-
-	return subCommandTab[subCmdFound]
-}
-
 func main() {
-	checkAndPrintUpgradeWarning()
-
 	ctx := context.Background()
-	gptCliCtx := NewGptCliContext(ctx)
+	gptCliCtx := NewGptCliContext(ctx, true)
+	defer gcExit()
 
-	if !gptCliCtx.needConfig {
-		checkAndUpgradeConfig()
-	}
-
+	// @todo needConfig?
 	err := gptCliCtx.load(ctx)
 	if err != nil && !gptCliCtx.needConfig {
 		fmt.Fprintf(os.Stderr, "gptcli: Failed to load: %v\n", err)
 		os.Exit(1)
 	}
 
-	var fullCmdOrPrompt string
-	var cmdOrPrompt string
-	for {
-		fullCmdOrPrompt, err = getCmdOrPrompt(gptCliCtx)
-		if err != nil {
-			break
-		}
-		cmdArgs := strings.Split(fullCmdOrPrompt, " ")
-		cmdOrPrompt = cmdArgs[0]
-		subCmdFunc := gptCliCtx.getSubCmd(cmdOrPrompt)
-		if subCmdFunc == nil {
-			if gptCliCtx.curThreadGroup.curThreadNum == 0 {
-				fmt.Fprintf(os.Stderr, "gptcli: Unknown command %v. Try	'help'.\n",
-					cmdOrPrompt)
-				continue
-			} // else we're already in a thread
-			err = interactiveThreadWork(ctx, gptCliCtx, fullCmdOrPrompt)
-		} else {
-			err = subCmdFunc(ctx, gptCliCtx, cmdArgs)
-		}
-
-		if err != nil {
-			break
-		}
-	}
-
-	if err != nil && !errors.Is(err, io.EOF) {
-		fmt.Fprintf(os.Stderr, "gptcli: %v. quitting.\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("gptcli: quitting.\n")
+	menuMain(ctx, gptCliCtx, make([]string, 2))
 }

@@ -14,7 +14,6 @@ import (
 	"syscall"
 
 	gc "github.com/gbin/goncurses"
-
 	"github.com/mikeb26/gptcli/internal/ui"
 )
 
@@ -101,7 +100,7 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 	defer signal.Stop(sigCh)
 
 	maxY, maxX := scr.MaxYX()
-	ncui := ui.NewNcursesUI(scr)
+	ncui := gptCliCtx.ui.(*ui.NcursesUI)
 	historyLines := buildHistoryLines(thread, maxX)
 	historyOffset := 0
 	input := &inputState{}

@@ -7,15 +7,11 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/fatih/color"
 
 	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
@@ -137,31 +133,6 @@ func (thread *GptCliThread) remove(dir string) error {
 	return nil
 }
 
-func lsThreadsMain(ctx context.Context, gptCliCtx *GptCliContext,
-	args []string) error {
-
-	if gptCliCtx.mainThreadGroup.totThreads == 0 {
-		fmt.Printf("%v.\n", ErrNoThreadsExist)
-		return nil
-	}
-
-	showAll := false
-
-	f := flag.NewFlagSet("ls", flag.ContinueOnError)
-	f.BoolVar(&showAll, "all", false, "Also show archive threads")
-	err := f.Parse(args[1:])
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("%v", gptCliCtx.mainThreadGroup.String(true, !showAll))
-	if showAll {
-		fmt.Printf("%v", gptCliCtx.archiveThreadGroup.String(false, true))
-	}
-
-	return nil
-}
-
 func threadGroupHeaderString(includeSpacers bool) string {
 	var sb strings.Builder
 
@@ -262,70 +233,6 @@ func (thrGrp *GptCliThreadGroup) activateThread(threadNum int) (*GptCliThread, e
 	return thread, nil
 }
 
-func parseThreadNum(gptCliCtx *GptCliContext,
-	userInput string) (*GptCliThreadGroup, int, error) {
-
-	prefix := strings.TrimRight(userInput, "0123456789")
-	suffix := userInput[len(prefix):]
-	threadNum, err := strconv.ParseUint(suffix, 10, 64)
-	if err != nil {
-		return nil, 0, fmt.Errorf(ThreadParseErrFmt, userInput)
-	}
-
-	for _, thrGrp := range gptCliCtx.threadGroups {
-		if prefix == thrGrp.prefix {
-			return thrGrp, int(threadNum), nil
-		}
-	}
-
-	return nil, 0, fmt.Errorf(ThreadParseErrFmt, userInput)
-}
-
-func threadSwitchMain(ctx context.Context, gptCliCtx *GptCliContext,
-	args []string) error {
-
-	if len(args) != 2 {
-		return fmt.Errorf("Syntax is 'thread <thread#>' e.g. 'thread 1'\n")
-	}
-	thrGrp, threadNum, err := parseThreadNum(gptCliCtx, args[1])
-	if err != nil {
-		return err
-	}
-	if gptCliCtx.curThreadGroup != thrGrp {
-		gptCliCtx.curThreadGroup = thrGrp
-	}
-	return thrGrp.threadSwitch(int(threadNum))
-}
-
-func (thrGrp *GptCliThreadGroup) threadSwitch(threadNum int) error {
-	thread, err := thrGrp.activateThread(threadNum)
-	if err != nil {
-		return err
-	}
-
-	printToScreen(thread.String())
-
-	return nil
-}
-
-func (thread *GptCliThread) String() string {
-	var sb strings.Builder
-
-	blocks := thread.RenderBlocks()
-	for _, b := range blocks {
-		switch b.Kind {
-		case RenderBlockUserPrompt:
-			sb.WriteString(fmt.Sprintf("gptcli/%v> %v\n", thread.Name, b.Text))
-		case RenderBlockAssistantText:
-			sb.WriteString(color.BlueString("%v\n", b.Text))
-		case RenderBlockAssistantCode:
-			sb.WriteString(color.GreenString("%v\n", b.Text))
-		}
-	}
-
-	return sb.String()
-}
-
 func newThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
 	args []string) error {
 
@@ -376,63 +283,8 @@ func (thrGrp *GptCliThreadGroup) addThread(curThread *GptCliThread) int {
 	return thrGrp.totThreads
 }
 
-func archiveThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
-	args []string) error {
-
-	if len(args) != 2 {
-		return fmt.Errorf("Syntax is 'archive <thread#>' e.g. 'archive 1'\n")
-	}
-	thrGrp, threadNum, err := parseThreadNum(gptCliCtx, args[1])
-	if err != nil {
-		return err
-	}
-
-	if thrGrp == gptCliCtx.archiveThreadGroup {
-		return fmt.Errorf("gptcli: Thread already archived")
-	} else if thrGrp != gptCliCtx.mainThreadGroup {
-		panic("BUG: archiveThreadMain() only supports 2 thread groups currently")
-	}
-
-	err = thrGrp.moveThread(int(threadNum), gptCliCtx.archiveThreadGroup)
-	if err != nil {
-		return fmt.Errorf("gptcli: Failed to archive thread: %w", err)
-	}
-
-	fmt.Printf("gptcli: Archived thread %v. Remaining threads renumbered.\n",
-		threadNum)
-
-	lsArgs := []string{"ls"}
-	return lsThreadsMain(ctx, gptCliCtx, lsArgs)
-}
-
-func unarchiveThreadMain(ctx context.Context, gptCliCtx *GptCliContext,
-	args []string) error {
-
-	if len(args) != 2 {
-		return fmt.Errorf("Syntax is 'unarchive a<thread#>' e.g. 'unarchive 1'\n")
-	}
-	thrGrp, threadNum, err := parseThreadNum(gptCliCtx, args[1])
-	if err != nil {
-		return err
-	}
-
-	if thrGrp == gptCliCtx.mainThreadGroup {
-		return fmt.Errorf("gptcli: Thread already unarchived")
-	} else if thrGrp != gptCliCtx.archiveThreadGroup {
-		panic("BUG: unarchiveThreadMain() only supports 2 thread groups currently")
-	}
-
-	err = thrGrp.moveThread(int(threadNum), gptCliCtx.mainThreadGroup)
-	if err != nil {
-		return fmt.Errorf("gptcli: Failed to unarchive thread: %w", err)
-	}
-
-	fmt.Printf("gptcli: Unarchived thread %v. Remaining threads renumbered.\n",
-		threadNum)
-
-	lsArgs := []string{"ls"}
-	return lsThreadsMain(ctx, gptCliCtx, lsArgs)
-}
+// @todo need ux
+//  unarchiveThreadMain()
 
 func (srcThrGrp *GptCliThreadGroup) moveThread(threadNum int,
 	dstThrGrp *GptCliThreadGroup) error {
@@ -549,66 +401,4 @@ func (gptCliCtx *GptCliContext) ChatOnceInCurrentThread(
 	}
 
 	return replyMsg, nil
-}
-
-func interactiveThreadWork(ctx context.Context,
-	gptCliCtx *GptCliContext, prompt string) error {
-	fmt.Printf("gptcli: processing...\n")
-
-	replyMsg, err := gptCliCtx.ChatOnceInCurrentThread(ctx, prompt)
-	if err != nil {
-		return err
-	}
-
-	var sb strings.Builder
-	blocks := splitBlocks(replyMsg.Content)
-	for idx, b := range blocks {
-		if idx%2 == 0 {
-			sb.WriteString(color.BlueString("%v\n", b))
-		} else {
-			sb.WriteString(color.GreenString("%v\n", b))
-		}
-	}
-
-	printToScreen(sb.String())
-
-	return nil
-}
-
-func catMain(ctx context.Context, gptCliCtx *GptCliContext,
-	args []string) error {
-
-	var thrGrp *GptCliThreadGroup
-	var threadNum int
-	var err error
-
-	if len(args) > 2 {
-		return fmt.Errorf("Syntax is 'cat <thread#>' e.g. 'cat 1'\n")
-	} else if len(args) == 2 {
-		thrGrp, threadNum, err = parseThreadNum(gptCliCtx, args[1])
-		if err != nil {
-			return err
-		}
-	} else {
-		thrGrp = gptCliCtx.curThreadGroup
-		threadNum = thrGrp.curThreadNum
-	}
-
-	if threadNum > thrGrp.totThreads {
-		threadNumPrint := fmt.Sprintf("%v%v", thrGrp.prefix, threadNum)
-		return fmt.Errorf(ThreadNoExistErrFmt, threadNumPrint)
-	} else if threadNum == 0 {
-		return fmt.Errorf("No thread is currently selected. Select one with 'thread <thread#>'.")
-	}
-
-	thread := thrGrp.threads[threadNum-1]
-	thread.AccessTime = time.Now()
-	err = thread.save(thrGrp.dir)
-	if err != nil {
-		return err
-	}
-
-	printToScreen(thread.String())
-
-	return nil
 }

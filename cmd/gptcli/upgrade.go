@@ -25,15 +25,8 @@ var versionText string
 
 const DevVersionText = "v0.devbuild"
 
-func versionMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) error {
-	fmt.Printf("gptcli-%v\n", versionText)
-
-	return nil
-}
-
-func upgradeMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) error {
+func upgradeIfNeeded(ctx context.Context, gptCliCtx *GptCliContext) error {
 	if versionText == DevVersionText {
-		fmt.Fprintf(os.Stderr, "Skipping gptcli upgrade on development version\n")
 		return nil
 	}
 	latestVer, err := getLatestVersion()
@@ -41,8 +34,6 @@ func upgradeMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) e
 		return err
 	}
 	if latestVer == versionText {
-		fmt.Printf("gptcli %v is already the latest version\n",
-			versionText)
 		return nil
 	}
 
@@ -59,9 +50,6 @@ func upgradeMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) e
 	if !shouldUpgrade {
 		return nil
 	}
-
-	fmt.Printf("Upgrading gptcli from %v to %v...\n", versionText,
-		latestVer)
 
 	err = upgradeViaGithub(latestVer)
 	if err != nil {
@@ -164,25 +152,5 @@ func upgradeViaGithub(latestVer string) error {
 	}
 	_ = os.Remove(myBinaryPathBak)
 
-	fmt.Printf("Upgrade %v to %v complete\n", myBinaryPath, latestVer)
-
 	return nil
-}
-
-func checkAndPrintUpgradeWarning() bool {
-	if versionText == DevVersionText {
-		return false
-	}
-	latestVer, err := getLatestVersion()
-	if err != nil {
-		return false
-	}
-	if latestVer == versionText {
-		return false
-	}
-
-	fmt.Fprintf(os.Stderr, "*WARN*: A new version of gptcli is available (%v). Please upgrade via 'upgrade'.\n\n",
-		latestVer)
-
-	return true
 }

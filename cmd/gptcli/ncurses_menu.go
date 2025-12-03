@@ -15,9 +15,8 @@ import (
 
 	"github.com/famz/SetLocale"
 	gc "github.com/gbin/goncurses"
-	"golang.org/x/term"
-
 	"github.com/mikeb26/gptcli/internal/ui"
+	"golang.org/x/term"
 )
 
 const (
@@ -91,9 +90,9 @@ func (ui *threadMenuUI) draw() {
 	headerTitle = truncateToWidth(headerTitle, maxX)
 
 	if ui.useColors {
-		_ = scr.AttrSet(gc.A_BOLD | gc.ColorPair(menuColorHeader))
+		_ = scr.AttrSet(gc.A_NORMAL | gc.ColorPair(menuColorHeader))
 	} else {
-		_ = scr.AttrSet(gc.A_BOLD)
+		_ = scr.AttrSet(gc.A_NORMAL)
 	}
 	scr.Move(0, 0)
 	scr.HLine(0, 0, ' ', maxX)
@@ -111,9 +110,9 @@ func (ui *threadMenuUI) draw() {
 
 			if idx == ui.selected {
 				if ui.useColors {
-					_ = scr.AttrSet(gc.A_BOLD | gc.ColorPair(menuColorSelected))
+					_ = scr.AttrSet(gc.A_NORMAL | gc.ColorPair(menuColorSelected))
 				} else {
-					_ = scr.AttrSet(gc.A_REVERSE | gc.A_BOLD)
+					_ = scr.AttrSet(gc.A_REVERSE | gc.A_NORMAL)
 				}
 			} else {
 				_ = scr.AttrSet(gc.A_NORMAL)
@@ -145,12 +144,14 @@ func (ui *threadMenuUI) draw() {
 			{text: "Home", bold: true},
 			{text: "/", bold: false},
 			{text: "End", bold: true},
-			{text: " Sel:", bold: false},
+			{text: " Select:", bold: false},
 			{text: "⏎", bold: true},
 			{text: " New:", bold: false},
 			{text: "n", bold: true},
 			{text: " Archive:", bold: false},
 			{text: "a", bold: true},
+			{text: " Config:", bold: false},
+			{text: "c", bold: true},
 			{text: " Quit:", bold: false},
 			{text: "q", bold: true},
 		}
@@ -172,10 +173,10 @@ func (ui *threadMenuUI) resetItems(menuText string) error {
 	return nil
 }
 
-func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) error {
+func gcInit() (*gc.Window, error) {
 	// Require a real TTY; ncurses UI is not supported otherwise
 	if !term.IsTerminal(int(os.Stdout.Fd())) {
-		return fmt.Errorf("menu: requires a terminal (TTY)")
+		return nil, fmt.Errorf("menu: requires a terminal (TTY)")
 	}
 
 	SetLocale.SetLocale(SetLocale.LC_ALL, "en_US.UTF-8")
@@ -184,9 +185,27 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 	_ = os.Setenv("LC_ALL", "en_US.UTF-8")
 	scr, err := gc.Init()
 	if err != nil {
-		return fmt.Errorf("Failed to initialize screen: %w", err)
+		return nil, fmt.Errorf("Failed to initialize screen: %w", err)
 	}
-	defer gc.End()
+
+	return scr, nil
+}
+
+func gcExit() {
+	gc.End()
+}
+
+func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) error {
+
+	//scr, err := gcInit()
+	//if err != nil {
+	//return err
+	//}
+	//defer gcExit()
+	scr := gptCliCtx.scr
+	if scr == nil {
+		panic("nil scr")
+	}
 
 	// Listen for SIGWINCH (terminal resize). We handle the signal in this
 	// same goroutine by polling the channel inside the UI loop, which
@@ -196,8 +215,12 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 	defer signal.Stop(sigCh)
 
 	menuUI, err := initUI(scr, menuText)
+	if err != nil {
+		return err
+	}
 	needErase := true
-	ncui := ui.NewNcursesUI(scr)
+	upgradeChecked := false
+	ncui := gptCliCtx.ui.(*ui.NcursesUI)
 
 	for {
 		if needErase {
@@ -206,6 +229,10 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 		}
 
 		menuUI.draw()
+		if !upgradeChecked {
+			upgradeIfNeeded(ctx, gptCliCtx)
+			upgradeChecked = true
+		}
 
 		var ch gc.Key
 		select {
@@ -266,10 +293,6 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 				// exit ncurses cleanly.
 				return err
 			}
-			// Run the (stub) ncurses thread view. For now this does not yet
-			// implement full in-menu interaction, but it keeps all
-			// interaction within the ncurses UI instead of falling back to
-			// the basic CLI prompt.
 			if err := runThreadView(ctx, scr, gptCliCtx, thread); err != nil {
 				return err
 			}
@@ -298,6 +321,8 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 			if menuUI.selected >= len(menuUI.items) {
 				menuUI.selected = len(menuUI.items) - 1
 			}
+		case 'c':
+			configMain(ctx, gptCliCtx)
 		case 'a':
 			needErase = true
 			// Archive the currently selected thread from the main thread group.

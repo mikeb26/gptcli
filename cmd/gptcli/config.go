@@ -57,23 +57,7 @@ func (gptCliCtx *GptCliContext) savePrefs() error {
 	return nil
 }
 
-func checkAndUpgradeConfig() {
-	// versions v0.3.5 and earlier don't have the archive dir
-	archiveDir, err := getArchiveDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "*WARN*: Unable to add archive directory: %v\n",
-			err)
-		return
-	}
-	err = os.MkdirAll(archiveDir, 0700)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "*WARN*: Unable to add archive directory %v: %v",
-			archiveDir, err)
-		return
-	}
-}
-
-func configMain(ctx context.Context, gptCliCtx *GptCliContext, args []string) error {
+func configMain(ctx context.Context, gptCliCtx *GptCliContext) error {
 	configDir, err := getConfigDir()
 	if err != nil {
 		return err
