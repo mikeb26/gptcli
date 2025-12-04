@@ -18,6 +18,7 @@ import (
 	gc "github.com/gbin/goncurses"
 
 	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/llmclient"
 	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/mikeb26/gptcli/internal/ui"
@@ -56,22 +57,18 @@ type GptCliContext struct {
 	curThreadGroup     *GptCliThreadGroup
 }
 
-func NewGptCliContext(ctx context.Context, ncurses bool) *GptCliContext {
+func NewGptCliContext(ctx context.Context) *GptCliContext {
 
 	//	inputLocal := bufio.NewReader(os.Stdin)
 
 	var uiLocal types.GptCliUI
 	var err error
 	var scrLocal *gc.Window
-	if ncurses {
-		scrLocal, err = gcInit()
-		if err != nil {
-			panic("fix me")
-		}
-		uiLocal = ui.NewNcursesUI(scrLocal)
-	} else {
-		//		uiLocal = ui.NewStdioUI().WithBufReader(inputLocal)
+	scrLocal, err = gcInit()
+	if err != nil {
+		panic("fix me")
 	}
+	uiLocal = ui.NewNcursesUI(scrLocal)
 
 	gptCliCtx := &GptCliContext{
 		client: nil,
@@ -127,7 +124,7 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 		return err
 	}
 
-	gptCliCtx.client = internal.NewEINOClient(ctx, gptCliCtx.prefs.Vendor,
+	gptCliCtx.client = llmclient.NewEINOClient(ctx, gptCliCtx.prefs.Vendor,
 		gptCliCtx.ui, keyText, internal.DefaultModels[gptCliCtx.prefs.Vendor], 0)
 
 	for _, thrGrp := range gptCliCtx.threadGroups {
@@ -310,7 +307,7 @@ func splitBlocks(text string) []string {
 
 func main() {
 	ctx := context.Background()
-	gptCliCtx := NewGptCliContext(ctx, true)
+	gptCliCtx := NewGptCliContext(ctx)
 	defer gcExit()
 
 	// @todo needConfig?

@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package internal
+package tools
 
 import (
 	"context"
@@ -171,7 +171,7 @@ func (t CreateFileTool) Invoke(ctx context.Context,
 
 	ret := &CreateFileResp{}
 
-	err := getUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -190,7 +190,7 @@ func (t AppendFileTool) Invoke(ctx context.Context,
 
 	ret := &AppendFileResp{}
 
-	err := getUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -215,7 +215,7 @@ func (t ReadFileTool) Invoke(ctx context.Context,
 
 	ret := &ReadFileResp{}
 
-	err := getUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -236,7 +236,7 @@ func (t DeleteFileTool) Invoke(ctx context.Context,
 
 	ret := &DeleteFileResp{}
 
-	err := getUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

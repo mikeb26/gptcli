@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package internal
+package tools
 
 import (
 	"context"
@@ -76,7 +76,7 @@ func (t RenderWebTool) Invoke(ctx context.Context, req *RenderWebReq) (*RenderWe
 	resp := &RenderWebResp{}
 
 	// Require user approval before proceeding
-	err := getUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, nil

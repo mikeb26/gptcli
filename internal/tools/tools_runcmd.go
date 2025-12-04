@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package internal
+package tools
 
 import (
 	"context"
@@ -60,7 +60,7 @@ func (t RunCommandTool) Invoke(ctx context.Context,
 
 	resp := &CmdRunResp{}
 
-	err := getUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, nil

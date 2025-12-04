@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package internal
+package tools
 
 import (
 	"context"
@@ -90,7 +90,7 @@ func (t PwdTool) Define() types.GptCliTool {
 func (t PwdTool) Invoke(ctx context.Context, _ *PwdReq) (*PwdResp, error) {
 	ret := &PwdResp{}
 
-	err := getUserApproval(t.approvalUI, t, "")
+	err := GetUserApproval(t.approvalUI, t, "")
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -136,7 +136,7 @@ func (t ChdirTool) Invoke(ctx context.Context,
 
 	ret := &ChdirResp{}
 
-	err := getUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -180,7 +180,7 @@ func (t EnvGetTool) Invoke(ctx context.Context,
 
 	ret := &EnvGetResp{}
 
-	err := getUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -221,7 +221,7 @@ func (t EnvSetTool) Invoke(ctx context.Context,
 
 	ret := &EnvSetResp{}
 
-	err := getUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package internal
+package tools
 
 import (
 	"context"
@@ -71,7 +71,7 @@ func (t RetrieveUrlTool) Invoke(ctx context.Context,
 
 	ret := &RetrieveUrlResp{}
 
-	err := getUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

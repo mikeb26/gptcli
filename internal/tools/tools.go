@@ -2,10 +2,9 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package internal
+package tools
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/mikeb26/gptcli/internal/types"
@@ -30,7 +29,7 @@ type approvalUI struct {
 	ui types.GptCliUI
 }
 
-func newApprovalUI(uiIn types.GptCliUI) *approvalUI {
+func NewApprovalUI(uiIn types.GptCliUI) *approvalUI {
 	return &approvalUI{ui: uiIn}
 }
 
@@ -48,35 +47,9 @@ func (aui *approvalUI) AskApproval(t types.Tool, arg any) (bool, error) {
 	return aui.ui.SelectBool(prompt+" (y/n): ", trueOpt, falseOpt, nil)
 }
 
-func defineTools(ctx context.Context, vendor string, ui types.GptCliUI,
-	apiKey string, model string, depth int) []types.GptCliTool {
-
-	approvalUI := newApprovalUI(ui)
-	tools := []types.GptCliTool{
-		NewRunCommandTool(approvalUI),
-		NewCreateFileTool(approvalUI),
-		NewAppendFileTool(approvalUI),
-		NewFilePatchTool(approvalUI),
-		NewReadFileTool(approvalUI),
-		NewDeleteFileTool(approvalUI),
-		NewPwdTool(approvalUI),
-		NewChdirTool(approvalUI),
-		NewEnvGetTool(approvalUI),
-		NewEnvSetTool(approvalUI),
-		NewRetrieveUrlTool(approvalUI),
-		NewRenderWebTool(approvalUI),
-	}
-	if depth <= MaxDepth {
-		tools = append(tools, NewPromptRunTool(ctx, vendor, approvalUI, apiKey,
-			model, depth))
-	}
-
-	return tools
-}
-
-// getUserApproval is a helper that enforces the RequiresUserApproval contract
+// GetUserApproval is a helper that enforces the RequiresUserApproval contract
 // and delegates the actual interaction to the provided ToolApprovalUI.
-func getUserApproval(ui ToolApprovalUI, t types.Tool, arg any) error {
+func GetUserApproval(ui ToolApprovalUI, t types.Tool, arg any) error {
 	if !t.RequiresUserApproval() {
 		return nil
 	}

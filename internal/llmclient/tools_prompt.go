@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package internal
+package llmclient
 
 import (
 	"context"
@@ -10,13 +10,17 @@ import (
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/tools"
 	"github.com/mikeb26/gptcli/internal/types"
 )
+
+// defined here due to recursion with newEINOClient()
 
 type PromptRunTool struct {
 	ctx        context.Context
 	client     types.GptCliAIClient
-	approvalUI ToolApprovalUI
+	approvalUI tools.ToolApprovalUI
 	depth      int
 }
 
@@ -36,7 +40,7 @@ func (t PromptRunTool) GetOp() types.ToolCallOp {
 func (t PromptRunTool) RequiresUserApproval() bool {
 	return false
 }
-func NewPromptRunTool(ctxIn context.Context, vendor string, approvalUI ToolApprovalUI,
+func newPromptRunTool(ctxIn context.Context, vendor string, approvalUI tools.ToolApprovalUI,
 	apiKey string, model string, depthIn int) types.GptCliTool {
 
 	t := &PromptRunTool{
@@ -55,7 +59,7 @@ func (t PromptRunTool) Define() types.GptCliTool {
 	const LeafDesc = "Query the LLM with the provided system and user prompts. This function is useful for managing limited sized LLM context windows. Bigger picture tasks can be broken down into smaller more focused tasks. It has access to the same set of tools gptcli provides (except this one)."
 
 	desc := NonLeafDesc
-	if t.depth >= MaxDepth {
+	if t.depth >= internal.MaxDepth {
 		desc = LeafDesc
 	}
 	ret, err := utils.InferTool(string(t.GetOp()), desc, t.Invoke)
@@ -71,7 +75,7 @@ func (t PromptRunTool) Invoke(ctx context.Context,
 
 	ret := &PrompRunResp{}
 
-	err := getUserApproval(t.approvalUI, t, req.String())
+	err := tools.GetUserApproval(t.approvalUI, t, req.String())
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

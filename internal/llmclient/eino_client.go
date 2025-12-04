@@ -2,7 +2,7 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package internal
+package llmclient
 
 import (
 	"context"
@@ -17,6 +17,8 @@ import (
 	"github.com/cloudwego/eino/flow/agent"
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
+	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/tools"
 	"github.com/mikeb26/gptcli/internal/types"
 	"google.golang.org/genai"
 )
@@ -120,6 +122,32 @@ func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel
 		reactAgent:      client,
 		reasoningEffort: laclopenai.ReasoningEffortLevelMedium,
 	}
+}
+
+func defineTools(ctx context.Context, vendor string, ui types.GptCliUI,
+	apiKey string, model string, depth int) []types.GptCliTool {
+
+	approvalUI := tools.NewApprovalUI(ui)
+	tools := []types.GptCliTool{
+		tools.NewRunCommandTool(approvalUI),
+		tools.NewCreateFileTool(approvalUI),
+		tools.NewAppendFileTool(approvalUI),
+		tools.NewFilePatchTool(approvalUI),
+		tools.NewReadFileTool(approvalUI),
+		tools.NewDeleteFileTool(approvalUI),
+		tools.NewPwdTool(approvalUI),
+		tools.NewChdirTool(approvalUI),
+		tools.NewEnvGetTool(approvalUI),
+		tools.NewEnvSetTool(approvalUI),
+		tools.NewRetrieveUrlTool(approvalUI),
+		tools.NewRenderWebTool(approvalUI),
+	}
+	if depth <= internal.MaxDepth {
+		tools = append(tools, newPromptRunTool(ctx, vendor, approvalUI, apiKey,
+			model, depth))
+	}
+
+	return tools
 }
 
 func (client *GptCliEINOAIClient) SetReasoning(
