@@ -70,28 +70,6 @@ func drawStatusSegments(scr *gc.Window, y, maxX int, segments []statusSegment, u
 	}
 }
 
-// drawStatusBar is a convenience wrapper for thread-view style status
-// lines where the entire bar is plain text without highlighted key
-// segments.
-func drawStatusBar(scr *gc.Window, y int, text string, useColors bool) {
-	maxY, maxX := scr.MaxYX()
-	if y < 0 || y >= maxY {
-		return
-	}
-	segments := []statusSegment{{text: text, bold: false}}
-	drawStatusSegments(scr, y, maxX, segments, useColors)
-}
-
-// truncateToWidth returns a prefix of s that fits in max cells, treating
-// the string as UTF-8 and counting runes instead of bytes. This avoids
-// splitting multi-byte UTF-8 sequences when we need to clamp text to the
-// current terminal width. It assumes that each rune occupies a single
-// column cell, which holds for the common box-drawing and arrow glyphs
-// used in the menu UI.
-func truncateToWidth(s string, max int) string {
-	return ui.TruncateRunes(s, max)
-}
-
 // promptForThreadNameNCurses displays a simple centered modal window asking
 // the user to enter a new thread name. It returns the entered string (with
 // surrounding whitespace trimmed) or an empty string if the user cancels

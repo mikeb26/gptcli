@@ -16,6 +16,7 @@ import (
 	"github.com/famz/SetLocale"
 	gc "github.com/gbin/goncurses"
 	"github.com/mikeb26/gptcli/internal/ui"
+	iui "github.com/mikeb26/gptcli/internal/ui"
 	"golang.org/x/term"
 )
 
@@ -87,7 +88,7 @@ func (ui *threadMenuUI) draw() {
 	ui.adjustOffset()
 
 	headerTitle := strings.Split(threadGroupHeaderString(false), "\n")[0]
-	headerTitle = truncateToWidth(headerTitle, maxX)
+	headerTitle = iui.TruncateRunes(headerTitle, maxX)
 
 	if ui.useColors {
 		_ = scr.AttrSet(gc.A_NORMAL | gc.ColorPair(menuColorHeader))
@@ -106,7 +107,7 @@ func (ui *threadMenuUI) draw() {
 			if idx >= len(ui.items) {
 				break
 			}
-			line := truncateToWidth(ui.items[idx], maxX)
+			line := iui.TruncateRunes(ui.items[idx], maxX)
 
 			if idx == ui.selected {
 				if ui.useColors {
@@ -153,7 +154,7 @@ func (ui *threadMenuUI) draw() {
 			{text: " Config:", bold: false},
 			{text: "c", bold: true},
 			{text: " Quit:", bold: false},
-			{text: "q", bold: true},
+			{text: "ESC", bold: true},
 		}
 		drawStatusSegments(scr, statusY, maxX, segments, ui.useColors)
 	}
@@ -248,7 +249,7 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 		}
 
 		switch ch {
-		case 'q', 'Q', 'd' - 'a' + 1: // q/Q, ctrl-d
+		case gc.Key(27): // ESC
 			return nil
 		case gc.KEY_UP:
 			if menuUI.selected > 0 {
