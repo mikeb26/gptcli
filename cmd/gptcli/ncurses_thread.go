@@ -45,21 +45,38 @@ func drawThreadStatus(scr *gc.Window, focus threadViewFocus, msg string) {
 		return
 	}
 
-	label := "Hist"
-	if focus == focusInput {
-		label = "Input"
+	segments := []statusSegment{
+		{text: "Nav:", bold: false},
+		{text: "↑", bold: true},
+		{text: "/", bold: false},
+		{text: "↓", bold: true},
+		{text: "/", bold: false},
+		{text: "→", bold: true},
+		{text: "/", bold: false},
+		{text: "←", bold: true},
+		{text: "/", bold: false},
+		{text: "PgUp", bold: true},
+		{text: "/", bold: false},
+		{text: "PgDn", bold: true},
+		{text: "/", bold: false},
+		{text: "Home", bold: true},
+		{text: "/", bold: false},
+		{text: "End", bold: true},
+		{text: " OtherWin:", bold: false},
+		{text: "Tab", bold: true},
+		{text: " Send:", bold: false},
+		{text: "Ctrl-d", bold: true},
+		{text: " Back:", bold: false},
+		{text: "ESC", bold: true},
+	}
+	if msg != "" {
+		segments = []statusSegment{
+			{text: msg, bold: false},
+		}
 	}
 
-	if msg == "" {
-		msg = "Tab: switch  Ctrl-D: send  ESC: back  q: quit"
-	}
+	drawStatusSegments(scr, statusY, maxX, segments, globalUseColors)
 
-	full := fmt.Sprintf("[%s] %s", label, msg)
-	if len([]rune(full)) > maxX {
-		full = string([]rune(full)[:maxX])
-	}
-
-	drawStatusBar(scr, statusY, full, globalUseColors)
 }
 
 // drawThreadHeader renders a single-line header for the thread view.
@@ -73,9 +90,9 @@ func drawThreadHeader(scr *gc.Window, thread *GptCliThread) {
 		header = string([]rune(header)[:maxX])
 	}
 
-	var attr gc.Char = gc.A_BOLD
+	var attr gc.Char = gc.A_NORMAL
 	if globalUseColors {
-		attr = gc.A_BOLD | gc.ColorPair(menuColorHeader)
+		attr |= gc.ColorPair(menuColorHeader)
 	}
 	_ = scr.AttrSet(attr)
 	scr.Move(0, 0)
@@ -103,6 +120,12 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 	ncui := gptCliCtx.ui.(*ui.NcursesUI)
 	historyLines := buildHistoryLines(thread, maxX)
 	historyOffset := 0
+	historyCursorLine := len(historyLines) - 1
+	if historyCursorLine < 0 {
+		historyCursorLine = 0
+	}
+	historyCursorCol := 0
+	clampHistoryViewport(maxY, historyLines, &historyOffset, &historyCursorLine)
 	input := &inputState{}
 	input.reset()
 	focus := focusInput
@@ -119,7 +142,7 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 		if needRedraw {
 			scr.Erase()
 			drawThreadHeader(scr, thread)
-			drawThreadHistory(scr, historyLines, historyOffset)
+			drawThreadHistory(scr, historyLines, historyOffset, focus, historyCursorLine, historyCursorCol, blinkOn)
 			drawThreadInput(scr, input, focus, blinkOn)
 			drawThreadStatus(scr, focus, "")
 			scr.Refresh()
@@ -132,23 +155,19 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 			resizeScreen(scr)
 			maxY, maxX = scr.MaxYX()
 			historyLines = buildHistoryLines(thread, maxX)
-			if historyOffset < 0 {
-				historyOffset = 0
-			}
+			clampHistoryViewport(maxY, historyLines, &historyOffset, &historyCursorLine)
 			needRedraw = true
 			continue
 		default:
 			ch = scr.GetChar()
 			if ch == 0 {
 				// Timeout/no key pressed: advance the blink timer for the
-				// software cursor in the input area.
+				// software cursor in the active pane.
 				blinkCounter++
 				if blinkCounter >= blinkTicks {
 					blinkCounter = 0
 					blinkOn = !blinkOn
-					if focus == focusInput {
-						needRedraw = true
-					}
+					needRedraw = true
 				}
 				continue
 			}
@@ -167,42 +186,147 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 			switch ch {
 			case 'q', 'Q', 'd' - 'a' + 1, gc.Key(27): // q/Q, ctrl-d, ESC
 				return nil
+			case gc.KEY_LEFT:
+				// Horizontal navigation within the current visual history
+				// line. When moving left from column 0, wrap to the end of
+				// the previous line, mirroring the behavior of the input
+				// cursor.
+				if historyCursorCol > 0 {
+					historyCursorCol--
+					needRedraw = true
+				} else if historyCursorLine > 0 {
+					historyCursorLine--
+					// Place the cursor logically at the end of the previous
+					// line.
+					prevRunes := []rune(historyLines[historyCursorLine].text)
+					historyCursorCol = len(prevRunes)
+					if historyCursorLine < historyOffset {
+						historyOffset = historyCursorLine
+					}
+					needRedraw = true
+				}
+			case gc.KEY_RIGHT:
+				// Horizontal navigation to the right, wrapping to the
+				// beginning of the next line at the visual end of the
+				// current line.
+				if historyCursorLine >= 0 && historyCursorLine < len(historyLines) {
+					lineRunes := []rune(historyLines[historyCursorLine].text)
+					if historyCursorCol < len(lineRunes) {
+						historyCursorCol++
+						needRedraw = true
+					} else if historyCursorLine < len(historyLines)-1 {
+						// Move to the first column of the next line and
+						// scroll if necessary to keep it visible.
+						historyCursorLine++
+						historyCursorCol = 0
+						if historyCursorLine >= historyOffset+historyHeight {
+							historyOffset = historyCursorLine - historyHeight + 1
+							if historyOffset < 0 {
+								historyOffset = 0
+							}
+						}
+						needRedraw = true
+					}
+				}
 			case gc.KEY_UP:
-				if historyOffset > 0 {
-					historyOffset--
+				if historyCursorLine > 0 {
+					historyCursorLine--
+					if historyCursorLine < historyOffset {
+						historyOffset = historyCursorLine
+					}
+					// Preserve the closest horizontal column when moving
+					// between lines.
+					if historyCursorLine >= 0 && historyCursorLine < len(historyLines) {
+						lineRunes := []rune(historyLines[historyCursorLine].text)
+						if historyCursorCol > len(lineRunes) {
+							historyCursorCol = len(lineRunes)
+						}
+					}
 					needRedraw = true
 				}
 			case gc.KEY_DOWN:
-				if historyOffset+historyHeight < len(historyLines) {
-					historyOffset++
+				if historyCursorLine < len(historyLines)-1 {
+					historyCursorLine++
+					if historyCursorLine >= historyOffset+historyHeight {
+						historyOffset = historyCursorLine - historyHeight + 1
+						if historyOffset < 0 {
+							historyOffset = 0
+						}
+					}
+					if historyCursorLine >= 0 && historyCursorLine < len(historyLines) {
+						lineRunes := []rune(historyLines[historyCursorLine].text)
+						if historyCursorCol > len(lineRunes) {
+							historyCursorCol = len(lineRunes)
+						}
+					}
 					needRedraw = true
 				}
 			case gc.KEY_PAGEUP:
 				if historyHeight > 0 {
-					historyOffset -= historyHeight
-					if historyOffset < 0 {
-						historyOffset = 0
+					historyCursorLine -= historyHeight
+					if historyCursorLine < 0 {
+						historyCursorLine = 0
+					}
+					if historyCursorLine < historyOffset {
+						historyOffset = historyCursorLine
+					}
+					if historyCursorLine >= 0 && historyCursorLine < len(historyLines) {
+						lineRunes := []rune(historyLines[historyCursorLine].text)
+						if historyCursorCol > len(lineRunes) {
+							historyCursorCol = len(lineRunes)
+						}
 					}
 					needRedraw = true
 				}
 			case gc.KEY_PAGEDOWN:
 				if historyHeight > 0 {
-					historyOffset += historyHeight
-					if historyOffset+historyHeight > len(historyLines) {
-						historyOffset = len(historyLines) - historyHeight
-						if historyOffset < 0 {
-							historyOffset = 0
+					historyCursorLine += historyHeight
+					lastIdx := len(historyLines) - 1
+					if lastIdx < 0 {
+						lastIdx = 0
+					}
+					if historyCursorLine > lastIdx {
+						historyCursorLine = lastIdx
+					}
+					if historyCursorLine >= historyOffset+historyHeight {
+						historyOffset = historyCursorLine - historyHeight + 1
+					}
+					maxOffset := len(historyLines) - historyHeight
+					if maxOffset < 0 {
+						maxOffset = 0
+					}
+					if historyOffset > maxOffset {
+						historyOffset = maxOffset
+					}
+					if historyCursorLine >= 0 && historyCursorLine < len(historyLines) {
+						lineRunes := []rune(historyLines[historyCursorLine].text)
+						if historyCursorCol > len(lineRunes) {
+							historyCursorCol = len(lineRunes)
 						}
 					}
 					needRedraw = true
 				}
 			case gc.KEY_HOME:
+				// Move to the absolute beginning of the history: first
+				// column of the first visual line, and scroll the viewport
+				// to the top so that line is visible. This mirrors HOME
+				// behavior in the input area.
+				historyCursorLine = 0
+				historyCursorCol = 0
 				historyOffset = 0
 				needRedraw = true
 			case gc.KEY_END:
-				if historyHeight > 0 {
-					historyOffset = len(historyLines) - historyHeight
-					if historyOffset < 0 {
+				if historyHeight > 0 && len(historyLines) > 0 {
+					// Move to the absolute end of the history: last column of
+					// the last visual line. We also scroll the viewport so that
+					// the last line is visible, mirroring END behavior in the
+					// input area.
+					historyCursorLine = len(historyLines) - 1
+					lastRunes := []rune(historyLines[historyCursorLine].text)
+					historyCursorCol = len(lastRunes)
+					if len(historyLines) > historyHeight {
+						historyOffset = len(historyLines) - historyHeight
+					} else {
 						historyOffset = 0
 					}
 					needRedraw = true
@@ -211,6 +335,7 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 				resizeScreen(scr)
 				maxY, maxX = scr.MaxYX()
 				historyLines = buildHistoryLines(thread, maxX)
+				clampHistoryViewport(maxY, historyLines, &historyOffset, &historyCursorLine)
 				needRedraw = true
 			case gc.KEY_TAB:
 				focus = focusInput
@@ -222,13 +347,13 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 				resizeScreen(scr)
 				maxY, maxX = scr.MaxYX()
 				historyLines = buildHistoryLines(thread, maxX)
+				clampHistoryViewport(maxY, historyLines, &historyOffset, &historyCursorLine)
 				needRedraw = true
 			case gc.KEY_TAB:
 				focus = focusHistory
 				needRedraw = true
 			case gc.Key(27): // ESC
-				focus = focusHistory
-				needRedraw = true
+				return nil
 			case gc.KEY_HOME:
 				// Move to the very beginning of the input buffer (first
 				// character of the first line), mirroring HOME behavior in
@@ -379,11 +504,19 @@ func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext
 				// Refresh thread data from the updated current thread.
 				maxY, maxX = scr.MaxYX()
 				historyLines = buildHistoryLines(thread, maxX)
-				if len(historyLines) > historyHeight {
-					historyOffset = len(historyLines) - historyHeight
+				if len(historyLines) > 0 {
+					historyCursorLine = len(historyLines) - 1
+					// Position the history cursor at the logical end of the
+					// last line so that when we switch focus to the history
+					// view, the cursor appears at the very end of the
+					// newly-appended response.
+					lastRunes := []rune(historyLines[historyCursorLine].text)
+					historyCursorCol = len(lastRunes)
 				} else {
-					historyOffset = 0
+					historyCursorLine = 0
+					historyCursorCol = 0
 				}
+				clampHistoryViewport(maxY, historyLines, &historyOffset, &historyCursorLine)
 
 				// Clear input buffer on success or after giving up.
 				input.reset()

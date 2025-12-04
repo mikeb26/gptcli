@@ -107,8 +107,12 @@ func buildHistoryLines(thread *GptCliThread, width int) []visualLine {
 }
 
 // drawThreadHistory draws the scrollable history pane for the current
-// thread.
-func drawThreadHistory(scr *gc.Window, lines []visualLine, offset int) {
+// thread. When focusHistory is active it also overlays a software
+// cursor at the given logical cursorLine/cursorCol, using blinkOn to
+// control visibility so it can share the same blink state as the input
+// cursor.
+func drawThreadHistory(scr *gc.Window, lines []visualLine, offset int,
+	focus threadViewFocus, cursorLine, cursorCol int, blinkOn bool) {
 	maxY, maxX := scr.MaxYX()
 	startY := menuHeaderHeight
 	endY := maxY - menuStatusHeight - threadInputHeight // input box above status
@@ -172,6 +176,83 @@ func drawThreadHistory(scr *gc.Window, lines []visualLine, offset int) {
 		if sbX >= 0 {
 			drawScrollbarCell(scr, rowY, row, height, sbX, sb)
 		}
+
+		// Software cursor for the history pane. This mirrors the input
+		// cursor but leaves the history read-only: navigation keys move
+		// cursorLine/cursorCol while the underlying text is not editable.
+		// The cursor is only shown when the history pane has focus and
+		// blinkOn is true.
+		if focus == focusHistory && blinkOn && idx == cursorLine {
+			cx := clampCursorX(cursorCol, maxX, true)
+
+			// Determine the underlying rune at the cursor position so we
+			// invert that cell rather than drawing a generic block. When
+			// the cursor sits past the end of the text we just highlight a
+			// space.
+			ch := ' '
+			if idx >= 0 && idx < len(lines) {
+				lineRunes := []rune(lines[idx].text)
+				if cursorCol >= 0 && cursorCol < len(lineRunes) {
+					ch = lineRunes[cursorCol]
+				}
+			}
+
+			drawSoftCursor(scr, rowY, cx, ch)
+		}
 	}
 	_ = scr.AttrSet(gc.A_NORMAL)
 }
+
+// clampHistoryViewport normalizes the history viewport after changes to
+// terminal size or content. It keeps offset and cursorLine within valid
+// bounds and ensures the cursor's line is visible on screen.
+func clampHistoryViewport(maxY int, lines []visualLine, offset *int, cursorLine *int) {
+	startY := menuHeaderHeight
+	endY := maxY - menuStatusHeight - threadInputHeight
+	if endY <= startY {
+		endY = startY + 1
+	}
+	historyHeight := endY - startY
+	if historyHeight < 1 {
+		historyHeight = 1
+	}
+
+	total := len(lines)
+	if total == 0 {
+		*offset = 0
+		*cursorLine = 0
+		return
+	}
+
+	if *cursorLine < 0 {
+		*cursorLine = 0
+	}
+	if *cursorLine > total-1 {
+		*cursorLine = total - 1
+	}
+
+	maxOffset := total - historyHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if *offset < 0 {
+		*offset = 0
+	}
+	if *offset > maxOffset {
+		*offset = maxOffset
+	}
+
+	// Ensure the cursor's line is visible within the viewport.
+	if *cursorLine < *offset {
+		*offset = *cursorLine
+	} else if *cursorLine >= *offset+historyHeight {
+		*offset = *cursorLine - historyHeight + 1
+	}
+	if *offset < 0 {
+		*offset = 0
+	}
+	if *offset > maxOffset {
+		*offset = maxOffset
+	}
+}
+

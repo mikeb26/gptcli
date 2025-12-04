@@ -346,18 +346,10 @@ func drawThreadInput(scr *gc.Window, st *inputState, focus threadViewFocus,
 			cy = endY - 1
 		}
 
-		cx := st.cursorCol
 		// Keep the cursor inside the text area, not on top of the
 		// scrollbar column. Reserve the last column (maxX-1) for the
 		// scrollbar glyph so the cursor never overwrites it.
-		if maxX > 1 && cx >= maxX-1 {
-			cx = maxX - 2
-		} else if maxX == 1 {
-			cx = 0
-		}
-		if cx < 0 {
-			cx = 0
-		}
+		cx := clampCursorX(st.cursorCol, maxX, true)
 
 		// Determine the underlying rune at the cursor position so we can
 		// invert it instead of drawing a generic block. When the cursor is
@@ -370,11 +362,9 @@ func drawThreadInput(scr *gc.Window, st *inputState, focus threadViewFocus,
 			}
 		}
 
-		_ = scr.AttrOn(gc.A_REVERSE)
-		// Use MovePrint with a single-rune string so that the software
-		// cursor correctly inverts UTF-8 characters without corrupting
-		// ncurses attributes.
-		scr.MovePrint(cy, cx, string(ch))
-		_ = scr.AttrOff(gc.A_REVERSE)
+		// Use the shared helper so the software cursor logic can be reused
+		// by other panes (e.g. the history view) without duplication.
+		drawSoftCursor(scr, cy, cx, ch)
 	}
 }
+
