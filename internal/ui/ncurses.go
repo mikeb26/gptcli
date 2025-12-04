@@ -2,13 +2,19 @@ package ui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 
 	gc "github.com/gbin/goncurses"
 	"github.com/mikeb26/gptcli/internal/types"
 )
+
+// uiColorSelected mirrors the menuColorSelected color pair used by the
+// main ncurses thread menu (see cmd/gptcli/ncurses_menu.go). We rely on
+// that code having initialized this color pair via gc.InitPair before our
+// dialogs are shown. Using the same numeric pair keeps the selection
+// styling consistent (cyan background) across the menu and modal dialogs.
+const uiColorSelected int16 = 3
 
 // NcursesUI implements the GptCliUI interface using a goncurses Window.
 //
@@ -221,10 +227,256 @@ func (n *NcursesUI) readLineModal(userPrompt string) (string, error) {
 	}
 }
 
+// selectFromListModal displays a centered, scrollable list with the given
+// prompt. The user navigates with arrow keys and related movement keys and
+// presses Enter to select the highlighted item. If the user presses ESC the
+// selection is reported as canceled. The caller can decide how to interpret
+// cancellation (e.g. treating it as default selection).
+func (n *NcursesUI) selectFromListModal(userPrompt string,
+	items []string,
+	initialSelected int) (selectedIdx int, canceled bool, err error) {
+
+	if len(items) == 0 {
+		return -1, false, fmt.Errorf("no items provided")
+	}
+
+	// Total number of items, used both for sizing calculations and for
+	// selection/scrolling logic.
+	total := len(items)
+
+	// Allow multi-line prompts and size the modal based on the actual
+	// rendered lines plus the list content.
+	trimmed := strings.TrimRight(userPrompt, "\n")
+	promptLines := strings.Split(trimmed, "\n")
+	if len(promptLines) == 0 {
+		promptLines = []string{""}
+	}
+	promptHeight := len(promptLines)
+
+	maxRunes := 0
+	for _, line := range promptLines {
+		if l := len([]rune(line)); l > maxRunes {
+			maxRunes = l
+		}
+	}
+	for _, it := range items {
+		if l := len([]rune(it)); l > maxRunes {
+			maxRunes = l
+		}
+	}
+
+	innerWidth := maxRunes + 2
+	if innerWidth < 30 {
+		innerWidth = 30
+	}
+	// Borders + prompt lines + a blank spacer row + at least one row for
+	// items. The blank row visually separates the title from the list.
+	desiredHeight := promptHeight + 1 + len(items) + 2
+	if desiredHeight < promptHeight+3 {
+		desiredHeight = promptHeight + 3
+	}
+
+	win, contentWidth, contentHeight, err := n.newCenteredBox(desiredHeight, innerWidth)
+	if err != nil {
+		return -1, false, err
+	}
+	defer deleteModelAndRefreshParent(win, n.scr)
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	// If the prompt is so tall relative to the actual window height that it
+	// would push the list completely off-screen, trim the number of visible
+	// prompt lines so that we always reserve at least a handful of rows for
+	// the selectable list. This prevents the options from becoming
+	// invisible on small terminals or with very long prompts.
+	//
+	// When the number of items is smaller than our minimum reserved list
+	// rows, we reduce the reservation to match the actual item count so we
+	// don't end up with extra blank rows in tiny lists (e.g. a boolean
+	// selector with just two options).
+	const minListRows = 3
+	effectiveMinListRows := minListRows
+	if total < effectiveMinListRows {
+		effectiveMinListRows = total
+	}
+	maxPromptLines := contentHeight - (effectiveMinListRows + 1) // +1 for blank spacer
+	if maxPromptLines < 1 {
+		// Ensure at least one visible prompt line even when the terminal is
+		// extremely small. In that case we may not be able to reserve the
+		// full minListRows, but we will still leave as much space as
+		// possible for the list.
+		maxPromptLines = 1
+	}
+	if promptHeight > maxPromptLines {
+		promptHeight = maxPromptLines
+		promptLines = promptLines[:promptHeight]
+	}
+
+	// Selection / scrolling state. This mirrors the behavior of the main
+	// thread menu: we maintain a selected index and a top-of-window offset
+	// into the full list.
+	selected := initialSelected
+	if selected < 0 {
+		selected = 0
+	}
+	if selected >= total {
+		selected = total - 1
+	}
+	offset := 0
+
+	adjust := func(viewHeight int) {
+		if viewHeight <= 0 || total == 0 {
+			// Nothing meaningful to show; clamp indices.
+			offset = 0
+			if total == 0 {
+				selected = 0
+			} else if selected >= total {
+				selected = total - 1
+			} else if selected < 0 {
+				selected = 0
+			}
+			return
+		}
+
+		if selected < 0 {
+			selected = 0
+		}
+		if selected >= total {
+			selected = total - 1
+		}
+
+		if offset > selected {
+			offset = selected
+		}
+		if selected >= offset+viewHeight {
+			offset = selected - viewHeight + 1
+		}
+
+		maxOffset := total - viewHeight
+		if maxOffset < 0 {
+			maxOffset = 0
+		}
+		if offset > maxOffset {
+			offset = maxOffset
+		}
+		if offset < 0 {
+			offset = 0
+		}
+	}
+
+	for {
+		// Recompute view height each iteration to respect very small
+		// terminals. The list area starts after the prompt lines and a
+		// single blank spacer row, and occupies the remaining inner rows.
+		viewHeight := contentHeight - (promptHeight + 1)
+		if viewHeight < 1 {
+			viewHeight = 1
+		}
+		adjust(viewHeight)
+
+		// Clear content area. Always reset attributes to normal before
+		// clearing so we do not accidentally paint the prompt region or
+		// spacer line with the selection color from a previous iteration.
+		_ = win.AttrSet(gc.A_NORMAL)
+		for y := 1; y <= contentHeight; y++ {
+			win.Move(y, 1)
+			win.HLine(y, 1, ' ', contentWidth)
+		}
+
+		// Render prompt lines at the top.
+		_ = win.AttrSet(gc.A_NORMAL)
+		for i, line := range promptLines {
+			if 1+i > contentHeight {
+				break
+			}
+			win.MovePrint(1+i, 1, TruncateRunes(line, contentWidth))
+		}
+
+		// Render list items within the remaining rows. The selected item is
+		// highlighted using the same cyan background as the main menu
+		// (color pair uiColorSelected) when colors are available, and
+		// reverse video otherwise. We always fill the entire row so the
+		// highlight spans the full width of the list area.
+		selectedAttr := gc.A_NORMAL | gc.ColorPair(uiColorSelected)
+		normalAttr := gc.A_NORMAL
+		listStartY := 1 + promptHeight + 1 // one blank row after prompt
+		for row := 0; row < viewHeight; row++ {
+			idx := offset + row
+			y := listStartY + row
+			if y > contentHeight {
+				break
+			}
+			if idx >= total {
+				// No more items; leave the rest of the area blank.
+				continue
+			}
+
+			text := TruncateRunes(items[idx], contentWidth)
+			if idx == selected {
+				_ = win.AttrSet(selectedAttr)
+			} else {
+				_ = win.AttrSet(normalAttr)
+			}
+			// Fill the entire inner row so the selection highlight spans the
+			// full width, then render the text at the start of the line.
+			win.Move(y, 1)
+			win.HLine(y, 1, ' ', contentWidth)
+			win.MovePrint(y, 1, text)
+		}
+
+		win.Refresh()
+
+		ch := win.GetChar()
+		if ch == 0 {
+			continue
+		}
+
+		switch ch {
+		case gc.Key(27): // ESC -> report cancellation
+			return -1, true, nil
+		case gc.KEY_ENTER, gc.KEY_RETURN:
+			return selected, false, nil
+		case gc.KEY_UP:
+			if selected > 0 {
+				selected--
+			}
+		case gc.KEY_DOWN:
+			if selected < total-1 {
+				selected++
+			}
+		case gc.KEY_HOME:
+			selected = 0
+		case gc.KEY_END:
+			selected = total - 1
+		case gc.KEY_PAGEUP:
+			if viewHeight > 0 {
+				selected -= viewHeight
+				if selected < 0 {
+					selected = 0
+				}
+			}
+		case gc.KEY_PAGEDOWN:
+			if viewHeight > 0 {
+				selected += viewHeight
+				if selected > total-1 {
+					selected = total - 1
+				}
+			}
+		default:
+			// Ignore other keys; no direct numeric entry for now.
+		}
+	}
+}
+
 // SelectOption presents a list of options to the user in a centered
-// ncurses modal and reads their selection. The user can type the numeric
-// index of the desired option and press Enter. It returns an error if the
-// input is invalid or if the underlying screen is unavailable.
+// ncurses modal and reads their selection. The user navigates with the
+// arrow keys (plus PgUp/PgDn/Home/End for larger lists) and presses Enter
+// to choose the highlighted option. Pressing ESC cancels the dialog and
+// returns an error.
 func (n *NcursesUI) SelectOption(userPrompt string,
 	choices []types.GptCliUIOption) (types.GptCliUIOption, error) {
 
@@ -234,105 +486,29 @@ func (n *NcursesUI) SelectOption(userPrompt string,
 	if len(choices) == 0 {
 		return types.GptCliUIOption{}, fmt.Errorf("no choices provided")
 	}
-	prompt := strings.TrimRight(userPrompt, "\n")
-	promptRunes := []rune(prompt)
 
 	optionLines := make([]string, len(choices))
-	maxLineLen := len(promptRunes)
 	for i, c := range choices {
-		line := fmt.Sprintf("%d) %s", i+1, c.Label)
-		optionLines[i] = line
-		if l := len([]rune(line)); l > maxLineLen {
-			maxLineLen = l
-		}
+		optionLines[i] = c.Label
 	}
 
-	// Height: borders + prompt + choices + input line.
-	desiredHeight := len(choices) + 4
-	if desiredHeight < 4 {
-		desiredHeight = 4
-	}
-	innerWidth := maxLineLen + 2
-	if innerWidth < 30 {
-		innerWidth = 30
-	}
-	win, contentWidth, contentHeight, err := n.newCenteredBox(desiredHeight, innerWidth)
+	idx, canceled, err := n.selectFromListModal(userPrompt, optionLines, 0)
 	if err != nil {
 		return types.GptCliUIOption{}, err
 	}
-	defer deleteModelAndRefreshParent(win, n.scr)
-	if contentWidth < 1 {
-		contentWidth = 1
+	if canceled {
+		return types.GptCliUIOption{}, fmt.Errorf("selection cancelled")
 	}
-
-	// Prompt.
-	win.MovePrint(1, 1, TruncateRunes(prompt, contentWidth))
-
-	// Options (may be truncated vertically if the terminal is very small).
-	maxOptionsVisible := contentHeight - 2 // minus prompt and input line
-	if maxOptionsVisible < 0 {
-		maxOptionsVisible = 0
-	}
-	for i := 0; i < len(optionLines) && i < maxOptionsVisible; i++ {
-		win.MovePrint(2+i, 1, TruncateRunes(optionLines[i], contentWidth))
-	}
-
-	// Input line on the last inner row of the content area (just above
-	// the bottom border). contentHeight is the count of inner rows, so
-	// its coordinate within the window is already the last valid
-	// content row.
-	inputY := contentHeight
-	basePrompt := fmt.Sprintf("Enter choice number (1-%d): ", len(choices))
-
-	var buf []rune
-	for {
-		// Clear input row within the content area.
-		for x := 1; x < contentWidth+1; x++ {
-			win.MovePrint(inputY, x, " ")
-		}
-
-		line := basePrompt + string(buf)
-		win.MovePrint(inputY, 1, TruncateRunes(line, contentWidth))
-		win.Refresh()
-
-		ch := win.GetChar()
-		if ch == 0 {
-			continue
-		}
-
-		switch ch {
-		case gc.Key(27): // ESC -> treat as cancellation
-			return types.GptCliUIOption{}, fmt.Errorf("selection cancelled")
-		case gc.KEY_ENTER, gc.KEY_RETURN:
-			text := strings.TrimSpace(string(buf))
-			idx, err := strconv.Atoi(text)
-			if err != nil || idx < 1 || idx > len(choices) {
-				// Invalid selection; show a brief error inline and
-				// allow the user to try again.
-				errMsg := fmt.Sprintf("Invalid selection. Enter a number 1-%d.", len(choices))
-				win.MovePrint(inputY, 1, TruncateRunes(errMsg, contentWidth))
-				win.Refresh()
-				buf = buf[:0]
-				continue
-			}
-			return choices[idx-1], nil
-		case gc.KEY_BACKSPACE, 127, 8:
-			if len(buf) > 0 {
-				buf = buf[:len(buf)-1]
-			}
-		default:
-			if ch >= '0' && ch <= '9' {
-				buf = append(buf, rune(ch))
-			}
-		}
-	}
+	return choices[idx], nil
 }
 
-// SelectBool presents a true and false option to the user via a line
-// input modal and returns their selection. It mirrors the semantics of
-// StdioUI.SelectBool: the user types the label of the desired option
-// (case-insensitive), or presses Enter to accept the default when
-// defaultOpt is non-nil.
+// SelectBool presents a true and false option to the user via a list
+// selection modal and returns their choice. The user navigates with the
+// arrow keys and presses Enter to choose the highlighted option. The
+// initial highlight reflects defaultOpt when provided. ESC preserves the
+// previous semantics from the line-based implementation: with a default,
+// ESC selects the default; without a default, ESC is treated as an
+// invalid selection and the user is re-prompted with an error prefix.
 func (n *NcursesUI) SelectBool(userPrompt string,
 	trueOption, falseOption types.GptCliUIOption,
 	defaultOpt *bool) (bool, error) {
@@ -340,26 +516,34 @@ func (n *NcursesUI) SelectBool(userPrompt string,
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	items := []string{trueOption.Label, falseOption.Label}
+	initialSelected := 0
+	if defaultOpt != nil && !*defaultOpt {
+		initialSelected = 1
+	}
+
 	prompt := strings.TrimRight(userPrompt, "\n")
 
 	for {
-		line, err := n.readLineModal(prompt)
+		idx, canceled, err := n.selectFromListModal(prompt, items, initialSelected)
 		if err != nil {
 			return false, err
 		}
 
-		line = strings.TrimSpace(line)
-		if strings.EqualFold(line, trueOption.Label) {
-			return true, nil
+		if !canceled {
+			// Enter pressed: return the highlighted choice.
+			return idx == 0, nil
 		}
-		if strings.EqualFold(line, falseOption.Label) {
-			return false, nil
-		}
-		if line == "" && defaultOpt != nil {
+
+		// ESC pressed: preserve prior semantics.
+		if defaultOpt != nil {
+			// Previously, ESC produced an empty input line which selected
+			// the default when provided.
 			return *defaultOpt, nil
 		}
 
-		// Invalid selection; prepend an error message and re-prompt.
+		// Without a default, ESC is treated as an invalid selection, which
+		// triggers a re-prompt with an "Invalid selection." prefix.
 		prompt = "Invalid selection. " + userPrompt
 	}
 }
