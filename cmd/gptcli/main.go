@@ -8,18 +8,15 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"hash/crc32"
 	"os"
-	"strconv"
 	"strings"
-	"time"
 
 	laclopenai "github.com/cloudwego/eino-ext/libs/acl/openai"
 	gc "github.com/gbin/goncurses"
 
 	"github.com/mikeb26/gptcli/internal"
 	"github.com/mikeb26/gptcli/internal/llmclient"
-	"github.com/mikeb26/gptcli/internal/prompts"
+	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/mikeb26/gptcli/internal/ui"
 )
@@ -34,8 +31,6 @@ const (
 	CodeBlockDelimNewline = "```\n"
 	ThreadParseErrFmt     = "Could not parse %v. Please enter a valid thread number.\n"
 	ThreadNoExistErrFmt   = "Thread %v does not exist. To list threads try 'ls'.\n"
-	RowFmt                = "│ %8v │ %18v │ %18v │ %18v │ %-18v\n"
-	RowSpacer             = "──────────────────────────────────────────────────────────────────────────────────────────────\n"
 )
 
 type Prefs struct {
@@ -51,10 +46,10 @@ type GptCliContext struct {
 	needConfig         bool
 	curSummaryToggle   bool
 	prefs              Prefs
-	threadGroups       []*GptCliThreadGroup
-	archiveThreadGroup *GptCliThreadGroup
-	mainThreadGroup    *GptCliThreadGroup
-	curThreadGroup     *GptCliThreadGroup
+	threadGroups       []*threads.GptCliThreadGroup
+	archiveThreadGroup *threads.GptCliThreadGroup
+	mainThreadGroup    *threads.GptCliThreadGroup
+	curThreadGroup     *threads.GptCliThreadGroup
 }
 
 func NewGptCliContext(ctx context.Context) *GptCliContext {
@@ -84,7 +79,7 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 		archiveThreadGroup: nil,
 		mainThreadGroup:    nil,
 		curThreadGroup:     nil,
-		threadGroups:       make([]*GptCliThreadGroup, 0),
+		threadGroups:       make([]*threads.GptCliThreadGroup, 0),
 	}
 
 	threadsDirLocal, err := getThreadsDir()
@@ -97,9 +92,9 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 	}
 
 	gptCliCtx.threadGroups = append(gptCliCtx.threadGroups,
-		NewGptCliThreadGroup("", threadsDirLocal))
+		threads.NewGptCliThreadGroup("", threadsDirLocal))
 	gptCliCtx.threadGroups = append(gptCliCtx.threadGroups,
-		NewGptCliThreadGroup("a", archiveDirLocal))
+		threads.NewGptCliThreadGroup("a", archiveDirLocal))
 
 	gptCliCtx.mainThreadGroup = gptCliCtx.threadGroups[0]
 	gptCliCtx.archiveThreadGroup = gptCliCtx.threadGroups[1]
@@ -128,7 +123,7 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 		gptCliCtx.ui, keyText, internal.DefaultModels[gptCliCtx.prefs.Vendor], 0)
 
 	for _, thrGrp := range gptCliCtx.threadGroups {
-		err := thrGrp.loadThreads()
+		err := thrGrp.LoadThreads()
 		if err != nil {
 			return err
 		}
@@ -136,12 +131,6 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 	gptCliCtx.needConfig = false
 
 	return nil
-}
-
-func genUniqFileName(name string, cTime time.Time) string {
-	return fmt.Sprintf("%v_%v.json",
-		strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(name))), 16),
-		cTime.Unix())
 }
 
 func summaryToggleMain(ctx context.Context, gptCliCtx *GptCliContext,
@@ -173,7 +162,7 @@ func summaryToggleMain(ctx context.Context, gptCliCtx *GptCliContext,
 	return nil
 }
 
-func threadContainsSearchStr(t *GptCliThread, searchStr string) bool {
+func threadContainsSearchStr(t *threads.GptCliThread, searchStr string) bool {
 	for _, msg := range t.Dialogue {
 		if msg.Role == types.GptCliMessageRoleSystem {
 			continue
@@ -200,10 +189,10 @@ func searchMain(ctx context.Context, gptCliCtx *GptCliContext,
 
 	var sb strings.Builder
 
-	sb.WriteString(threadGroupHeaderString(true))
+	sb.WriteString(threads.ThreadGroupHeaderString(true))
 
 	for _, thrGrp := range gptCliCtx.threadGroups {
-		for tidx, t := range thrGrp.threads {
+		for tidx, t := range thrGrp.Threads() {
 			count := 0
 			for _, searchStr := range searchStrs {
 				if threadContainsSearchStr(t, searchStr) {
@@ -211,13 +200,13 @@ func searchMain(ctx context.Context, gptCliCtx *GptCliContext,
 				}
 			}
 			if count == len(searchStrs) {
-				threadNum := fmt.Sprintf("%v%v", thrGrp.prefix, tidx+1)
+				threadNum := fmt.Sprintf("%v%v", thrGrp.Prefix, tidx+1)
 				sb.WriteString(t.HeaderString(threadNum))
 			}
 		}
 	}
 
-	sb.WriteString(threadGroupFooterString())
+	sb.WriteString(threads.ThreadGroupFooterString())
 
 	fmt.Printf("%v", sb.String())
 
@@ -249,62 +238,6 @@ func reasoningMain(ctx context.Context, gptCliCtx *GptCliContext,
 	return nil
 }
 
-// in order to reduce costs, summarize the prior dialogue history with
-// the GPT4oMini when resending the thread to OpenAI
-func summarizeDialogue(ctx context.Context, gptCliCtx *GptCliContext,
-	dialogue []*types.GptCliMessage) ([]*types.GptCliMessage, error) {
-
-	summaryDialogue := []*types.GptCliMessage{
-		{Role: types.GptCliMessageRoleSystem,
-			Content: prompts.SystemMsg},
-	}
-
-	msg := &types.GptCliMessage{
-		Role:    types.GptCliMessageRoleSystem,
-		Content: prompts.SummarizeMsg,
-	}
-	dialogue = append(dialogue, msg)
-
-	msg, err := gptCliCtx.client.CreateChatCompletion(ctx, dialogue)
-	if err != nil {
-		return summaryDialogue, err
-	}
-
-	summaryDialogue = append(summaryDialogue, msg)
-
-	return summaryDialogue, nil
-}
-
-func splitBlocks(text string) []string {
-	blocks := make([]string, 0)
-
-	inBlock := false
-	idx := strings.Index(text, CodeBlockDelim)
-	numBlocks := 0
-	for ; idx != -1; idx = strings.Index(text, CodeBlockDelim) {
-		appendText := text[0:idx]
-		if inBlock {
-			appendText = CodeBlockDelim + appendText
-		} else if numBlocks != 0 {
-			blocks[numBlocks-1] = blocks[numBlocks-1] + CodeBlockDelim
-		}
-		blocks = append(blocks, appendText)
-		text = text[idx+len(CodeBlockDelim):]
-		inBlock = !inBlock
-		numBlocks++
-	}
-	if len(text) > 0 {
-		if inBlock {
-			text = text + CodeBlockDelim
-		} else if numBlocks != 0 {
-			blocks[numBlocks-1] = blocks[numBlocks-1] + CodeBlockDelim
-		}
-		blocks = append(blocks, text)
-	}
-
-	return blocks
-}
-
 func main() {
 	ctx := context.Background()
 	gptCliCtx := NewGptCliContext(ctx)
@@ -318,4 +251,19 @@ func main() {
 	}
 
 	menuMain(ctx, gptCliCtx, make([]string, 2))
+}
+
+// ChatOnceInCurrentThread encapsulates the core request/response flow
+// for sending a prompt to the current thread, updating dialogue
+// history, and persisting the result. It performs no direct terminal
+// I/O so callers can render the assistant reply however they choose.
+func (gptCliCtx *GptCliContext) ChatOnceInCurrentThread(
+	ctx context.Context, prompt string) (*types.GptCliMessage, error) {
+
+	thrGrp := gptCliCtx.curThreadGroup
+	if thrGrp == gptCliCtx.archiveThreadGroup {
+		return nil, fmt.Errorf("Cannot edit archived thread; use unarchive first")
+	}
+	return thrGrp.ChatOnceInCurrentThread(ctx, gptCliCtx.client, prompt,
+		gptCliCtx.curSummaryToggle)
 }

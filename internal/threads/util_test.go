@@ -2,15 +2,12 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package main
+package threads
 
 import (
-	"context"
 	"testing"
+	"time"
 
-	"github.com/golang/mock/gomock"
-	"github.com/mikeb26/gptcli/internal/prompts"
-	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -65,39 +62,41 @@ func TestSplitBlocks(t *testing.T) {
 	}
 }
 
-func TestSummarizeDialogue(t *testing.T) {
-	ctx := context.Background()
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+func TestFormatHeaderTimeTodayYesterdayAndOther(t *testing.T) {
+	// Fix "now" so results are deterministic.
+	now := time.Date(2025, 1, 15, 10, 30, 0, 0, time.Local)
 
-	mockClient := types.NewMockGptCliAIClient(ctrl)
-	gptCliCtx := GptCliContext{
-		client: mockClient,
-	}
+	todayTs := time.Date(2025, 1, 15, 8, 0, 0, 0, time.Local)
+	yesterdayTs := time.Date(2025, 1, 14, 20, 0, 0, 0, time.Local)
+	otherTs := time.Date(2024, 12, 31, 23, 59, 0, 0, time.Local)
 
-	initialDialogue := []*types.GptCliMessage{
-		{Role: types.GptCliMessageRoleUser, Content: "Hello!"},
-		{Role: types.GptCliMessageRoleAssistant, Content: "Hi! How can I assist you today?"},
-	}
+	todayStr := formatHeaderTime(todayTs, now)
+	yesterdayStr := formatHeaderTime(yesterdayTs, now)
+	otherStr := formatHeaderTime(otherTs, now)
 
-	expectedSummaryContent := "User greeted and asked for assistance."
-	expectedSummaryMessage := &types.GptCliMessage{
-		Role:    types.GptCliMessageRoleAssistant,
-		Content: expectedSummaryContent,
-	}
-
-	initialDialogueWithSummary := append(initialDialogue, &types.GptCliMessage{
-		Role:    types.GptCliMessageRoleSystem,
-		Content: prompts.SummarizeMsg,
-	})
-
-	mockClient.EXPECT().
-		CreateChatCompletion(gomock.Any(), gomock.Eq(initialDialogueWithSummary)).
-		Return(expectedSummaryMessage, nil).Times(1)
-
-	summaryDialogue, err := summarizeDialogue(ctx, &gptCliCtx, initialDialogue)
-
-	assert.NoError(t, err)
-	assert.Len(t, summaryDialogue, 2)
-	assert.Equal(t, expectedSummaryContent, summaryDialogue[1].Content)
+	assert.Contains(t, todayStr, "Today")
+	assert.Contains(t, yesterdayStr, "Yesterday")
+	assert.NotContains(t, otherStr, "Today")
+	assert.NotContains(t, otherStr, "Yesterday")
 }
+
+func TestGenUniqFileNameDeterministicAndVariesWithInputs(t *testing.T) {
+	base := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
+
+	name := "example-thread"
+	file1 := genUniqFileName(name, base)
+	file2 := genUniqFileName(name, base)
+
+	// Deterministic for the same inputs.
+	assert.Equal(t, file1, file2)
+
+	// Changing the name should change the file name.
+	otherName := "other-thread"
+	file3 := genUniqFileName(otherName, base)
+	assert.NotEqual(t, file1, file3)
+
+	// Changing the timestamp should also change the file name.
+	file4 := genUniqFileName(name, base.Add(time.Second))
+	assert.NotEqual(t, file1, file4)
+}
+

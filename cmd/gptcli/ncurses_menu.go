@@ -15,6 +15,7 @@ import (
 
 	"github.com/famz/SetLocale"
 	gc "github.com/gbin/goncurses"
+	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/ui"
 	iui "github.com/mikeb26/gptcli/internal/ui"
 	"golang.org/x/term"
@@ -87,7 +88,7 @@ func (ui *threadMenuUI) draw() {
 
 	ui.adjustOffset()
 
-	headerTitle := strings.Split(threadGroupHeaderString(false), "\n")[0]
+	headerTitle := strings.Split(threads.ThreadGroupHeaderString(false), "\n")[0]
 	headerTitle = iui.TruncateRunes(headerTitle, maxX)
 
 	if ui.useColors {
@@ -288,7 +289,7 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 			}
 			threadIndex := menuUI.selected + 1 // threads are 1-based
 			gptCliCtx.curThreadGroup = gptCliCtx.mainThreadGroup
-			thread, err := gptCliCtx.mainThreadGroup.activateThread(threadIndex)
+			thread, err := gptCliCtx.mainThreadGroup.ActivateThread(threadIndex)
 			if err != nil {
 				// Propagate the error so the caller can handle it and
 				// exit ncurses cleanly.
@@ -311,7 +312,7 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 			if name == "" { // user cancelled
 				continue
 			}
-			if err := createNewThread(gptCliCtx, name); err != nil {
+			if err := gptCliCtx.mainThreadGroup.NewThread(name); err != nil {
 				return fmt.Errorf("gptcli: failed to create new thread from menu: %w", err)
 			}
 
@@ -336,14 +337,14 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 
 			// Only main-thread-group entries are shown in the menu, so we move
 			// from mainThreadGroup to archiveThreadGroup directly.
-			if gptCliCtx.mainThreadGroup.totThreads == 0 {
+			if gptCliCtx.mainThreadGroup.Count() == 0 {
 				continue
 			}
-			if threadIndex > gptCliCtx.mainThreadGroup.totThreads {
+			if threadIndex > gptCliCtx.mainThreadGroup.Count() {
 				continue
 			}
 
-			if err := gptCliCtx.mainThreadGroup.moveThread(threadIndex, gptCliCtx.archiveThreadGroup); err != nil {
+			if err := gptCliCtx.mainThreadGroup.MoveThread(threadIndex, gptCliCtx.archiveThreadGroup); err != nil {
 				return fmt.Errorf("gptcli: failed to archive thread from menu: %w", err)
 			}
 

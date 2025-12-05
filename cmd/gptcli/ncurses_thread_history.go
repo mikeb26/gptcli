@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	gc "github.com/gbin/goncurses"
+	"github.com/mikeb26/gptcli/internal/threads"
 )
 
 // visualLine represents a single, fully-rendered line of text in the
@@ -26,7 +27,7 @@ type visualLine struct {
 // "LLM:") and soft wrapping with a trailing '\\' on wrapped
 // segments. The resulting slice is suitable for direct line-by-line
 // rendering in the history pane.
-func buildHistoryLines(thread *GptCliThread, width int) []visualLine {
+func buildHistoryLines(thread *threads.GptCliThread, width int) []visualLine {
 	if width <= 0 {
 		return nil
 	}
@@ -40,15 +41,15 @@ func buildHistoryLines(thread *GptCliThread, width int) []visualLine {
 		isCode := false
 
 		switch b.Kind {
-		case RenderBlockUserPrompt:
+		case threads.RenderBlockUserPrompt:
 			prefix = "You: "
 			isUser = true
-		case RenderBlockAssistantText, RenderBlockAssistantCode:
+		case threads.RenderBlockAssistantText, threads.RenderBlockAssistantCode:
 			prefix = "LLM: "
 			isUser = false
 		}
 
-		if b.Kind == RenderBlockAssistantCode {
+		if b.Kind == threads.RenderBlockAssistantCode {
 			isCode = true
 		}
 
@@ -255,4 +256,3 @@ func clampHistoryViewport(maxY int, lines []visualLine, offset *int, cursorLine 
 		*offset = maxOffset
 	}
 }
-

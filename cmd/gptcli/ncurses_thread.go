@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	gc "github.com/gbin/goncurses"
+	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/ui"
 )
 
@@ -80,7 +81,7 @@ func drawThreadStatus(scr *gc.Window, focus threadViewFocus, msg string) {
 }
 
 // drawThreadHeader renders a single-line header for the thread view.
-func drawThreadHeader(scr *gc.Window, thread *GptCliThread) {
+func drawThreadHeader(scr *gc.Window, thread *threads.GptCliThread) {
 	maxY, maxX := scr.MaxYX()
 	if maxY <= 0 {
 		return
@@ -108,7 +109,8 @@ func drawThreadHeader(scr *gc.Window, thread *GptCliThread) {
 // areas are independently scrollable via focus switching (Tab) and
 // standard navigation keys. Pressing 'q' or ESC in the history focus
 // returns to the menu.
-func runThreadView(ctx context.Context, scr *gc.Window, gptCliCtx *GptCliContext, thread *GptCliThread) error { //nolint:revive,unused
+func runThreadView(ctx context.Context, scr *gc.Window,
+	gptCliCtx *GptCliContext, thread *threads.GptCliThread) error {
 	// Listen for SIGWINCH so we can adjust layout on resize while inside
 	// the thread view. This mirrors the behavior of showMenu but keeps
 	// all ncurses calls confined to this goroutine.
