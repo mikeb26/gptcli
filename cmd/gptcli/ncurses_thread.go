@@ -128,8 +128,29 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 	}
 	historyCursorCol := 0
 	clampHistoryViewport(maxY, historyLines, &historyOffset, &historyCursorLine)
-	input := &inputState{}
-	input.reset()
+
+	// Create a Frame to manage the editable multi-line input buffer and
+	// its cursor/scroll state. The frame's content area starts on the
+	// first row below the input label and extends down to the status bar.
+	inputHeight := threadInputHeight
+	inputStartY := maxY - menuStatusHeight - inputHeight
+	if inputStartY < menuHeaderHeight {
+		inputStartY = menuHeaderHeight
+	}
+	// The label occupies one row; actual editable content lives below it.
+	frameY := inputStartY + 1
+	frameH := inputHeight - 1
+	if frameH < 1 {
+		frameH = 1
+	}
+	frameW := maxX
+	inputFrame, err := ui.NewFrame(scr, frameH, frameW, frameY, 0, false, true, true)
+	if err != nil {
+		return fmt.Errorf("creating input frame: %w", err)
+	}
+	defer inputFrame.Close()
+	inputFrame.ResetInput()
+
 	focus := focusInput
 	needRedraw := true
 
@@ -142,12 +163,21 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 
 	for {
 		if needRedraw {
+			// First redraw everything that lives directly on the root
+			// screen (stdscr). We intentionally refresh this parent
+			// window *before* rendering the input frame's sub-window so
+			// that the frame's contents are not overwritten by a later
+			// scr.Refresh() call.
 			scr.Erase()
 			drawThreadHeader(scr, thread)
 			drawThreadHistory(scr, historyLines, historyOffset, focus, historyCursorLine, historyCursorCol, blinkOn)
-			drawThreadInput(scr, input, focus, blinkOn)
+			drawThreadInputLabel(scr, focus)
 			drawThreadStatus(scr, focus, "")
 			scr.Refresh()
+			// Now render the input frame. Render() calls wrefresh() on the
+			// frame window, which will layer its contents on top of the
+			// already‑refreshed root screen.
+			inputFrame.Render(nil, blinkOn && focus == focusInput)
 			needRedraw = false
 		}
 
@@ -360,126 +390,49 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 				// Move to the very beginning of the input buffer (first
 				// character of the first line), mirroring HOME behavior in
 				// the history view.
-				input.cursorLine = 0
-				input.cursorCol = 0
-				input.scroll = 0
+				inputFrame.MoveHome()
 				needRedraw = true
 			case gc.KEY_END:
 				// Move to the very end of the input buffer (last character
 				// of the last line), mirroring END behavior in the history
 				// view.
-				if len(input.lines) > 0 {
-					input.cursorLine = len(input.lines) - 1
-					input.cursorCol = len(input.lines[input.cursorLine])
-					// Ensure the last line is visible; adjust scroll based on
-					// the height of the input area.
-					visible := threadInputHeight - 1
-					if visible < 1 {
-						visible = 1
-					}
-					maxScroll := len(input.lines) - visible
-					if maxScroll < 0 {
-						maxScroll = 0
-					}
-					if input.cursorLine < input.scroll {
-						input.scroll = input.cursorLine
-					} else if input.cursorLine >= input.scroll+visible {
-						input.scroll = input.cursorLine - visible + 1
-					}
-					if input.scroll > maxScroll {
-						input.scroll = maxScroll
-					}
-					if input.scroll < 0 {
-						input.scroll = 0
-					}
-				}
+				// Move to the very end of the input buffer (last character
+				// of the last line), mirroring END behavior in the history
+				// view.
+				inputFrame.MoveEnd()
 				needRedraw = true
 			case gc.KEY_PAGEUP:
 				// Scroll and move the cursor up by one visible page.
-				visible := threadInputHeight - 1
-				if visible < 1 {
-					visible = 1
-				}
-				input.cursorLine -= visible
-				if input.cursorLine < 0 {
-					input.cursorLine = 0
-				}
-				input.scroll -= visible
-				if input.scroll < 0 {
-					input.scroll = 0
-				}
-				if input.cursorLine < input.scroll {
-					input.scroll = input.cursorLine
-				}
-				if input.cursorLine >= 0 && input.cursorLine < len(input.lines) && input.cursorCol > len(input.lines[input.cursorLine]) {
-					input.cursorCol = len(input.lines[input.cursorLine])
-				}
+				inputFrame.ScrollPageUp()
 				needRedraw = true
 			case gc.KEY_PAGEDOWN:
 				// Scroll and move the cursor down by one visible page.
-				visible := threadInputHeight - 1
-				if visible < 1 {
-					visible = 1
-				}
-				input.cursorLine += visible
-				if input.cursorLine > len(input.lines)-1 {
-					input.cursorLine = len(input.lines) - 1
-				}
-				maxScroll := len(input.lines) - visible
-				if maxScroll < 0 {
-					maxScroll = 0
-				}
-				input.scroll += visible
-				if input.scroll > maxScroll {
-					input.scroll = maxScroll
-				}
-				if input.cursorLine >= input.scroll+visible {
-					input.scroll = input.cursorLine - visible + 1
-				}
-				if input.cursorLine >= 0 && input.cursorLine < len(input.lines) && input.cursorCol > len(input.lines[input.cursorLine]) {
-					input.cursorCol = len(input.lines[input.cursorLine])
-				}
+				inputFrame.ScrollPageDown()
 				needRedraw = true
 			case gc.KEY_LEFT:
-				input.moveCursorLeft()
+				inputFrame.MoveCursorLeft()
 				needRedraw = true
 			case gc.KEY_RIGHT:
-				input.moveCursorRight()
+				inputFrame.MoveCursorRight()
 				needRedraw = true
 			case gc.KEY_UP:
-				input.moveCursorUp()
-				if input.cursorLine < input.scroll {
-					input.scroll = input.cursorLine
-				}
+				inputFrame.MoveCursorUp()
+				inputFrame.EnsureCursorVisible()
 				needRedraw = true
 			case gc.KEY_DOWN:
-				input.moveCursorDown()
-				visible := threadInputHeight - 1
-				if visible < 1 {
-					visible = 1
-				}
-				if input.cursorLine >= input.scroll+visible {
-					input.scroll = input.cursorLine - visible + 1
-				}
+				inputFrame.MoveCursorDown()
+				inputFrame.EnsureCursorVisible()
 				needRedraw = true
 			case gc.KEY_BACKSPACE, 127, 8:
-				input.backspace()
-				if input.cursorLine < input.scroll {
-					input.scroll = input.cursorLine
-				}
+				inputFrame.Backspace()
+				inputFrame.EnsureCursorVisible()
 				needRedraw = true
 			case gc.KEY_ENTER, gc.KEY_RETURN:
-				input.insertNewline()
-				visible := threadInputHeight - 1
-				if visible < 1 {
-					visible = 1
-				}
-				if input.cursorLine >= input.scroll+visible {
-					input.scroll = input.cursorLine - visible + 1
-				}
+				inputFrame.InsertNewline()
+				inputFrame.EnsureCursorVisible()
 				needRedraw = true
 			case 'd' - 'a' + 1: // Ctrl-D sends the input buffer
-				prompt := strings.TrimSpace(input.toString())
+				prompt := strings.TrimSpace(inputFrame.InputString())
 				if prompt == "" {
 					continue
 				}
@@ -521,7 +474,7 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 				clampHistoryViewport(maxY, historyLines, &historyOffset, &historyCursorLine)
 
 				// Clear input buffer on success or after giving up.
-				input.reset()
+				inputFrame.ResetInput()
 				needRedraw = true
 			default:
 				// Treat any printable byte (including high‑bit bytes from
@@ -530,8 +483,9 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 				// separately; group those bytes into a single rune so that
 				// characters like emoji render correctly.
 				if ch >= 32 && ch < 256 {
-					r := readUTF8KeyRune(scr, ch)
-					input.insertRune(r)
+					r := ui.ReadUTF8KeyRune(scr, ch)
+					inputFrame.InsertRune(r)
+					inputFrame.EnsureCursorVisible()
 					needRedraw = true
 				}
 			}
