@@ -52,7 +52,7 @@ func (f *Frame) MoveCursorLeft() {
 	if f.cursorLine > 0 {
 		f.cursorLine--
 		if f.cursorLine < len(f.lines) {
-			f.cursorCol = len(f.lines[f.cursorLine])
+			f.cursorCol = len(f.lines[f.cursorLine].Runes)
 		}
 	}
 }
@@ -66,7 +66,7 @@ func (f *Frame) MoveCursorRight() {
 	if f.cursorLine < 0 || f.cursorLine >= len(f.lines) {
 		return
 	}
-	line := f.lines[f.cursorLine]
+	line := f.lines[f.cursorLine].Runes
 	if f.cursorCol < len(line) {
 		f.cursorCol++
 		return
@@ -87,8 +87,8 @@ func (f *Frame) MoveCursorUp() {
 		return
 	}
 	f.cursorLine--
-	if f.cursorLine >= 0 && f.cursorLine < len(f.lines) && f.cursorCol > len(f.lines[f.cursorLine]) {
-		f.cursorCol = len(f.lines[f.cursorLine])
+	if f.cursorLine >= 0 && f.cursorLine < len(f.lines) && f.cursorCol > len(f.lines[f.cursorLine].Runes) {
+		f.cursorCol = len(f.lines[f.cursorLine].Runes)
 	}
 }
 
@@ -102,7 +102,7 @@ func (f *Frame) MoveCursorDown() {
 		return
 	}
 	f.cursorLine++
-	if f.cursorLine >= 0 && f.cursorLine < len(f.lines) && f.cursorCol > len(f.lines[f.cursorLine]) {
-		f.cursorCol = len(f.lines[f.cursorLine])
+	if f.cursorLine >= 0 && f.cursorLine < len(f.lines) && f.cursorCol > len(f.lines[f.cursorLine].Runes) {
+		f.cursorCol = len(f.lines[f.cursorLine].Runes)
 	}
 }

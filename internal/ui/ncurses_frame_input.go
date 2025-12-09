@@ -4,6 +4,8 @@
  */
 package ui
 
+import gc "github.com/gbin/goncurses"
+
 // Input-related helpers for Frame.
 
 // ResetInput clears the internal input buffer and resets cursor/scroll
@@ -12,7 +14,7 @@ func (f *Frame) ResetInput() {
 	if !f.HasInput {
 		return
 	}
-	f.lines = [][]rune{{}}
+	f.lines = []FrameLine{{Runes: []rune{}, Attr: gc.A_NORMAL}}
 	f.cursorLine = 0
 	f.cursorCol = 0
 	f.scroll = 0
@@ -30,7 +32,7 @@ func (f *Frame) InsertRune(r rune) {
 			f.cursorLine = 0
 		}
 	}
-	line := f.lines[f.cursorLine]
+	line := f.lines[f.cursorLine].Runes
 	if f.cursorCol < 0 {
 		f.cursorCol = 0
 	}
@@ -38,7 +40,7 @@ func (f *Frame) InsertRune(r rune) {
 		f.cursorCol = len(line)
 	}
 	line = append(line[:f.cursorCol], append([]rune{r}, line[f.cursorCol:]...)...)
-	f.lines[f.cursorLine] = line
+	f.lines[f.cursorLine].Runes = line
 	f.cursorCol++
 }
 
@@ -53,7 +55,7 @@ func (f *Frame) InsertNewline() {
 			f.cursorLine = 0
 		}
 	}
-	line := f.lines[f.cursorLine]
+	line := f.lines[f.cursorLine].Runes
 	if f.cursorCol < 0 {
 		f.cursorCol = 0
 	}
@@ -63,10 +65,10 @@ func (f *Frame) InsertNewline() {
 	before := append([]rune{}, line[:f.cursorCol]...)
 	after := append([]rune{}, line[f.cursorCol:]...)
 
-	newLines := make([][]rune, 0, len(f.lines)+1)
+	newLines := make([]FrameLine, 0, len(f.lines)+1)
 	newLines = append(newLines, f.lines[:f.cursorLine]...)
-	newLines = append(newLines, before)
-	newLines = append(newLines, after)
+	newLines = append(newLines, FrameLine{Runes: before, Attr: gc.A_NORMAL})
+	newLines = append(newLines, FrameLine{Runes: after, Attr: gc.A_NORMAL})
 	newLines = append(newLines, f.lines[f.cursorLine+1:]...)
 	f.lines = newLines
 	f.cursorLine++
@@ -81,23 +83,23 @@ func (f *Frame) Backspace() {
 	if f.cursorLine == 0 && f.cursorCol == 0 {
 		return
 	}
-	line := f.lines[f.cursorLine]
+	line := f.lines[f.cursorLine].Runes
 	if f.cursorCol > 0 {
 		if f.cursorCol > len(line) {
 			f.cursorCol = len(line)
 		}
 		line = append(line[:f.cursorCol-1], line[f.cursorCol:]...)
-		f.lines[f.cursorLine] = line
+		f.lines[f.cursorLine].Runes = line
 		f.cursorCol--
 		return
 	}
 	// At column 0, join with previous line.
-	prevLine := f.lines[f.cursorLine-1]
+	prevLine := f.lines[f.cursorLine-1].Runes
 	newCol := len(prevLine)
 	joined := append(append([]rune{}, prevLine...), line...)
-	newLines := make([][]rune, 0, len(f.lines)-1)
+	newLines := make([]FrameLine, 0, len(f.lines)-1)
 	newLines = append(newLines, f.lines[:f.cursorLine-1]...)
-	newLines = append(newLines, joined)
+	newLines = append(newLines, FrameLine{Runes: joined, Attr: gc.A_NORMAL})
 	newLines = append(newLines, f.lines[f.cursorLine+1:]...)
 	f.lines = newLines
 	f.cursorLine--
@@ -113,14 +115,16 @@ func (f *Frame) InputString() string {
 	// We avoid importing strings here to keep dependencies minimal; this
 	// helper is mainly for convenience and can be adapted later.
 	total := 0
-	for _, l := range f.lines {
+	for _, fl := range f.lines {
+		l := fl.Runes
 		total += len(l) + 1 // +1 for potential newline
 	}
 	if total == 0 {
 		return ""
 	}
 	b := make([]rune, 0, total)
-	for i, l := range f.lines {
+	for i, fl := range f.lines {
+		l := fl.Runes
 		b = append(b, l...)
 		if i != len(f.lines)-1 {
 			b = append(b, '\n')
@@ -187,7 +191,7 @@ func (f *Frame) EnsureCursorVisible() {
 	}
 
 	// Clamp horizontal position to the current line length.
-	line := f.lines[f.cursorLine]
+	line := f.lines[f.cursorLine].Runes
 	if f.cursorCol < 0 {
 		f.cursorCol = 0
 	}
@@ -222,7 +226,7 @@ func (f *Frame) ScrollPageUp() {
 	}
 	// Clamp horizontal column to the new line length.
 	if f.cursorLine >= 0 && f.cursorLine < len(f.lines) {
-		line := f.lines[f.cursorLine]
+		line := f.lines[f.cursorLine].Runes
 		if f.cursorCol > len(line) {
 			f.cursorCol = len(line)
 		}
@@ -263,7 +267,7 @@ func (f *Frame) ScrollPageDown() {
 	}
 	// Clamp horizontal column to the new line length.
 	if f.cursorLine >= 0 && f.cursorLine < len(f.lines) {
-		line := f.lines[f.cursorLine]
+		line := f.lines[f.cursorLine].Runes
 		if f.cursorCol > len(line) {
 			f.cursorCol = len(line)
 		}
@@ -300,7 +304,7 @@ func (f *Frame) MoveEnd() {
 		visible = 1
 	}
 	f.cursorLine = len(f.lines) - 1
-	line := f.lines[f.cursorLine]
+	line := f.lines[f.cursorLine].Runes
 	f.cursorCol = len(line)
 	if len(f.lines) > visible {
 		f.scroll = len(f.lines) - visible

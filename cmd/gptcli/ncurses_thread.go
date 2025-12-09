@@ -121,13 +121,27 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 	maxY, maxX := scr.MaxYX()
 	ncui := gptCliCtx.ui.(*ui.NcursesUI)
 	historyLines := buildHistoryLines(thread, maxX)
-	historyOffset := 0
-	historyCursorLine := len(historyLines) - 1
-	if historyCursorLine < 0 {
-		historyCursorLine = 0
+	// History frame occupies the region between the header and the input
+	// label. It is read-only but uses the Frame's cursor/scroll helpers
+	// for navigation.
+	historyStartY := menuHeaderHeight
+	historyEndY := maxY - menuStatusHeight - threadInputHeight
+	if historyEndY <= historyStartY {
+		historyEndY = historyStartY + 1
 	}
-	historyCursorCol := 0
-	clampHistoryViewport(maxY, historyLines, &historyOffset, &historyCursorLine)
+	historyH := historyEndY - historyStartY
+	if historyH < 1 {
+		historyH = 1
+	}
+	historyW := maxX
+	historyFrame, err := ui.NewFrame(scr, historyH, historyW, historyStartY, 0, false, true, false)
+	if err != nil {
+		return fmt.Errorf("creating history frame: %w", err)
+	}
+	defer historyFrame.Close()
+	historyFrame.SetLines(historyLines)
+	// Start with cursor at end of history.
+	historyFrame.MoveEnd()
 
 	// Create a Frame to manage the editable multi-line input buffer and
 	// its cursor/scroll state. The frame's content area starts on the
@@ -170,14 +184,13 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 			// scr.Refresh() call.
 			scr.Erase()
 			drawThreadHeader(scr, thread)
-			drawThreadHistory(scr, historyLines, historyOffset, focus, historyCursorLine, historyCursorCol, blinkOn)
 			drawThreadInputLabel(scr, focus)
 			drawThreadStatus(scr, focus, "")
 			scr.Refresh()
-			// Now render the input frame. Render() calls wrefresh() on the
-			// frame window, which will layer its contents on top of the
-			// already‑refreshed root screen.
-			inputFrame.Render(nil, blinkOn && focus == focusInput)
+			// Render history and input frames after the root screen so
+			// their contents are not overwritten.
+			historyFrame.Render(blinkOn && focus == focusHistory)
+			inputFrame.Render(blinkOn && focus == focusInput)
 			needRedraw = false
 		}
 
@@ -187,7 +200,7 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 			resizeScreen(scr)
 			maxY, maxX = scr.MaxYX()
 			historyLines = buildHistoryLines(thread, maxX)
-			clampHistoryViewport(maxY, historyLines, &historyOffset, &historyCursorLine)
+			historyFrame.SetLines(historyLines)
 			needRedraw = true
 			continue
 		default:
@@ -205,169 +218,44 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 			}
 		}
 
-		// Compute history view height for scrolling calculations.
-		startY := menuHeaderHeight
-		endY := maxY - menuStatusHeight - threadInputHeight
-		if endY <= startY {
-			endY = startY + 1
-		}
-		historyHeight := endY - startY
-
 		switch focus {
 		case focusHistory:
 			switch ch {
 			case 'q', 'Q', 'd' - 'a' + 1, gc.Key(27): // q/Q, ctrl-d, ESC
 				return nil
 			case gc.KEY_LEFT:
-				// Horizontal navigation within the current visual history
-				// line. When moving left from column 0, wrap to the end of
-				// the previous line, mirroring the behavior of the input
-				// cursor.
-				if historyCursorCol > 0 {
-					historyCursorCol--
-					needRedraw = true
-				} else if historyCursorLine > 0 {
-					historyCursorLine--
-					// Place the cursor logically at the end of the previous
-					// line.
-					prevRunes := []rune(historyLines[historyCursorLine].text)
-					historyCursorCol = len(prevRunes)
-					if historyCursorLine < historyOffset {
-						historyOffset = historyCursorLine
-					}
-					needRedraw = true
-				}
+				historyFrame.MoveCursorLeft()
+				needRedraw = true
 			case gc.KEY_RIGHT:
-				// Horizontal navigation to the right, wrapping to the
-				// beginning of the next line at the visual end of the
-				// current line.
-				if historyCursorLine >= 0 && historyCursorLine < len(historyLines) {
-					lineRunes := []rune(historyLines[historyCursorLine].text)
-					if historyCursorCol < len(lineRunes) {
-						historyCursorCol++
-						needRedraw = true
-					} else if historyCursorLine < len(historyLines)-1 {
-						// Move to the first column of the next line and
-						// scroll if necessary to keep it visible.
-						historyCursorLine++
-						historyCursorCol = 0
-						if historyCursorLine >= historyOffset+historyHeight {
-							historyOffset = historyCursorLine - historyHeight + 1
-							if historyOffset < 0 {
-								historyOffset = 0
-							}
-						}
-						needRedraw = true
-					}
-				}
+				historyFrame.MoveCursorRight()
+				needRedraw = true
 			case gc.KEY_UP:
-				if historyCursorLine > 0 {
-					historyCursorLine--
-					if historyCursorLine < historyOffset {
-						historyOffset = historyCursorLine
-					}
-					// Preserve the closest horizontal column when moving
-					// between lines.
-					if historyCursorLine >= 0 && historyCursorLine < len(historyLines) {
-						lineRunes := []rune(historyLines[historyCursorLine].text)
-						if historyCursorCol > len(lineRunes) {
-							historyCursorCol = len(lineRunes)
-						}
-					}
-					needRedraw = true
-				}
+				historyFrame.MoveCursorUp()
+				historyFrame.EnsureCursorVisible()
+				needRedraw = true
 			case gc.KEY_DOWN:
-				if historyCursorLine < len(historyLines)-1 {
-					historyCursorLine++
-					if historyCursorLine >= historyOffset+historyHeight {
-						historyOffset = historyCursorLine - historyHeight + 1
-						if historyOffset < 0 {
-							historyOffset = 0
-						}
-					}
-					if historyCursorLine >= 0 && historyCursorLine < len(historyLines) {
-						lineRunes := []rune(historyLines[historyCursorLine].text)
-						if historyCursorCol > len(lineRunes) {
-							historyCursorCol = len(lineRunes)
-						}
-					}
-					needRedraw = true
-				}
+				historyFrame.MoveCursorDown()
+				historyFrame.EnsureCursorVisible()
+				needRedraw = true
 			case gc.KEY_PAGEUP:
-				if historyHeight > 0 {
-					historyCursorLine -= historyHeight
-					if historyCursorLine < 0 {
-						historyCursorLine = 0
-					}
-					if historyCursorLine < historyOffset {
-						historyOffset = historyCursorLine
-					}
-					if historyCursorLine >= 0 && historyCursorLine < len(historyLines) {
-						lineRunes := []rune(historyLines[historyCursorLine].text)
-						if historyCursorCol > len(lineRunes) {
-							historyCursorCol = len(lineRunes)
-						}
-					}
-					needRedraw = true
-				}
+				historyFrame.ScrollPageUp()
+				historyFrame.EnsureCursorVisible()
+				needRedraw = true
 			case gc.KEY_PAGEDOWN:
-				if historyHeight > 0 {
-					historyCursorLine += historyHeight
-					lastIdx := len(historyLines) - 1
-					if lastIdx < 0 {
-						lastIdx = 0
-					}
-					if historyCursorLine > lastIdx {
-						historyCursorLine = lastIdx
-					}
-					if historyCursorLine >= historyOffset+historyHeight {
-						historyOffset = historyCursorLine - historyHeight + 1
-					}
-					maxOffset := len(historyLines) - historyHeight
-					if maxOffset < 0 {
-						maxOffset = 0
-					}
-					if historyOffset > maxOffset {
-						historyOffset = maxOffset
-					}
-					if historyCursorLine >= 0 && historyCursorLine < len(historyLines) {
-						lineRunes := []rune(historyLines[historyCursorLine].text)
-						if historyCursorCol > len(lineRunes) {
-							historyCursorCol = len(lineRunes)
-						}
-					}
-					needRedraw = true
-				}
+				historyFrame.ScrollPageDown()
+				historyFrame.EnsureCursorVisible()
+				needRedraw = true
 			case gc.KEY_HOME:
-				// Move to the absolute beginning of the history: first
-				// column of the first visual line, and scroll the viewport
-				// to the top so that line is visible. This mirrors HOME
-				// behavior in the input area.
-				historyCursorLine = 0
-				historyCursorCol = 0
-				historyOffset = 0
+				historyFrame.MoveHome()
 				needRedraw = true
 			case gc.KEY_END:
-				if historyHeight > 0 && len(historyLines) > 0 {
-					// Move to the absolute end of the history: last column of
-					// the last visual line. We also scroll the viewport so that
-					// the last line is visible, mirroring END behavior in the
-					// input area.
-					historyCursorLine = len(historyLines) - 1
-					lastRunes := []rune(historyLines[historyCursorLine].text)
-					historyCursorCol = len(lastRunes)
-					if len(historyLines) > historyHeight {
-						historyOffset = len(historyLines) - historyHeight
-					} else {
-						historyOffset = 0
-					}
-					needRedraw = true
-				}
+				historyFrame.MoveEnd()
+				needRedraw = true
 			case gc.KEY_RESIZE:
 				resizeScreen(scr)
 				maxY, maxX = scr.MaxYX()
 				historyLines = buildHistoryLines(thread, maxX)
-				clampHistoryViewport(maxY, historyLines, &historyOffset, &historyCursorLine)
+				historyFrame.SetLines(historyLines)
 				needRedraw = true
 			case gc.KEY_TAB:
 				focus = focusInput
@@ -379,7 +267,7 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 				resizeScreen(scr)
 				maxY, maxX = scr.MaxYX()
 				historyLines = buildHistoryLines(thread, maxX)
-				clampHistoryViewport(maxY, historyLines, &historyOffset, &historyCursorLine)
+				historyFrame.SetLines(historyLines)
 				needRedraw = true
 			case gc.KEY_TAB:
 				focus = focusHistory
@@ -459,19 +347,9 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 				// Refresh thread data from the updated current thread.
 				maxY, maxX = scr.MaxYX()
 				historyLines = buildHistoryLines(thread, maxX)
-				if len(historyLines) > 0 {
-					historyCursorLine = len(historyLines) - 1
-					// Position the history cursor at the logical end of the
-					// last line so that when we switch focus to the history
-					// view, the cursor appears at the very end of the
-					// newly-appended response.
-					lastRunes := []rune(historyLines[historyCursorLine].text)
-					historyCursorCol = len(lastRunes)
-				} else {
-					historyCursorLine = 0
-					historyCursorCol = 0
-				}
-				clampHistoryViewport(maxY, historyLines, &historyOffset, &historyCursorLine)
+				historyFrame.SetLines(historyLines)
+				// Position history cursor at end of content.
+				historyFrame.MoveEnd()
 
 				// Clear input buffer on success or after giving up.
 				inputFrame.ResetInput()
