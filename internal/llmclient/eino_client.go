@@ -18,6 +18,7 @@ import (
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
 	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/tools"
 	"github.com/mikeb26/gptcli/internal/types"
 	"google.golang.org/genai"
@@ -30,14 +31,17 @@ type GptCliEINOAIClient struct {
 
 func NewEINOClient(ctx context.Context, vendor string,
 	ui types.GptCliUI, apiKey string, model string,
-	depth int) types.GptCliAIClient {
+	depth int, policyStore am.ApprovalPolicyStore) types.GptCliAIClient {
 
 	if vendor == "openai" {
-		return newOpenAIEINOClient(ctx, vendor, ui, apiKey, model, depth)
+		return newOpenAIEINOClient(ctx, vendor, ui, apiKey, model, depth,
+			policyStore)
 	} else if vendor == "anthropic" {
-		return newAnthropicEINOClient(ctx, vendor, ui, apiKey, model, depth)
+		return newAnthropicEINOClient(ctx, vendor, ui, apiKey, model, depth,
+			policyStore)
 	} else if vendor == "google" {
-		return newGoogleEINOClient(ctx, vendor, ui, apiKey, model, depth)
+		return newGoogleEINOClient(ctx, vendor, ui, apiKey, model, depth,
+			policyStore)
 	} // else
 
 	panic("unsupported vendor")
@@ -46,7 +50,7 @@ func NewEINOClient(ctx context.Context, vendor string,
 
 func newOpenAIEINOClient(ctx context.Context, vendor string,
 	ui types.GptCliUI, apiKey string, model string,
-	depth int) types.GptCliAIClient {
+	depth int, policyStore am.ApprovalPolicyStore) types.GptCliAIClient {
 
 	chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
 		Model:  model,
@@ -56,12 +60,13 @@ func newOpenAIEINOClient(ctx context.Context, vendor string,
 		panic(err)
 	}
 
-	return newEINOClient(ctx, vendor, chatModel, ui, apiKey, model, depth)
+	return newEINOClient(ctx, vendor, chatModel, ui, apiKey, model, depth,
+		policyStore)
 }
 
 func newAnthropicEINOClient(ctx context.Context, vendor string,
 	ui types.GptCliUI, apiKey string, model string,
-	depth int) types.GptCliAIClient {
+	depth int, policyStore am.ApprovalPolicyStore) types.GptCliAIClient {
 
 	chatModel, err := claude.NewChatModel(ctx, &claude.Config{
 		Model:  model,
@@ -71,12 +76,13 @@ func newAnthropicEINOClient(ctx context.Context, vendor string,
 		panic(err)
 	}
 
-	return newEINOClient(ctx, vendor, chatModel, ui, apiKey, model, depth)
+	return newEINOClient(ctx, vendor, chatModel, ui, apiKey, model, depth,
+		policyStore)
 }
 
 func newGoogleEINOClient(ctx context.Context, vendor string,
 	ui types.GptCliUI, apiKey string, model string,
-	depth int) types.GptCliAIClient {
+	depth int, policyStore am.ApprovalPolicyStore) types.GptCliAIClient {
 
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey: apiKey,
@@ -93,14 +99,16 @@ func newGoogleEINOClient(ctx context.Context, vendor string,
 		panic(err)
 	}
 
-	return newEINOClient(ctx, vendor, chatModel, ui, apiKey, model, depth)
+	return newEINOClient(ctx, vendor, chatModel, ui, apiKey, model, depth,
+		policyStore)
 }
 
 func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel,
 	ui types.GptCliUI, apiKey string, model string,
-	depth int) types.GptCliAIClient {
+	depth int, policyStore am.ApprovalPolicyStore) types.GptCliAIClient {
 
-	tools := defineTools(ctx, vendor, ui, apiKey, model, depth)
+	tools := defineTools(ctx, vendor, ui, apiKey, model, depth,
+		policyStore)
 	baseTools := make([]tool.BaseTool, len(tools))
 	for ii, _ := range tools {
 		baseTools[ii] = tools[ii]
@@ -125,9 +133,10 @@ func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel
 }
 
 func defineTools(ctx context.Context, vendor string, ui types.GptCliUI,
-	apiKey string, model string, depth int) []types.GptCliTool {
+	apiKey string, model string, depth int,
+	policyStore am.ApprovalPolicyStore) []types.GptCliTool {
 
-	approvalUI := tools.NewApprovalUI(ui)
+	approvalUI := tools.NewApprovalUI(ui, policyStore)
 	tools := []types.GptCliTool{
 		tools.NewRunCommandTool(approvalUI),
 		tools.NewCreateFileTool(approvalUI),
@@ -144,7 +153,7 @@ func defineTools(ctx context.Context, vendor string, ui types.GptCliUI,
 	}
 	if depth <= internal.MaxDepth {
 		tools = append(tools, newPromptRunTool(ctx, vendor, approvalUI, apiKey,
-			model, depth))
+			model, depth, policyStore))
 	}
 
 	return tools

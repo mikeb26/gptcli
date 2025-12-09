@@ -15,6 +15,7 @@ import (
 	gc "github.com/gbin/goncurses"
 
 	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/llmclient"
 	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/types"
@@ -25,6 +26,7 @@ const (
 	CommandName           = "gptcli"
 	KeyFileFmt            = ".%v.key"
 	PrefsFile             = "prefs.json"
+	ApprovePolicyFile     = "approvals.json"
 	ThreadsDir            = "threads"
 	ArchiveDir            = "archive_threads"
 	CodeBlockDelim        = "```"
@@ -119,8 +121,18 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 		return err
 	}
 
+	policyPath, err := getApprovePolicyPath()
+	if err != nil {
+		return err
+	}
+	policyStore, err := am.NewJSONApprovalPolicyStore(policyPath)
+	if err != nil {
+		return err
+	}
+
 	gptCliCtx.client = llmclient.NewEINOClient(ctx, gptCliCtx.prefs.Vendor,
-		gptCliCtx.ui, keyText, internal.DefaultModels[gptCliCtx.prefs.Vendor], 0)
+		gptCliCtx.ui, keyText, internal.DefaultModels[gptCliCtx.prefs.Vendor],
+		0, policyStore)
 
 	for _, thrGrp := range gptCliCtx.threadGroups {
 		err := thrGrp.LoadThreads()

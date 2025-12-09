@@ -6,9 +6,13 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
@@ -33,6 +37,121 @@ func (t CreateFileTool) RequiresUserApproval() bool {
 	return true
 }
 
+func commonFileBuildApprovalRequest(t types.Tool, arg any, filenameIn string,
+	writeRequired bool) ToolApprovalRequest {
+
+	// Normalize to an absolute, cleaned path so that approval policies
+	// are keyed consistently regardless of how the tool was invoked
+	// (relative vs absolute paths). This ensures that cached approvals
+	// for a given file or directory apply across different invocations.
+	filename := filenameIn
+	if !filepath.IsAbs(filenameIn) {
+		if abs, err := filepath.Abs(filenameIn); err == nil {
+			filename = abs
+		} else {
+			filename = filepath.Clean(filenameIn)
+		}
+	} else {
+		filename = filepath.Clean(filenameIn)
+	}
+	isDir := false
+	fInfo, err := os.Stat(filename)
+	if err == nil {
+		isDir = fInfo.IsDir()
+	}
+	var dirname string
+	if isDir {
+		dirname = filename
+	} else {
+		dirname = filepath.Dir(filename)
+	}
+
+	var dirPolicyID string
+	if dirname != string(filepath.Separator) && dirname != "." && dirname != "" {
+		dirPolicyID = am.ApprovalPolicyID(am.ApprovalSubsysTools,
+			am.ApprovalGroupFileIO, am.ApprovalTargetDir, dirname)
+	}
+
+	filePolicyID := am.ApprovalPolicyID(am.ApprovalSubsysTools,
+		am.ApprovalGroupFileIO, am.ApprovalTargetFile, filename)
+
+	promptBuilder := &strings.Builder{}
+	promptBuilder.WriteString(fmt.Sprintf("gptcli would like to %v:%v. Allow?",
+		t.GetOp(), filename))
+
+	choices := []am.ApprovalChoice{
+		{
+			Key:   "y",
+			Label: "Yes, this time only",
+			Scope: am.ApprovalScopeOnce,
+		}}
+	if !isDir {
+		if !writeRequired {
+			choices = append(choices, am.ApprovalChoice{
+				Key:      "fr",
+				Label:    "Yes, and allow all future reads of this file",
+				Scope:    am.ApprovalScopeTarget,
+				PolicyID: filePolicyID,
+				Actions:  []am.ApprovalAction{am.ApprovalActionRead},
+			})
+		}
+
+		choices = append(choices, am.ApprovalChoice{
+			Key:      "fw",
+			Label:    "Yes, and allow all future reads/writes of this file",
+			Scope:    am.ApprovalScopeTarget,
+			PolicyID: filePolicyID,
+			Actions: []am.ApprovalAction{am.ApprovalActionWrite,
+				am.ApprovalActionRead},
+		})
+	}
+
+	if dirPolicyID != "" {
+		if !writeRequired {
+			choices = append(choices, am.ApprovalChoice{
+				Key:      "dr",
+				Label:    fmt.Sprintf("Yes, and allow all future reads within %v (recursively)", dirname),
+				Scope:    am.ApprovalScopeTarget,
+				PolicyID: dirPolicyID,
+				Actions:  []am.ApprovalAction{am.ApprovalActionRead},
+			})
+		}
+		choices = append(choices, am.ApprovalChoice{
+			Key:      "dw",
+			Label:    fmt.Sprintf("Yes, and allow all future reads/writes within %v (recursively)", dirname),
+			Scope:    am.ApprovalScopeTarget,
+			PolicyID: dirPolicyID,
+			Actions:  []am.ApprovalAction{am.ApprovalActionWrite, am.ApprovalActionRead},
+		})
+	}
+
+	choices = append(choices, am.ApprovalChoice{
+		Key:   "n",
+		Label: "No",
+		Scope: am.ApprovalScopeDeny,
+	})
+
+	return ToolApprovalRequest{
+		Tool:            t,
+		Arg:             arg,
+		Prompt:          promptBuilder.String(),
+		RequiredActions: []am.ApprovalAction{am.ApprovalActionWrite},
+		Choices:         choices,
+	}
+}
+
+// BuildApprovalRequest implements ToolWithCustomApproval for
+// CreateFileTool so that write permissions can be cached on a per-file
+// or per-directory basis using ApprovalActionWrite.
+func (t CreateFileTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+	req, ok := arg.(*CreateFileReq)
+	if !ok || req == nil {
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	return commonFileBuildApprovalRequest(t, arg, req.Filename, true)
+}
+
 type AppendFileTool struct {
 	approvalUI ToolApprovalUI
 }
@@ -51,6 +170,18 @@ func (t AppendFileTool) GetOp() types.ToolCallOp {
 }
 func (t AppendFileTool) RequiresUserApproval() bool {
 	return true
+}
+
+// BuildApprovalRequest implements ToolWithCustomApproval for
+// AppendFileTool so that write permissions can be cached similarly to
+// CreateFileTool.
+func (t AppendFileTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+	req, ok := arg.(*AppendFileReq)
+	if !ok || req == nil {
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	return commonFileBuildApprovalRequest(t, arg, req.Filename, true)
 }
 
 type ReadFileTool struct {
@@ -74,6 +205,21 @@ func (t ReadFileTool) RequiresUserApproval() bool {
 	return true
 }
 
+// BuildApprovalRequest implements ToolWithCustomApproval to provide
+// file- and directory-specific approval prompts and options. It supports
+// granting approval for a single read, for a specific file, or for all
+// reads within a directory tree (recursively).
+func (t ReadFileTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+	req, ok := arg.(*ReadFileReq)
+	if !ok || req == nil {
+		// Fallback to the default behavior if the argument is not as
+		// expected; this should not happen in normal flows.
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	return commonFileBuildApprovalRequest(t, arg, req.Filename, false)
+}
+
 type DeleteFileTool struct {
 	approvalUI ToolApprovalUI
 }
@@ -92,6 +238,18 @@ func (t DeleteFileTool) GetOp() types.ToolCallOp {
 
 func (t DeleteFileTool) RequiresUserApproval() bool {
 	return true
+}
+
+// BuildApprovalRequest implements ToolWithCustomApproval for
+// DeleteFileTool so that write permissions can be cached consistently
+// with CreateFileTool and AppendFileTool.
+func (t DeleteFileTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+	req, ok := arg.(*DeleteFileReq)
+	if !ok || req == nil {
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	return commonFileBuildApprovalRequest(t, arg, req.Filename, true)
 }
 
 func NewDeleteFileTool(approvalUI ToolApprovalUI) types.GptCliTool {

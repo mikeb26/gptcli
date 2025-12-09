@@ -168,6 +168,14 @@ func getPrefsPath() (string, error) {
 	return filepath.Join(configDir, PrefsFile), nil
 }
 
+func getApprovePolicyPath() (string, error) {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, ApprovePolicyFile), nil
+}
+
 func getThreadsDir() (string, error) {
 	configDir, err := getConfigDir()
 	if err != nil {

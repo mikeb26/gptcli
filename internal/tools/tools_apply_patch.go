@@ -12,9 +12,11 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
@@ -36,6 +38,110 @@ func (g FilePatchTool) GetOp() types.ToolCallOp {
 
 func (t FilePatchTool) RequiresUserApproval() bool {
 	return true
+}
+
+// BuildApprovalRequest implements ToolWithCustomApproval for
+// FilePatchTool. It analyzes the patch content to determine all affected
+// files, computes their common root directory, and builds a
+// directory-scoped approval request. This allows policies granted for a
+// directory (e.g. via the file tools) to automatically apply to
+// apply_patch as well.
+func (t FilePatchTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+	req, ok := arg.(*FilePatchReq)
+	if !ok || req == nil {
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	paths := collectPatchPaths(req.Input)
+	if len(paths) == 0 {
+		// If we cannot infer any paths from the patch text, fall back to the
+		// default behavior.
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	// Normalize all paths to absolute, cleaned form so that approvals
+	// are keyed consistently regardless of the working directory or how
+	// the patch paths are expressed.
+	absPaths := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		if !filepath.IsAbs(p) {
+			if abs, err := filepath.Abs(p); err == nil {
+				p = abs
+			} else {
+				p = filepath.Clean(p)
+			}
+		} else {
+			p = filepath.Clean(p)
+		}
+		absPaths = append(absPaths, p)
+	}
+
+	rootDir := commonRootDir(absPaths)
+
+	var dirPolicyID string
+	if rootDir != string(filepath.Separator) && rootDir != "." && rootDir != "" {
+		dirPolicyID = am.ApprovalPolicyID(
+			am.ApprovalSubsysTools,
+			am.ApprovalGroupFileIO,
+			am.ApprovalTargetDir,
+			rootDir,
+		)
+	}
+
+	promptBuilder := &strings.Builder{}
+	fmt.Fprintf(promptBuilder,
+		"gptcli would like to %v affecting files under %q.\n",
+		t.GetOp(), rootDir)
+	fmt.Fprintf(promptBuilder, "This patch touches %d file(s):\n", len(paths))
+
+	sort.Strings(absPaths)
+	const maxList = 10
+	for i, p := range absPaths {
+		if i >= maxList {
+			fmt.Fprintf(promptBuilder, "  ... and %d more\n", len(absPaths)-maxList)
+			break
+		}
+		fmt.Fprintf(promptBuilder, "  - %s\n", p)
+	}
+	promptBuilder.WriteString("Allow?")
+
+	choices := []am.ApprovalChoice{
+		{
+			Key:   "y",
+			Label: "Yes, this time only",
+			Scope: am.ApprovalScopeOnce,
+		},
+	}
+
+	if dirPolicyID != "" {
+		choices = append(choices, am.ApprovalChoice{
+			Key:      "dw",
+			Label:    "Yes, and allow all future reads/writes within this directory (recursively)",
+			Scope:    am.ApprovalScopeTarget,
+			PolicyID: dirPolicyID,
+			Actions: []am.ApprovalAction{
+				am.ApprovalActionWrite,
+				am.ApprovalActionRead,
+			},
+		})
+	}
+
+	choices = append(choices, am.ApprovalChoice{
+		Key:   "n",
+		Label: "No",
+		Scope: am.ApprovalScopeDeny,
+	})
+
+	return ToolApprovalRequest{
+		Tool:            t,
+		Arg:             arg,
+		Prompt:          promptBuilder.String(),
+		RequiredActions: []am.ApprovalAction{am.ApprovalActionWrite},
+		Choices:         choices,
+	}
 }
 func NewFilePatchTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &FilePatchTool{
@@ -538,6 +644,82 @@ func identifyFilesAdded(text string) []string {
 		}
 	}
 	return out
+}
+
+// identifyMoveTargets returns the destination paths of any move
+// operations described in the patch text.
+func identifyMoveTargets(text string) []string {
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, PatchSentinelMove2) {
+			out = append(out, line[len(PatchSentinelMove2):])
+		}
+	}
+	return out
+}
+
+// collectPatchPaths gathers all unique file paths affected by the patch
+// text, including updated, deleted, added, and move-target files.
+func collectPatchPaths(text string) []string {
+	seen := make(map[string]struct{})
+	add := func(paths []string) {
+		for _, p := range paths {
+			if p == "" {
+				continue
+			}
+			seen[p] = struct{}{}
+		}
+	}
+
+	add(identifyFilesNeeded(text))
+	add(identifyFilesAdded(text))
+	add(identifyMoveTargets(text))
+
+	out := make([]string, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
+	}
+	return out
+}
+
+// commonRootDir computes the deepest common directory that contains all
+// of the provided paths. It is used to scope directory-level approval
+// policies for apply_patch.
+func commonRootDir(paths []string) string {
+	if len(paths) == 0 {
+		return "."
+	}
+
+	common := filepath.Dir(filepath.Clean(paths[0]))
+
+	isWithin := func(path, root string) bool {
+		if root == "" {
+			return false
+		}
+		cleanPath := filepath.Clean(path)
+		cleanRoot := filepath.Clean(root)
+		if cleanPath == cleanRoot {
+			return true
+		}
+		if !strings.HasSuffix(cleanRoot, string(filepath.Separator)) {
+			cleanRoot += string(filepath.Separator)
+		}
+		return strings.HasPrefix(cleanPath, cleanRoot)
+	}
+
+	for _, p := range paths[1:] {
+		d := filepath.Dir(filepath.Clean(p))
+		for common != string(filepath.Separator) && common != "." && common != "" && !isWithin(d, common) {
+			common = filepath.Dir(common)
+		}
+		if common == "" {
+			break
+		}
+	}
+	if common == "" {
+		return "."
+	}
+	return common
 }
 
 func loadFiles(paths []string) (map[string]string, error) {

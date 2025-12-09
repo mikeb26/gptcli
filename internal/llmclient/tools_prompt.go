@@ -11,6 +11,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool/utils"
 	"github.com/mikeb26/gptcli/internal"
+	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/tools"
 	"github.com/mikeb26/gptcli/internal/types"
 )
@@ -18,10 +19,11 @@ import (
 // defined here due to recursion with newEINOClient()
 
 type PromptRunTool struct {
-	ctx        context.Context
-	client     types.GptCliAIClient
-	approvalUI tools.ToolApprovalUI
-	depth      int
+	ctx         context.Context
+	client      types.GptCliAIClient
+	approvalUI  tools.ToolApprovalUI
+	policyStore am.ApprovalPolicyStore
+	depth       int
 }
 
 type PromptRunReq struct {
@@ -40,15 +42,16 @@ func (t PromptRunTool) GetOp() types.ToolCallOp {
 func (t PromptRunTool) RequiresUserApproval() bool {
 	return false
 }
-func newPromptRunTool(ctxIn context.Context, vendor string, approvalUI tools.ToolApprovalUI,
-	apiKey string, model string, depthIn int) types.GptCliTool {
+func newPromptRunTool(ctxIn context.Context, vendor string,
+	approvalUI tools.ToolApprovalUI, apiKey string, model string, depthIn int,
+	policyStore am.ApprovalPolicyStore) types.GptCliTool {
 
 	t := &PromptRunTool{
 		ctx:        ctxIn,
 		approvalUI: approvalUI,
 		depth:      depthIn,
 		client: NewEINOClient(ctxIn, vendor, approvalUI.GetUI(), apiKey,
-			model, depthIn+1),
+			model, depthIn+1, policyStore),
 	}
 
 	return t.Define()

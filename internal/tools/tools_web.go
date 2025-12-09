@@ -48,6 +48,20 @@ func (t RetrieveUrlTool) GetOp() types.ToolCallOp {
 func (t RetrieveUrlTool) RequiresUserApproval() bool {
 	return true
 }
+
+// BuildApprovalRequest implements ToolWithCustomApproval for
+// RetrieveUrlTool so that read/write permissions can be cached on a
+// per-URL (file-equivalent) and per-domain (directory-equivalent)
+// basis. HTTP GET, HEAD, and OPTIONS are treated as reads, while all
+// other methods are treated as writes (which also imply read).
+func (t RetrieveUrlTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+	req, ok := arg.(*RetrieveUrlReq)
+	if !ok || req == nil {
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	return buildWebApprovalRequest(t, arg, req.Url, req.Method)
+}
 func NewRetrieveUrlTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &RetrieveUrlTool{
 		approvalUI: approvalUI,

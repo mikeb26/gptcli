@@ -6,9 +6,11 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
@@ -90,12 +92,6 @@ func (t PwdTool) Define() types.GptCliTool {
 func (t PwdTool) Invoke(ctx context.Context, _ *PwdReq) (*PwdResp, error) {
 	ret := &PwdResp{}
 
-	err := GetUserApproval(t.approvalUI, t, "")
-	if err != nil {
-		ret.Error = err.Error()
-		return ret, nil
-	}
-
 	curDir, err := os.Getwd()
 	if err != nil {
 		ret.Error = err.Error()
@@ -112,6 +108,27 @@ func (t ChdirTool) GetOp() types.ToolCallOp {
 
 func (t ChdirTool) RequiresUserApproval() bool {
 	return true
+}
+
+// BuildApprovalRequest implements ToolWithCustomApproval for
+// ChdirTool so that permissions to change the working directory can be
+// cached on a per-directory-tree basis. Approvals can be granted for a
+// single chdir, or for a specific target directory and all of its
+// subdirectories.
+func (t ChdirTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+	req, ok := arg.(*ChdirReq)
+	if !ok || req == nil {
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	// Normalize target directory to an absolute path for consistent
+	// policy keys.
+	newDir := req.Newdir
+	if newDir == "" {
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	return commonFileBuildApprovalRequest(t, arg, newDir, false)
 }
 func NewChdirTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &ChdirTool{
@@ -157,6 +174,62 @@ func (t EnvGetTool) GetOp() types.ToolCallOp {
 func (t EnvGetTool) RequiresUserApproval() bool {
 	return true
 }
+
+// BuildApprovalRequest implements ToolWithCustomApproval for
+// EnvGetTool so that read access to environment variables can be
+// cached on a per-variable or global basis. EnvGet is read-only and
+// only ever requests ApprovalActionRead.
+func (t EnvGetTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+	req, ok := arg.(*EnvGetReq)
+	if !ok || req == nil {
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	varName := req.Envvar
+	if varName == "" {
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	varPolicyID := am.ApprovalPolicyID(am.ApprovalSubsysTools,
+		am.ApprovalGroupEnv, am.ApprovalTargetEnvVar, varName)
+
+	prompt := fmt.Sprintf("gptcli would like to read environment variable %q. Allow?", varName)
+
+	choices := []am.ApprovalChoice{
+		{
+			Key:   "y",
+			Label: "Yes, this time only",
+			Scope: am.ApprovalScopeOnce,
+		},
+		{
+			Key:      "vr",
+			Label:    "Yes, and allow all future reads of this variable",
+			Scope:    am.ApprovalScopeTarget,
+			PolicyID: varPolicyID,
+			Actions:  []am.ApprovalAction{am.ApprovalActionRead},
+		},
+		{
+			Key:      "vw",
+			Label:    "Yes, and allow all future reads or writes of this variable",
+			Scope:    am.ApprovalScopeTarget,
+			PolicyID: varPolicyID,
+			Actions:  []am.ApprovalAction{am.ApprovalActionRead, am.ApprovalActionWrite},
+		},
+		{
+			Key:   "n",
+			Label: "No",
+			Scope: am.ApprovalScopeDeny,
+		},
+	}
+
+	return ToolApprovalRequest{
+		Tool:            t,
+		Arg:             arg,
+		Prompt:          prompt,
+		RequiredActions: []am.ApprovalAction{am.ApprovalActionRead},
+		Choices:         choices,
+	}
+}
 func NewEnvGetTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &EnvGetTool{
 		approvalUI: approvalUI,
@@ -197,6 +270,56 @@ func (t EnvSetTool) GetOp() types.ToolCallOp {
 
 func (t EnvSetTool) RequiresUserApproval() bool {
 	return true
+}
+
+// BuildApprovalRequest implements ToolWithCustomApproval for
+// EnvSetTool so that write access to environment variables can be
+// cached on a per-variable or global basis. Writes imply the ability
+// to read as well.
+func (t EnvSetTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+	req, ok := arg.(*EnvSetReq)
+	if !ok || req == nil {
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	varName := req.Envvar
+	if varName == "" {
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	varPolicyID := am.ApprovalPolicyID(am.ApprovalSubsysTools,
+		am.ApprovalGroupEnv, am.ApprovalTargetEnvVar, varName)
+
+	prompt := fmt.Sprintf("gptcli would like to set environment variable %q. Allow?", varName)
+
+	choices := []am.ApprovalChoice{
+		{
+			Key:   "y",
+			Label: "Yes, this time only",
+			Scope: am.ApprovalScopeOnce,
+		},
+		{
+			Key:      "vw",
+			Label:    "Yes, and allow all future reads or writes to this variable",
+			Scope:    am.ApprovalScopeTarget,
+			PolicyID: varPolicyID,
+			Actions: []am.ApprovalAction{am.ApprovalActionWrite,
+				am.ApprovalActionRead},
+		},
+		{
+			Key:   "n",
+			Label: "No",
+			Scope: am.ApprovalScopeDeny,
+		},
+	}
+
+	return ToolApprovalRequest{
+		Tool:            t,
+		Arg:             arg,
+		Prompt:          prompt,
+		RequiredActions: []am.ApprovalAction{am.ApprovalActionWrite, am.ApprovalActionRead},
+		Choices:         choices,
+	}
 }
 func NewEnvSetTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &EnvSetTool{

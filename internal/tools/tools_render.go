@@ -51,6 +51,20 @@ func (t RenderWebTool) RequiresUserApproval() bool {
 	return true
 }
 
+// BuildApprovalRequest implements ToolWithCustomApproval for
+// RenderWebTool using the same per-URL and per-domain approval
+// semantics as RetrieveUrlTool. Render operations are conceptually
+// read-only and are treated as GET requests for approval purposes.
+func (t RenderWebTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+	req, ok := arg.(*RenderWebReq)
+	if !ok || req == nil {
+		return DefaultApprovalRequest(t, arg)
+	}
+
+	// Rendered pages are fetched via GET semantics.
+	return buildWebApprovalRequest(t, arg, req.Url, "GET")
+}
+
 // NewRenderWebTool initializes a new instance of the RenderWebTool.
 func NewRenderWebTool(approvalUI ToolApprovalUI) types.GptCliTool {
 	t := &RenderWebTool{
