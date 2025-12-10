@@ -23,7 +23,7 @@ type PwdReq struct {
 
 type PwdResp struct {
 	Error string `json:"error" jsonschema:"description=The error status of the pwd call"`
-	Pwd   string `json:"error" jsonschema:"description=The present working directory"`
+	Pwd   string `json:"pwd" jsonschema:"description=The present working directory"`
 }
 
 type ChdirTool struct {
@@ -31,7 +31,7 @@ type ChdirTool struct {
 }
 
 type ChdirReq struct {
-	Newdir string `json:"error" jsonschema:"description=The new directory to change into"`
+	Newdir string `json:"newdir" jsonschema:"description=The new directory to change into"`
 }
 
 type ChdirResp struct {
@@ -48,7 +48,7 @@ type EnvGetReq struct {
 
 type EnvGetResp struct {
 	Error string `json:"error" jsonschema:"description=The error status of the envget call"`
-	Value string `json:"error" jsonschema:"description=The current value of the request environment variable"`
+	Value string `json:"value" jsonschema:"description=The current value of the request environment variable"`
 }
 
 type EnvSetTool struct {
@@ -57,7 +57,7 @@ type EnvSetTool struct {
 
 type EnvSetReq struct {
 	Envvar string `json:"envvar" jsonschema:"description=The environment variable to set"`
-	Value  string `json:"error" jsonschema:"description=The new value to set"`
+	Value  string `json:"value" jsonschema:"description=The new value to set"`
 }
 
 type EnvSetResp struct {
