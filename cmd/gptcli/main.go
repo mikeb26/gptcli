@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	laclopenai "github.com/cloudwego/eino-ext/libs/acl/openai"
+	"github.com/cloudwego/eino/schema"
 	gc "github.com/gbin/goncurses"
 
 	"github.com/mikeb26/gptcli/internal"
@@ -47,6 +48,7 @@ type GptCliContext struct {
 	scr                *gc.Window
 	needConfig         bool
 	curSummaryToggle   bool
+	useStreaming       bool
 	prefs              Prefs
 	threadGroups       []*threads.GptCliThreadGroup
 	archiveThreadGroup *threads.GptCliThreadGroup
@@ -74,6 +76,7 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 		scr:              scrLocal,
 		needConfig:       true,
 		curSummaryToggle: false,
+		useStreaming:     true,
 		prefs: Prefs{
 			SummarizePrior: false,
 			Vendor:         internal.DefaultVendor,
@@ -278,4 +281,27 @@ func (gptCliCtx *GptCliContext) ChatOnceInCurrentThread(
 	}
 	return thrGrp.ChatOnceInCurrentThread(ctx, gptCliCtx.client, prompt,
 		gptCliCtx.curSummaryToggle)
+}
+
+// ChatOnceInCurrentThreadStream mirrors ChatOnceInCurrentThread but
+// returns a PreparedChat and a streaming reader for incremental
+// rendering of the assistant reply. Callers are responsible for
+// consuming the stream, assembling the final reply message, and then
+// invoking FinalizeChatOnceInCurrentThread.
+func (gptCliCtx *GptCliContext) ChatOnceInCurrentThreadStream(
+	ctx context.Context, prompt string,
+) (*threads.PreparedChat, *schema.StreamReader[*types.GptCliMessage], error) {
+
+	thrGrp := gptCliCtx.curThreadGroup
+	if thrGrp == gptCliCtx.archiveThreadGroup {
+		return nil, nil, fmt.Errorf("Cannot edit archived thread; use unarchive first")
+	}
+	return thrGrp.ChatOnceInCurrentThreadStream(
+		ctx, gptCliCtx.client, prompt, gptCliCtx.curSummaryToggle,
+	)
+}
+
+func (gptCliCtx *GptCliContext) FinalizeChatOnceInCurrentThread(
+	prep *threads.PreparedChat, msg *types.GptCliMessage) error {
+	return gptCliCtx.curThreadGroup.FinalizeChatOnceInCurrentThread(prep, msg)
 }

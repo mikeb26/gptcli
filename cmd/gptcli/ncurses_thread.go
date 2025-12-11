@@ -7,7 +7,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -15,6 +17,7 @@ import (
 
 	gc "github.com/gbin/goncurses"
 	"github.com/mikeb26/gptcli/internal/threads"
+	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/mikeb26/gptcli/internal/ui"
 )
 
@@ -100,6 +103,154 @@ func drawThreadHeader(scr *gc.Window, thread *threads.GptCliThread) {
 	scr.HLine(0, 0, ' ', maxX)
 	scr.MovePrint(0, 0, header)
 	_ = scr.AttrSet(gc.A_NORMAL)
+}
+
+// consumeInputBuffer handles Ctrl-D in the input pane. It reads the
+// current prompt from the input frame and either executes a
+// non-streaming request (the existing behavior) or, when streaming is
+// enabled, consumes a streaming response while incrementally updating
+// the history frame.
+func consumeInputBuffer(
+	ctx context.Context,
+	scr *gc.Window,
+	gptCliCtx *GptCliContext,
+	thread *threads.GptCliThread,
+	historyFrame *ui.Frame,
+	inputFrame *ui.Frame,
+	ncui *ui.NcursesUI,
+) {
+	// Capture the raw multi-line input and trim it in the same way as the
+	// non-UI helpers so that what we display matches what is actually sent
+	// to the LLM and eventually persisted in the thread dialogue.
+	rawInput := inputFrame.InputString()
+	prompt := strings.TrimSpace(rawInput)
+	if prompt == "" {
+		return
+	}
+
+	// Immediately reflect the user's input at the end of the history
+	// window without mutating the underlying thread yet. We do this by
+	// rendering against a temporary thread that includes the pending user
+	// message.
+	_, maxX := scr.MaxYX()
+	displayThread := *thread
+	userMsg := &types.GptCliMessage{
+		Role:    types.GptCliMessageRoleUser,
+		Content: prompt,
+	}
+	displayThread.Dialogue = append(displayThread.Dialogue, userMsg)
+	historyLines := buildHistoryLines(&displayThread, maxX)
+	historyFrame.SetLines(historyLines)
+	historyFrame.MoveEnd()
+	historyFrame.Render(false)
+
+	// Clear the input buffer immediately so the user sees that their
+	// message has been "sent".
+	inputFrame.ResetInput()
+	inputFrame.Render(true)
+
+	// Show processing status
+	drawThreadStatus(scr, focusInput, "Processing...")
+	scr.Refresh()
+
+	// Non-streaming path preserves existing semantics.
+	if !gptCliCtx.useStreaming {
+		retry := true
+		for retry {
+			_, err := gptCliCtx.ChatOnceInCurrentThread(ctx, prompt)
+			if err == nil {
+				retry = false
+				break
+			}
+
+			// Show error modal asking whether to retry.
+			wantRetry, modalErr := showErrorRetryModal(ncui, err.Error())
+			if modalErr != nil || !wantRetry {
+				retry = false
+				break
+			}
+		}
+		return
+	}
+
+	// Streaming path: prepare dialogue and consume chunks while
+	// incrementally updating the history frame.
+	prep, stream, err := gptCliCtx.ChatOnceInCurrentThreadStream(ctx, prompt)
+	if err != nil {
+		_, _ = showErrorRetryModal(ncui, err.Error())
+		return
+	}
+	defer stream.Close()
+
+	// Start from the history that already includes the just-submitted
+	// user message (rendered above via displayThread/historyLines) and
+	// add a new assistant block that we grow as chunks arrive. We reuse
+	// displayThread here so that rebuildHistory's wrapping logic stays in
+	// sync with the base history slice.
+
+	var buffer strings.Builder
+	for {
+		chunk, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			_, _ = showErrorRetryModal(ncui, err.Error())
+			return
+		}
+
+		buffer.WriteString(chunk.Content)
+		rebuildHistory(scr, historyFrame, &displayThread, historyLines, maxX, buffer.String())
+	}
+
+	replyMsg := &types.GptCliMessage{
+		Role:    types.GptCliMessageRoleAssistant,
+		Content: buffer.String(),
+	}
+	if err := gptCliCtx.FinalizeChatOnceInCurrentThread(prep, replyMsg); err != nil {
+		_, _ = showErrorRetryModal(ncui, err.Error())
+	}
+}
+
+// rebuildHistory reconstructs the history frame lines while a streaming
+// response is in flight. It keeps existing history intact and appends a
+// temporary assistant message rendered with the same wrapping logic used
+// elsewhere.
+func rebuildHistory(
+	scr *gc.Window,
+	historyFrame *ui.Frame,
+	thread *threads.GptCliThread,
+	historyLines []ui.FrameLine,
+	maxX int,
+	extraText string,
+) {
+	// Rebuild a fresh slice so that wrapping stays consistent with
+	// existing history behavior.
+	allLines := make([]ui.FrameLine, len(historyLines))
+	copy(allLines, historyLines)
+
+	if extraText != "" {
+		// Render the in-flight assistant text as its own block. We reuse
+		// buildHistoryLines on a temporary thread to avoid duplicating
+		// wrapping logic.
+		tmpThread := *thread
+		tmpMsg := &types.GptCliMessage{
+			Role:    types.GptCliMessageRoleAssistant,
+			Content: extraText,
+		}
+		tmpThread.Dialogue = append(tmpThread.Dialogue, tmpMsg)
+		extraLines := buildHistoryLines(&tmpThread, maxX)
+		// Only keep the lines corresponding to the new assistant message by
+		// dropping the original history length.
+		if len(extraLines) > len(historyLines) {
+			allLines = append(allLines, extraLines[len(historyLines):]...)
+		}
+	}
+
+	historyFrame.SetLines(allLines)
+	historyFrame.MoveEnd()
+	historyFrame.Render(false)
+	scr.Refresh()
 }
 
 // runThreadView provides an ncurses-based view for interacting with a
@@ -320,38 +471,12 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 				inputFrame.EnsureCursorVisible()
 				needRedraw = true
 			case 'd' - 'a' + 1: // Ctrl-D sends the input buffer
-				prompt := strings.TrimSpace(inputFrame.InputString())
-				if prompt == "" {
-					continue
-				}
-				// Show processing status
-				drawThreadStatus(scr, focus, "Processing...")
-				scr.Refresh()
-
-				retry := true
-				for retry {
-					_, err := gptCliCtx.ChatOnceInCurrentThread(ctx, prompt)
-					if err == nil {
-						retry = false
-						break
-					}
-
-					// Show error modal asking whether to retry.
-					wantRetry, modalErr := showErrorRetryModal(ncui, err.Error())
-					if modalErr != nil || !wantRetry {
-						retry = false
-						break
-					}
-				}
-
-				// Refresh thread data from the updated current thread.
+				consumeInputBuffer(ctx, scr, gptCliCtx, thread, historyFrame, inputFrame, ncui)
+				// Rebuild history and reset input handled inside helper.
 				maxY, maxX = scr.MaxYX()
 				historyLines = buildHistoryLines(thread, maxX)
 				historyFrame.SetLines(historyLines)
-				// Position history cursor at end of content.
 				historyFrame.MoveEnd()
-
-				// Clear input buffer on success or after giving up.
 				inputFrame.ResetInput()
 				needRedraw = true
 			default:

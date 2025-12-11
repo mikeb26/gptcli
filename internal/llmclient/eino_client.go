@@ -6,6 +6,7 @@ package llmclient
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/cloudwego/eino-ext/components/model/claude"
 	"github.com/cloudwego/eino-ext/components/model/gemini"
@@ -178,4 +179,32 @@ func (client GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
 
 	msg, err := client.reactAgent.Generate(ctx, dialogue, agentOpt)
 	return (*types.GptCliMessage)(msg), err
+}
+
+func (client GptCliEINOAIClient) StreamChatCompletion(ctx context.Context,
+	dialogueIn []*types.GptCliMessage) (*schema.StreamReader[*types.GptCliMessage], error) {
+
+	dialogue := make([]*schema.Message, len(dialogueIn))
+	for ii, msg := range dialogueIn {
+		dialogue[ii] = (*schema.Message)(msg)
+	}
+
+	modelOpt := laclopenai.WithReasoningEffort(client.reasoningEffort)
+	composeOpt := compose.WithChatModelOption(modelOpt)
+	agentOpt := agent.WithComposeOptions(composeOpt)
+
+	stream, err := client.reactAgent.Stream(ctx, dialogue, agentOpt)
+	if err != nil {
+		return nil, err
+	}
+
+	convert := func(m *schema.Message) (*types.GptCliMessage, error) {
+		if m == nil {
+			return nil, fmt.Errorf("nil message in stream")
+		}
+		return (*types.GptCliMessage)(m), nil
+	}
+
+	streamOut := schema.StreamReaderWithConvert(stream, convert)
+	return streamOut, nil
 }

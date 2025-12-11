@@ -9,17 +9,30 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cloudwego/eino/schema"
 	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
-// ChatOnceInCurrentThread encapsulates the core request/response flow
-// for sending a prompt to the current thread, updating dialogue
-// history, and persisting the result. It performs no direct terminal
-// I/O so callers can render the assistant reply however they choose.
-func (thrGrp *GptCliThreadGroup) ChatOnceInCurrentThread(
+// PreparedChat captures the state needed to complete a single request
+// within the current thread. It is UI-agnostic so that both streaming
+// and non-streaming callers can share the same preparation and
+// finalization logic.
+type PreparedChat struct {
+	Thread          *GptCliThread
+	FullDialogue    []*types.GptCliMessage // full history + user request
+	WorkingDialogue []*types.GptCliMessage // possibly summarized + user request
+	ReqMsg          *types.GptCliMessage
+}
+
+// prepareChatOnceInCurrentThread performs all work needed before
+// sending a request to the LLM: validating the current thread,
+// constructing the user message, optionally summarizing prior dialogue,
+// and returning both the full and working dialogue slices.
+func (thrGrp *GptCliThreadGroup) prepareChatOnceInCurrentThread(
 	ctx context.Context, llmClient types.GptCliAIClient, prompt string,
-	summarizePrior bool) (*types.GptCliMessage, error) {
+	summarizePrior bool,
+) (*PreparedChat, error) {
 
 	if thrGrp.curThreadNum == 0 || thrGrp.curThreadNum > thrGrp.totThreads {
 		return nil, fmt.Errorf("No thread is currently selected. Select one with 'thread <thread#>'.")
@@ -47,21 +60,84 @@ func (thrGrp *GptCliThreadGroup) ChatOnceInCurrentThread(
 		workingDialogue = summaryDialogue
 	}
 
-	replyMsg, err := llmClient.CreateChatCompletion(ctx, workingDialogue)
-	if err != nil {
-		return nil, err
+	prep := &PreparedChat{
+		Thread:          thread,
+		FullDialogue:    fullDialogue,
+		WorkingDialogue: workingDialogue,
+		ReqMsg:          reqMsg,
 	}
 
-	fullDialogue = append(fullDialogue, replyMsg)
+	return prep, nil
+}
+
+// FinalizeChatOnceInCurrentThread appends the assistant reply to the
+// thread's dialogue, updates timestamps, and persists the thread to
+// disk.
+func (thrGrp *GptCliThreadGroup) FinalizeChatOnceInCurrentThread(
+	prep *PreparedChat, replyMsg *types.GptCliMessage,
+) error {
+	if prep == nil || prep.Thread == nil {
+		return fmt.Errorf("invalid prepared chat: missing thread")
+	}
+
+	thread := prep.Thread
+	fullDialogue := append(prep.FullDialogue, replyMsg)
 	thread.Dialogue = fullDialogue
 	thread.ModTime = time.Now()
 	thread.AccessTime = time.Now()
 
 	if err := thread.save(thrGrp.dir); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ChatOnceInCurrentThread encapsulates the core request/response flow
+// for sending a prompt to the current thread using a non-streaming LLM
+// call, updating dialogue history, and persisting the result.
+func (thrGrp *GptCliThreadGroup) ChatOnceInCurrentThread(
+	ctx context.Context, llmClient types.GptCliAIClient, prompt string,
+	summarizePrior bool) (*types.GptCliMessage, error) {
+
+	prep, err := thrGrp.prepareChatOnceInCurrentThread(ctx, llmClient, prompt, summarizePrior)
+	if err != nil {
+		return nil, err
+	}
+
+	replyMsg, err := llmClient.CreateChatCompletion(ctx, prep.WorkingDialogue)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := thrGrp.FinalizeChatOnceInCurrentThread(prep, replyMsg); err != nil {
 		return nil, err
 	}
 
 	return replyMsg, nil
+}
+
+// ChatOnceInCurrentThreadStream prepares the current thread dialogue
+// for a new user prompt and returns both the PreparedChat and a
+// streaming reader for the assistant reply. Callers are responsible for
+// consuming the stream, assembling the final reply message, and then
+// invoking FinalizeChatOnceInCurrentThread.
+func (thrGrp *GptCliThreadGroup) ChatOnceInCurrentThreadStream(
+	ctx context.Context, llmClient types.GptCliAIClient, prompt string,
+	summarizePrior bool,
+) (*PreparedChat, *schema.StreamReader[*types.GptCliMessage], error) {
+
+	prep, err := thrGrp.prepareChatOnceInCurrentThread(ctx, llmClient, prompt, summarizePrior)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	stream, err := llmClient.StreamChatCompletion(ctx, prep.WorkingDialogue)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return prep, stream, nil
 }
 
 // summarizeDialogue summarizes the entire chat history in order to reduce
