@@ -119,6 +119,13 @@ The `Makefile` defines `TESTPKGS` to include core packages (`cmd/gptcli`, `inter
   - Keep agent/tool behavior centralized in `internal/llmclient` and `internal/tools`.
   - Aim for small, focused tools; reuse `ToolApprovalUI` and approval policies instead of duplicating approval logic.
   - When changing public behavior of tools (e.g., adding fields to requests or responses), preserve backward compatibility with existing JSON field names.
+  - Prefer **named, non-anonymous functions** for any non-trivial behavior (anything more than ~5 lines, multiple branches, or stateful logic). Avoid long inline anonymous function literals passed directly to other functions or stored in variables.
+    - Example of *discouraged* style:
+      - Defining a 20+ line `func(...) { ... }` literal inline inside another function body.
+    - Preferred style:
+      - Lift the logic into a named helper (e.g. `rebuildHistory(...)`) and call it from the caller. This keeps call sites compact and improves readability, testability, and reusability.
+    - Exception:
+      - Small, obviously local lambdas (~5 lines or fewer) are acceptable when they are truly trivial (e.g. a comparator passed to `sort.Slice` or a short closure that captures a couple of values).
 - Testing:
   - Prefer adding or updating unit tests under `internal/...` or `cmd/gptcli/...` when you change behavior.
 
