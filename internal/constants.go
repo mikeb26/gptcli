@@ -9,7 +9,7 @@ const DefaultVendor = "openai"
 var DefaultModels = map[string]string{
 	"google":    "gemini-3-pro-preview",
 	"anthropic": "claude-sonnet-4-5-20250929",
-	"openai":    "gpt-5.1",
+	"openai":    "gpt-5.2",
 }
 
 const MaxDepth = 3
