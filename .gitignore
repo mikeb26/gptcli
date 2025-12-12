@@ -2,4 +2,4 @@
 /vendor
 /gptcli
 /unit-tests.xml
-/internal/types/openai_client_mock.go
+

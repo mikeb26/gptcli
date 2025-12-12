@@ -34,7 +34,7 @@ lint:
 
 .PHONY: clean
 clean:
-	rm -f gptcli unit-tests.xml internal/types/openai_client_mock.go
+	rm -f gptcli unit-tests.xml
 
 .PHONY: deps
 deps:
