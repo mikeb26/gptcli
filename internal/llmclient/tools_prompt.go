@@ -85,7 +85,10 @@ func (t PromptRunTool) Invoke(ctx context.Context,
 	}
 
 	fmt.Printf("gptcli: subtask depth %v processing...\n", t.depth)
-	msg, err := t.client.CreateChatCompletion(t.ctx, req.Dialogue)
+
+	// Always use the per-invocation context so that cancellation, deadlines,
+	// and correlation IDs propagate correctly into nested LLM calls.
+	msg, err := t.client.CreateChatCompletion(ctx, req.Dialogue)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

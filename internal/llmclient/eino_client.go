@@ -12,12 +12,14 @@ import (
 	"github.com/cloudwego/eino-ext/components/model/gemini"
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	laclopenai "github.com/cloudwego/eino-ext/libs/acl/openai"
+	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/flow/agent"
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
+	"github.com/google/uuid"
 	"github.com/mikeb26/gptcli/internal"
 	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/tools"
@@ -28,6 +30,34 @@ import (
 type GptCliEINOAIClient struct {
 	reactAgent      *react.Agent
 	reasoningEffort laclopenai.ReasoningEffortLevel
+	auditHandler    callbacks.Handler
+}
+
+// invocationIDKey is an unexported context key type used to store a per-
+// invocation ID so that all audit log entries for a single originating call
+// to CreateChatCompletion / StreamChatCompletion can be correlated.
+type invocationIDKey struct{}
+
+// getInvocationID extracts the invocation ID from the context, if present.
+func getInvocationID(ctx context.Context) (string, bool) {
+	if v := ctx.Value(invocationIDKey{}); v != nil {
+		if s, ok := v.(string); ok && s != "" {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+// ensureInvocationID returns a context that is guaranteed to carry an
+// invocation ID, and the ID itself. If the ID is already present, it is
+// reused; otherwise, a new UUID is generated and attached to the context.
+func ensureInvocationID(ctx context.Context) (context.Context, string) {
+	if id, ok := getInvocationID(ctx); ok {
+		return ctx, id
+	}
+	id := uuid.NewString()
+	ctx = context.WithValue(ctx, invocationIDKey{}, id)
+	return ctx, id
 }
 
 func NewEINOClient(ctx context.Context, vendor string,
@@ -127,9 +157,15 @@ func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel
 		panic(err)
 	}
 
+	auditHandler, err := newAuditCallbacksHandler("gptcli.audit.log")
+	if err != nil {
+		panic(err)
+	}
+
 	return &GptCliEINOAIClient{
 		reactAgent:      client,
 		reasoningEffort: laclopenai.ReasoningEffortLevelMedium,
+		auditHandler:    auditHandler,
 	}
 }
 
@@ -168,6 +204,11 @@ func (client *GptCliEINOAIClient) SetReasoning(
 func (client GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
 	dialogueIn []*types.GptCliMessage) (*types.GptCliMessage, error) {
 
+	// Ensure this invocation has a correlation ID for audit logging. If an ID
+	// is already present in the context (e.g. set by a higher-level caller), it
+	// will be reused; otherwise, a new one is generated.
+	ctx, _ = ensureInvocationID(ctx)
+
 	dialogue := make([]*schema.Message, len(dialogueIn))
 	for ii, msg := range dialogueIn {
 		dialogue[ii] = (*schema.Message)(msg)
@@ -177,13 +218,21 @@ func (client GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
 	composeOpt := compose.WithChatModelOption(modelOpt)
 	agentOpt := agent.WithComposeOptions(composeOpt)
 
-	msg, err := client.reactAgent.Generate(ctx, dialogue, agentOpt)
+	// attach audit callbacks for model and tool invocations during streaming
+	auditComposeOpt := compose.WithCallbacks(client.auditHandler)
+	auditAgentOpt := agent.WithComposeOptions(auditComposeOpt)
+
+	msg, err := client.reactAgent.Generate(ctx, dialogue, agentOpt,
+		auditAgentOpt)
 	return (*types.GptCliMessage)(msg), err
 }
 
 func (client GptCliEINOAIClient) StreamChatCompletion(ctx context.Context,
 	dialogueIn []*types.GptCliMessage) (*schema.StreamReader[*types.GptCliMessage], error) {
 
+	// Ensure this invocation has a correlation ID for audit logging.
+	ctx, _ = ensureInvocationID(ctx)
+
 	dialogue := make([]*schema.Message, len(dialogueIn))
 	for ii, msg := range dialogueIn {
 		dialogue[ii] = (*schema.Message)(msg)
@@ -193,7 +242,11 @@ func (client GptCliEINOAIClient) StreamChatCompletion(ctx context.Context,
 	composeOpt := compose.WithChatModelOption(modelOpt)
 	agentOpt := agent.WithComposeOptions(composeOpt)
 
-	stream, err := client.reactAgent.Stream(ctx, dialogue, agentOpt)
+	// attach audit callbacks for model and tool invocations during streaming
+	auditComposeOpt := compose.WithCallbacks(client.auditHandler)
+	auditAgentOpt := agent.WithComposeOptions(auditComposeOpt)
+
+	stream, err := client.reactAgent.Stream(ctx, dialogue, agentOpt, auditAgentOpt)
 	if err != nil {
 		return nil, err
 	}
