@@ -64,6 +64,14 @@ func (t RunCommandTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 		am.ApprovalGroupCommand, am.ApprovalTargetCommandInvocation,
 		invocationKey)
 
+	prefixKey := buildCommandInvocationPrefixKey(req.Cmd, req.CmdArgs)
+	prefixPolicyID := ""
+	if prefixKey != "" {
+		prefixPolicyID = am.ApprovalPolicyID(am.ApprovalSubsysTools,
+			am.ApprovalGroupCommand, am.ApprovalTargetCommandInvocationPrefix,
+			prefixKey)
+	}
+
 	prompt := fmt.Sprintf("gptcli would like to run OS command: %q with args %q. Allow?",
 		req.Cmd, strings.Join(req.CmdArgs, " "))
 
@@ -94,6 +102,20 @@ func (t RunCommandTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 		},
 	}
 
+	if prefixPolicyID != "" {
+		// Insert the "similar" option after the exact-invocation option.
+		// (before the broader "any args for this command" option)
+		choices = append(choices[:2], append([]am.ApprovalChoice{
+			{
+				Key:      "cs",
+				Label:    "Yes, and allow similar command invocations in the future",
+				Scope:    am.ApprovalScopeTarget,
+				PolicyID: prefixPolicyID,
+				Actions:  []am.ApprovalAction{am.ApprovalActionExecute},
+			},
+		}, choices[2:]...)...)
+	}
+
 	return ToolApprovalRequest{
 		Tool:            t,
 		Arg:             arg,
@@ -101,6 +123,23 @@ func (t RunCommandTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 		RequiredActions: []am.ApprovalAction{am.ApprovalActionExecute},
 		Choices:         choices,
 	}
+}
+
+// buildCommandInvocationPrefixKey creates a stable key for a command
+// invocation "prefix" where all arguments except the last must match.
+//
+// Example:
+//   cmd="go", args=["test","somepkg"] => key = "go:test"
+//
+// This returns an empty string when there is no meaningful prefix
+// (e.g. zero args).
+func buildCommandInvocationPrefixKey(cmd string, args []string) string {
+	if len(args) < 2 {
+		return ""
+	}
+	// all but last
+	prefixArgs := args[:len(args)-1]
+	return cmd + ":" + strings.Join(prefixArgs, "\x00")
 }
 
 // buildCommandInvocationKey creates a concise but stable key for a

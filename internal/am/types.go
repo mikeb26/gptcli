@@ -59,6 +59,12 @@ const (
 	// ApprovalTargetCommandInvocation represents a specific
 	// command-line invocation (command + arguments) for cmd_run.
 	ApprovalTargetCommandInvocation ApprovalTarget = "command_invocation"
+	// ApprovalTargetCommandInvocationPrefix represents a class of
+	// command-line invocations where all arguments except the last must
+	// match (i.e. a command + argument prefix). This is used by cmd_run
+	// to support approvals like: allow all future invocations of
+	// "go test <anything>" without allowing all "go <anything>".
+	ApprovalTargetCommandInvocationPrefix ApprovalTarget = "command_invocation_prefix"
 	// ApprovalTargetEnvVar represents an individual environment
 	// variable name.
 	ApprovalTargetEnvVar ApprovalTarget = "env_var"
