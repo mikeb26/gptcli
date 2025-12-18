@@ -15,7 +15,9 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/cloudwego/eino/schema"
 	gc "github.com/gbin/goncurses"
+	"github.com/mikeb26/gptcli/internal/llmclient"
 	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/mikeb26/gptcli/internal/ui"
@@ -105,41 +107,44 @@ func drawThreadHeader(scr *gc.Window, thread *threads.GptCliThread) {
 	_ = scr.AttrSet(gc.A_NORMAL)
 }
 
-// consumeInputBuffer handles Ctrl-D in the input pane. It reads the
-// current prompt from the input frame and either executes a
-// non-streaming request (the existing behavior) or, when streaming is
-// enabled, consumes a streaming response while incrementally updating
-// the history frame.
-func consumeInputBuffer(
-	ctx context.Context,
+type streamStartResult struct {
+	prep   *threads.PreparedChat
+	stream *schema.StreamReader[*types.GptCliMessage]
+	err    error
+}
+
+type chunkOrErr struct {
+	Msg *types.GptCliMessage
+	Err error
+}
+
+func setupConsumeInputBuffer(
 	scr *gc.Window,
-	gptCliCtx *GptCliContext,
 	thread *threads.GptCliThread,
 	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
-	ncui *ui.NcursesUI,
-) {
+) (prompt string, displayThread threads.GptCliThread, historyLines []ui.FrameLine, maxX int, ok bool) {
 	// Capture the raw multi-line input and trim it in the same way as the
 	// non-UI helpers so that what we display matches what is actually sent
 	// to the LLM and eventually persisted in the thread dialogue.
 	rawInput := inputFrame.InputString()
-	prompt := strings.TrimSpace(rawInput)
+	prompt = strings.TrimSpace(rawInput)
 	if prompt == "" {
-		return
+		return "", threads.GptCliThread{}, nil, 0, false
 	}
 
 	// Immediately reflect the user's input at the end of the history
 	// window without mutating the underlying thread yet. We do this by
 	// rendering against a temporary thread that includes the pending user
 	// message.
-	_, maxX := scr.MaxYX()
-	displayThread := *thread
+	_, maxX = scr.MaxYX()
+	displayThread = *thread
 	userMsg := &types.GptCliMessage{
 		Role:    types.GptCliMessageRoleUser,
 		Content: prompt,
 	}
 	displayThread.Dialogue = append(displayThread.Dialogue, userMsg)
-	historyLines := buildHistoryLines(&displayThread, maxX)
+	historyLines = buildHistoryLines(&displayThread, maxX)
 	historyFrame.SetLines(historyLines)
 	historyFrame.MoveEnd()
 	historyFrame.Render(false)
@@ -149,38 +154,119 @@ func consumeInputBuffer(
 	inputFrame.ResetInput()
 	inputFrame.Render(true)
 
-	// Show processing status
+	// Show processing status.
 	drawThreadStatus(scr, focusInput, "Processing...")
 	scr.Refresh()
 
-	// Non-streaming path preserves existing semantics.
-	if !gptCliCtx.useStreaming {
-		retry := true
-		for retry {
-			_, err := gptCliCtx.ChatOnceInCurrentThread(ctx, prompt)
-			if err == nil {
-				retry = false
-				break
-			}
+	return prompt, displayThread, historyLines, maxX, true
+}
 
-			// Show error modal asking whether to retry.
-			wantRetry, modalErr := showErrorRetryModal(ncui, err.Error())
-			if modalErr != nil || !wantRetry {
-				retry = false
-				break
+func consumeInputNonStreamingWithRetry(
+	ctx context.Context,
+	gptCliCtx *GptCliContext,
+	prompt string,
+	ncui *ui.NcursesUI,
+) {
+	retry := true
+	for retry {
+		_, err := gptCliCtx.ChatOnceInCurrentThread(ctx, prompt)
+		if err == nil {
+			retry = false
+			break
+		}
+
+		// Show error modal asking whether to retry.
+		wantRetry, modalErr := showErrorRetryModal(ncui, err.Error())
+		if modalErr != nil || !wantRetry {
+			retry = false
+			break
+		}
+	}
+}
+
+func updateThreadStatusFromProgress(statusText string, ev types.ProgressEvent) string {
+	switch ev.Component {
+	case types.ProgressComponentModel:
+		return "LLM: thinking"
+	case types.ProgressComponentTool:
+		if ev.Phase == types.ProgressPhaseStart {
+			return "Tool: running " + ev.DisplayText
+		}
+		return "LLM: thinking"
+	default:
+		return statusText
+	}
+}
+
+func startStreamingChatOnce(
+	ctx context.Context,
+	gptCliCtx *GptCliContext,
+	prompt string,
+) <-chan streamStartResult {
+	startCh := make(chan streamStartResult, 1)
+	go func() {
+		prep, stream, err := gptCliCtx.ChatOnceInCurrentThreadStream(ctx, prompt)
+		startCh <- streamStartResult{prep: prep, stream: stream, err: err}
+		close(startCh)
+	}()
+	return startCh
+}
+
+func drainMessageStream(stream *schema.StreamReader[*types.GptCliMessage]) <-chan chunkOrErr {
+	chunkCh := make(chan chunkOrErr, 1)
+	go func() {
+		defer close(chunkCh)
+		for {
+			msg, err := stream.Recv()
+			chunkCh <- chunkOrErr{Msg: msg, Err: err}
+			if err != nil {
+				return
 			}
 		}
+	}()
+	return chunkCh
+}
+
+// consumeInputBuffer handles Ctrl-D in the input pane. It reads the
+// current prompt from the input frame and either executes a
+// non-streaming request (the existing behavior) or, when streaming is
+// enabled, consumes a streaming response while incrementally updating
+// the history frame and thread status.
+func consumeInputBuffer(
+	ctx context.Context,
+	scr *gc.Window,
+	gptCliCtx *GptCliContext,
+	thread *threads.GptCliThread,
+	historyFrame *ui.Frame,
+	inputFrame *ui.Frame,
+	ncui *ui.NcursesUI,
+) {
+	prompt, displayThread, historyLines, maxX, ok := setupConsumeInputBuffer(scr, thread, historyFrame, inputFrame)
+	if !ok {
+		return
+	}
+
+	// Non-streaming path preserves existing semantics.
+	if !gptCliCtx.useStreaming {
+		consumeInputNonStreamingWithRetry(ctx, gptCliCtx, prompt, ncui)
 		return
 	}
 
 	// Streaming path: prepare dialogue and consume chunks while
 	// incrementally updating the history frame.
-	prep, stream, err := gptCliCtx.ChatOnceInCurrentThreadStream(ctx, prompt)
-	if err != nil {
-		_, _ = showErrorRetryModal(ncui, err.Error())
-		return
-	}
-	defer stream.Close()
+	//
+	// Seed an invocation ID in the context up-front so we can subscribe to
+	// callback-driven progress events before the agent begins executing.
+	ctx, invocationID := llmclient.EnsureInvocationID(ctx)
+
+	progressCh := gptCliCtx.client.SubscribeProgress(invocationID)
+	defer gptCliCtx.client.UnsubscribeProgress(progressCh, invocationID)
+
+	// Start the streaming request in a goroutine. The underlying EINO agent
+	// may block while setting up the stream (e.g. while it probes early chunks
+	// to detect tool calls), and we still want to update the status line while
+	// that happens.
+	startCh := startStreamingChatOnce(ctx, gptCliCtx, prompt)
 
 	// Start from the history that already includes the just-submitted
 	// user message (rendered above via displayThread/historyLines) and
@@ -188,19 +274,68 @@ func consumeInputBuffer(
 	// displayThread here so that rebuildHistory's wrapping logic stays in
 	// sync with the base history slice.
 
+	statusText := "LLM: thinking"
+	var prep *threads.PreparedChat
+	var stream *schema.StreamReader[*types.GptCliMessage]
+	var chunkCh <-chan chunkOrErr
 	var buffer strings.Builder
-	for {
-		chunk, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			_, _ = showErrorRetryModal(ncui, err.Error())
-			return
-		}
+	streamDone := false
 
-		buffer.WriteString(chunk.Content)
-		rebuildHistory(scr, historyFrame, &displayThread, historyLines, maxX, buffer.String())
+	for !streamDone {
+		drawThreadStatus(scr, focusInput, statusText)
+		scr.Refresh()
+
+		select {
+		case ev, ok := <-progressCh:
+			if !ok {
+				progressCh = nil
+				continue
+			}
+			statusText = updateThreadStatusFromProgress(statusText, ev)
+
+		case res, ok := <-startCh:
+			if !ok {
+				startCh = nil
+				continue
+			}
+			startCh = nil
+			if res.err != nil {
+				_, _ = showErrorRetryModal(ncui, res.err.Error())
+				return
+			}
+			if res.prep == nil || res.stream == nil {
+				_, _ = showErrorRetryModal(ncui, "nil stream result")
+				return
+			}
+			prep = res.prep
+			stream = res.stream
+			defer stream.Close()
+			chunkCh = drainMessageStream(stream)
+
+		case ce, ok := <-chunkCh:
+			if !ok {
+				// Stream ended unexpectedly; treat as completion.
+				streamDone = true
+				continue
+			}
+			if ce.Err != nil {
+				if errors.Is(ce.Err, io.EOF) {
+					streamDone = true
+					continue
+				}
+				_, _ = showErrorRetryModal(ncui, ce.Err.Error())
+				return
+			}
+			if ce.Msg == nil {
+				continue
+			}
+
+			// As soon as we start receiving assistant chunks, we're
+			// in the "answering" phase.
+			statusText = "LLM: answering"
+			buffer.WriteString(ce.Msg.Content)
+			rebuildHistory(scr, historyFrame, &displayThread, historyLines, maxX, buffer.String())
+		}
 	}
 
 	replyMsg := &types.GptCliMessage{

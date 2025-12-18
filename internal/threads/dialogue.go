@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/schema"
+	"github.com/mikeb26/gptcli/internal/llmclient"
 	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
 )
@@ -23,6 +24,7 @@ type PreparedChat struct {
 	FullDialogue    []*types.GptCliMessage // full history + user request
 	WorkingDialogue []*types.GptCliMessage // possibly summarized + user request
 	ReqMsg          *types.GptCliMessage
+	InvocationID    string
 }
 
 // prepareChatOnceInCurrentThread performs all work needed before
@@ -132,12 +134,22 @@ func (thrGrp *GptCliThreadGroup) ChatOnceInCurrentThreadStream(
 		return nil, nil, err
 	}
 
-	stream, err := llmClient.StreamChatCompletion(ctx, prep.WorkingDialogue)
+	ctx, prep.InvocationID = llmclient.EnsureInvocationID(ctx)
+	res, err := llmClient.StreamChatCompletion(ctx, prep.WorkingDialogue)
 	if err != nil {
 		return nil, nil, err
 	}
+	if res == nil || res.Stream == nil {
+		return nil, nil, fmt.Errorf("nil stream result")
+	}
 
-	return prep, stream, nil
+	// If the LLM client generated a different ID (shouldn't happen if it reuses
+	// the one we attached), prefer the returned ID.
+	if res.InvocationID != "" {
+		prep.InvocationID = res.InvocationID
+	}
+
+	return prep, res.Stream, nil
 }
 
 // summarizeDialogue summarizes the entire chat history in order to reduce

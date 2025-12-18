@@ -63,7 +63,7 @@ func summarizeMessages(msgs []*schema.Message) string {
 // getInvocationIDForLog builds the textual prefix for audit log lines based on
 // the invocation ID stored in the context, if any.
 func getInvocationIDForLog(ctx context.Context) string {
-	if id, ok := getInvocationID(ctx); ok {
+	if id, ok := GetInvocationID(ctx); ok {
 		return "[" + id + "] "
 	}
 	return ""
@@ -283,8 +283,8 @@ func (h *auditToolCallbacks) drainToolStream(
 func newAuditModelHandler(logger *log.Logger) *ub.ModelCallbackHandler {
 	cb := &auditModelCallbacks{logger: logger}
 	return &ub.ModelCallbackHandler{
-		OnStart:              cb.OnStart,
-		OnEnd:                cb.OnEnd,
+		OnStart:               cb.OnStart,
+		OnEnd:                 cb.OnEnd,
 		OnEndWithStreamOutput: cb.OnEndWithStreamOutput,
 	}
 }
@@ -294,8 +294,8 @@ func newAuditModelHandler(logger *log.Logger) *ub.ModelCallbackHandler {
 func newAuditToolHandler(logger *log.Logger) *ub.ToolCallbackHandler {
 	cb := &auditToolCallbacks{logger: logger}
 	return &ub.ToolCallbackHandler{
-		OnStart:              cb.OnStart,
-		OnEnd:                cb.OnEnd,
+		OnStart:               cb.OnStart,
+		OnEnd:                 cb.OnEnd,
 		OnEndWithStreamOutput: cb.OnEndWithStreamOutput,
 	}
 }

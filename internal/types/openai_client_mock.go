@@ -9,7 +9,6 @@ import (
 	"reflect"
 
 	laclopenai "github.com/cloudwego/eino-ext/libs/acl/openai"
-	"github.com/cloudwego/eino/schema"
 	"github.com/golang/mock/gomock"
 )
 
@@ -52,10 +51,10 @@ func (mr *MockGptCliAIClientMockRecorder) CreateChatCompletion(ctx, msgs interfa
 }
 
 // StreamChatCompletion mocks base method.
-func (m *MockGptCliAIClient) StreamChatCompletion(ctx context.Context, msgs []*GptCliMessage) (*schema.StreamReader[*GptCliMessage], error) {
+func (m *MockGptCliAIClient) StreamChatCompletion(ctx context.Context, msgs []*GptCliMessage) (*StreamResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StreamChatCompletion", ctx, msgs)
-	ret0, _ := ret[0].(*schema.StreamReader[*GptCliMessage])
+	ret0, _ := ret[0].(*StreamResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -76,4 +75,30 @@ func (m *MockGptCliAIClient) SetReasoning(level laclopenai.ReasoningEffortLevel)
 func (mr *MockGptCliAIClientMockRecorder) SetReasoning(level interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetReasoning", reflect.TypeOf((*MockGptCliAIClient)(nil).SetReasoning), level)
+}
+
+// SubscribeProgress mocks base method.
+func (m *MockGptCliAIClient) SubscribeProgress(invocationID string) chan ProgressEvent {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SubscribeProgress", invocationID)
+	ret0, _ := ret[0].(chan ProgressEvent)
+	return ret0
+}
+
+// SubscribeProgress indicates an expected call of SubscribeProgress.
+func (mr *MockGptCliAIClientMockRecorder) SubscribeProgress(invocationID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscribeProgress", reflect.TypeOf((*MockGptCliAIClient)(nil).SubscribeProgress), invocationID)
+}
+
+// UnsubscribeProgress mocks base method.
+func (m *MockGptCliAIClient) UnsubscribeProgress(ch chan ProgressEvent, invocationID string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "UnsubscribeProgress", ch, invocationID)
+}
+
+// UnsubscribeProgress indicates an expected call of UnsubscribeProgress.
+func (mr *MockGptCliAIClientMockRecorder) UnsubscribeProgress(ch, invocationID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnsubscribeProgress", reflect.TypeOf((*MockGptCliAIClient)(nil).UnsubscribeProgress), ch, invocationID)
 }

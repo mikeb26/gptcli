@@ -7,6 +7,7 @@ package llmclient
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/cloudwego/eino-ext/components/model/claude"
 	"github.com/cloudwego/eino-ext/components/model/gemini"
@@ -31,6 +32,16 @@ type GptCliEINOAIClient struct {
 	reactAgent      *react.Agent
 	reasoningEffort laclopenai.ReasoningEffortLevel
 	auditHandler    callbacks.Handler
+	statusHandlers  callbacks.Handler
+
+	subsMu sync.RWMutex
+	subs   map[string][]chan types.ProgressEvent //index by invocationID
+
+	// current holds the most recent progress event per invocation ID so that
+	// late subscribers (e.g. UI subscribing after Stream() returns) can still
+	// learn what is currently happening.
+	currentMu sync.RWMutex
+	current   map[string]types.ProgressEvent
 }
 
 // invocationIDKey is an unexported context key type used to store a per-
@@ -38,8 +49,8 @@ type GptCliEINOAIClient struct {
 // to CreateChatCompletion / StreamChatCompletion can be correlated.
 type invocationIDKey struct{}
 
-// getInvocationID extracts the invocation ID from the context, if present.
-func getInvocationID(ctx context.Context) (string, bool) {
+// GetInvocationID extracts the invocation ID from the context, if present.
+func GetInvocationID(ctx context.Context) (string, bool) {
 	if v := ctx.Value(invocationIDKey{}); v != nil {
 		if s, ok := v.(string); ok && s != "" {
 			return s, true
@@ -51,8 +62,8 @@ func getInvocationID(ctx context.Context) (string, bool) {
 // ensureInvocationID returns a context that is guaranteed to carry an
 // invocation ID, and the ID itself. If the ID is already present, it is
 // reused; otherwise, a new UUID is generated and attached to the context.
-func ensureInvocationID(ctx context.Context) (context.Context, string) {
-	if id, ok := getInvocationID(ctx); ok {
+func EnsureInvocationID(ctx context.Context) (context.Context, string) {
+	if id, ok := GetInvocationID(ctx); ok {
 		return ctx, id
 	}
 	id := uuid.NewString()
@@ -162,11 +173,15 @@ func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel
 		panic(err)
 	}
 
-	return &GptCliEINOAIClient{
+	clientOut := &GptCliEINOAIClient{
 		reactAgent:      client,
 		reasoningEffort: laclopenai.ReasoningEffortLevelMedium,
 		auditHandler:    auditHandler,
+		subs:            make(map[string][]chan types.ProgressEvent),
+		current:         make(map[string]types.ProgressEvent),
 	}
+	clientOut.statusHandlers = newStatusCallbackHandlers(clientOut)
+	return clientOut
 }
 
 func defineTools(ctx context.Context, vendor string, ui types.GptCliUI,
@@ -201,13 +216,13 @@ func (client *GptCliEINOAIClient) SetReasoning(
 	client.reasoningEffort = reasoningEffort
 }
 
-func (client GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
+func (client *GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
 	dialogueIn []*types.GptCliMessage) (*types.GptCliMessage, error) {
 
-	// Ensure this invocation has a correlation ID for audit logging. If an ID
-	// is already present in the context (e.g. set by a higher-level caller), it
-	// will be reused; otherwise, a new one is generated.
-	ctx, _ = ensureInvocationID(ctx)
+	// Ensure this invocation has a correlation ID for audit/progress callbacks.
+	// If an ID is already present in the context (e.g. set by a higher-level
+	// caller), it will be reused; otherwise, a new one is generated.
+	ctx, _ = EnsureInvocationID(ctx)
 
 	dialogue := make([]*schema.Message, len(dialogueIn))
 	for ii, msg := range dialogueIn {
@@ -218,20 +233,22 @@ func (client GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
 	composeOpt := compose.WithChatModelOption(modelOpt)
 	agentOpt := agent.WithComposeOptions(composeOpt)
 
-	// attach audit callbacks for model and tool invocations during streaming
-	auditComposeOpt := compose.WithCallbacks(client.auditHandler)
-	auditAgentOpt := agent.WithComposeOptions(auditComposeOpt)
+	// attach callbacks for model and tool invocations
+	cbComposeOpt := compose.WithCallbacks(client.auditHandler,
+		client.statusHandlers)
+	cbAgentOpt := agent.WithComposeOptions(cbComposeOpt)
 
 	msg, err := client.reactAgent.Generate(ctx, dialogue, agentOpt,
-		auditAgentOpt)
+		cbAgentOpt)
 	return (*types.GptCliMessage)(msg), err
 }
 
-func (client GptCliEINOAIClient) StreamChatCompletion(ctx context.Context,
-	dialogueIn []*types.GptCliMessage) (*schema.StreamReader[*types.GptCliMessage], error) {
+func (client *GptCliEINOAIClient) StreamChatCompletion(ctx context.Context,
+	dialogueIn []*types.GptCliMessage) (*types.StreamResult, error) {
 
-	// Ensure this invocation has a correlation ID for audit logging.
-	ctx, _ = ensureInvocationID(ctx)
+	// Ensure this invocation has a correlation ID for audit/progress callbacks.
+	// If the caller already attached an ID to ctx, we will reuse it.
+	ctx, invocationID := EnsureInvocationID(ctx)
 
 	dialogue := make([]*schema.Message, len(dialogueIn))
 	for ii, msg := range dialogueIn {
@@ -242,11 +259,12 @@ func (client GptCliEINOAIClient) StreamChatCompletion(ctx context.Context,
 	composeOpt := compose.WithChatModelOption(modelOpt)
 	agentOpt := agent.WithComposeOptions(composeOpt)
 
-	// attach audit callbacks for model and tool invocations during streaming
-	auditComposeOpt := compose.WithCallbacks(client.auditHandler)
-	auditAgentOpt := agent.WithComposeOptions(auditComposeOpt)
+	// attach callbacks for model and tool invocations
+	cbComposeOpt := compose.WithCallbacks(client.auditHandler,
+		client.statusHandlers)
+	cbAgentOpt := agent.WithComposeOptions(cbComposeOpt)
 
-	stream, err := client.reactAgent.Stream(ctx, dialogue, agentOpt, auditAgentOpt)
+	stream, err := client.reactAgent.Stream(ctx, dialogue, agentOpt, cbAgentOpt)
 	if err != nil {
 		return nil, err
 	}
@@ -259,5 +277,92 @@ func (client GptCliEINOAIClient) StreamChatCompletion(ctx context.Context,
 	}
 
 	streamOut := schema.StreamReaderWithConvert(stream, convert)
-	return streamOut, nil
+	return &types.StreamResult{
+		InvocationID: invocationID,
+		Stream:       streamOut,
+	}, nil
+}
+
+// SubscribeProgress registers a subscriber for callback-driven progress events
+// for the given invocation ID.
+//
+// The returned channel will receive events best-effort; if the receiver is too
+// slow, events may be dropped. It is the caller's responsibility to call
+// UnsubscribeProcess() when no longer required.
+func (client *GptCliEINOAIClient) SubscribeProgress(
+	invocationID string) chan types.ProgressEvent {
+
+	ch := make(chan types.ProgressEvent, 64)
+	if invocationID == "" {
+		close(ch)
+		return nil
+	}
+
+	client.subsMu.Lock()
+	client.subs[invocationID] = append(client.subs[invocationID], ch)
+	client.subsMu.Unlock()
+
+	// Best-effort send the most recent known status for this invocation so the
+	// caller doesn't miss early tool/model events that may have fired before the
+	// subscription was established.
+	client.currentMu.RLock()
+	if ev, ok := client.current[invocationID]; ok {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
+	client.currentMu.RUnlock()
+
+	return ch
+}
+
+// UnsubscribeProgress unregisters a subscriber from a previously subscribed
+// invocationID
+func (client *GptCliEINOAIClient) UnsubscribeProgress(ch chan types.ProgressEvent,
+	invocationID string) {
+
+	client.subsMu.Lock()
+	defer client.subsMu.Unlock()
+
+	subs := client.subs[invocationID]
+	for i := range subs {
+		if subs[i] == ch {
+			subs = append(subs[:i], subs[i+1:]...)
+			close(ch)
+			break
+		}
+	}
+	if len(subs) == 0 {
+		delete(client.subs, invocationID)
+	} else {
+		client.subs[invocationID] = subs
+	}
+}
+
+func (client *GptCliEINOAIClient) publishProgress(invocationID string, ev types.ProgressEvent) {
+	if invocationID == "" {
+		return
+	}
+
+	// Store the latest event so late subscribers can catch up.
+	client.currentMu.Lock()
+	client.current[invocationID] = ev
+	client.currentMu.Unlock()
+
+	subs := make([]chan types.ProgressEvent, 0)
+
+	// make a local copy of the set of subscribers so that new subscribers
+	// don't race with iteration
+	client.subsMu.RLock()
+	subs = append(subs, client.subs[invocationID]...)
+	client.subsMu.RUnlock()
+
+	for _, ch := range subs {
+		select {
+		case ch <- ev:
+		default:
+			// drop if subscriber is slow
+		}
+	}
 }

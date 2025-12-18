@@ -24,6 +24,14 @@ const GptCliMessageRoleSystem = schema.System
 const GptCliMessageRoleAssistant = schema.Assistant
 const GptCliMessageRoleUser = schema.User
 
+// StreamResult is returned by StreamChatCompletion to provide both the
+// streaming reader and a stable invocation ID that can be used by callers
+// to correlate callback-driven progress updates.
+type StreamResult struct {
+	InvocationID string
+	Stream       *schema.StreamReader[*GptCliMessage]
+}
+
 // NOTE: gomock/mockgen does not yet fully understand Go generics syntax such
 // as *schema.StreamReader[*GptCliMessage], so we no longer auto-generate this
 // mock via go:generate. The mock implementation in openai_client_mock.go is
@@ -32,6 +40,8 @@ const GptCliMessageRoleUser = schema.User
 //go:generate echo "skipping gomock generation for GptCliAIClient; using hand-maintained mock in openai_client_mock.go"
 type GptCliAIClient interface {
 	CreateChatCompletion(context.Context, []*GptCliMessage) (*GptCliMessage, error)
-	StreamChatCompletion(context.Context, []*GptCliMessage) (*schema.StreamReader[*GptCliMessage], error)
+	StreamChatCompletion(context.Context, []*GptCliMessage) (*StreamResult, error)
 	SetReasoning(laclopenai.ReasoningEffortLevel)
+	SubscribeProgress(string) chan ProgressEvent
+	UnsubscribeProgress(chan ProgressEvent, string)
 }
