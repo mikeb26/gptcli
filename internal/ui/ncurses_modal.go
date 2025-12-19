@@ -265,7 +265,7 @@ func (n *NcursesUI) readLineModalFrame(userPrompt string) (string, error) {
 
 		switch chKey {
 		case gc.Key(27): // ESC -> empty string
-			return "", nil
+			return "", fmt.Errorf("cancelled")
 		case gc.KEY_ENTER, gc.KEY_RETURN:
 			return string(buf), nil
 		case gc.KEY_BACKSPACE, 127, 8:
@@ -508,4 +508,3 @@ func (n *NcursesUI) selectFromListModalFrame(userPrompt string, items []string, 
 		}
 	}
 }
-
