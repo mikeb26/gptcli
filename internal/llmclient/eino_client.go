@@ -73,17 +73,18 @@ func EnsureInvocationID(ctx context.Context) (context.Context, string) {
 
 func NewEINOClient(ctx context.Context, vendor string,
 	ui types.GptCliUI, apiKey string, model string,
-	depth int, policyStore am.ApprovalPolicyStore) types.GptCliAIClient {
+	depth int, policyStore am.ApprovalPolicyStore,
+	enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
 
 	if vendor == "openai" {
 		return newOpenAIEINOClient(ctx, vendor, ui, apiKey, model, depth,
-			policyStore)
+			policyStore, enableAuditLog, auditLogPath)
 	} else if vendor == "anthropic" {
 		return newAnthropicEINOClient(ctx, vendor, ui, apiKey, model, depth,
-			policyStore)
+			policyStore, enableAuditLog, auditLogPath)
 	} else if vendor == "google" {
 		return newGoogleEINOClient(ctx, vendor, ui, apiKey, model, depth,
-			policyStore)
+			policyStore, enableAuditLog, auditLogPath)
 	} // else
 
 	panic("unsupported vendor")
@@ -92,7 +93,8 @@ func NewEINOClient(ctx context.Context, vendor string,
 
 func newOpenAIEINOClient(ctx context.Context, vendor string,
 	ui types.GptCliUI, apiKey string, model string,
-	depth int, policyStore am.ApprovalPolicyStore) types.GptCliAIClient {
+	depth int, policyStore am.ApprovalPolicyStore,
+	enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
 
 	chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
 		Model:  model,
@@ -103,12 +105,13 @@ func newOpenAIEINOClient(ctx context.Context, vendor string,
 	}
 
 	return newEINOClient(ctx, vendor, chatModel, ui, apiKey, model, depth,
-		policyStore)
+		policyStore, enableAuditLog, auditLogPath)
 }
 
 func newAnthropicEINOClient(ctx context.Context, vendor string,
 	ui types.GptCliUI, apiKey string, model string,
-	depth int, policyStore am.ApprovalPolicyStore) types.GptCliAIClient {
+	depth int, policyStore am.ApprovalPolicyStore,
+	enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
 
 	chatModel, err := claude.NewChatModel(ctx, &claude.Config{
 		Model:  model,
@@ -119,12 +122,13 @@ func newAnthropicEINOClient(ctx context.Context, vendor string,
 	}
 
 	return newEINOClient(ctx, vendor, chatModel, ui, apiKey, model, depth,
-		policyStore)
+		policyStore, enableAuditLog, auditLogPath)
 }
 
 func newGoogleEINOClient(ctx context.Context, vendor string,
 	ui types.GptCliUI, apiKey string, model string,
-	depth int, policyStore am.ApprovalPolicyStore) types.GptCliAIClient {
+	depth int, policyStore am.ApprovalPolicyStore,
+	enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
 
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey: apiKey,
@@ -142,12 +146,13 @@ func newGoogleEINOClient(ctx context.Context, vendor string,
 	}
 
 	return newEINOClient(ctx, vendor, chatModel, ui, apiKey, model, depth,
-		policyStore)
+		policyStore, enableAuditLog, auditLogPath)
 }
 
 func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel,
 	ui types.GptCliUI, apiKey string, model string,
-	depth int, policyStore am.ApprovalPolicyStore) types.GptCliAIClient {
+	depth int, policyStore am.ApprovalPolicyStore,
+	enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
 
 	tools := defineTools(ctx, vendor, ui, apiKey, model, depth,
 		policyStore)
@@ -168,9 +173,12 @@ func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel
 		panic(err)
 	}
 
-	auditHandler, err := newAuditCallbacksHandler("gptcli.audit.log")
-	if err != nil {
-		panic(err)
+	var auditHandler callbacks.Handler
+	if enableAuditLog {
+		auditHandler, err = newAuditCallbacksHandler(auditLogPath)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	clientOut := &GptCliEINOAIClient{
@@ -234,8 +242,13 @@ func (client *GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
 	agentOpt := agent.WithComposeOptions(composeOpt)
 
 	// attach callbacks for model and tool invocations
-	cbComposeOpt := compose.WithCallbacks(client.auditHandler,
-		client.statusHandlers)
+	var cbComposeOpt compose.Option
+	if client.auditHandler != nil {
+		cbComposeOpt = compose.WithCallbacks(client.auditHandler,
+			client.statusHandlers)
+	} else {
+		cbComposeOpt = compose.WithCallbacks(client.statusHandlers)
+	}
 	cbAgentOpt := agent.WithComposeOptions(cbComposeOpt)
 
 	msg, err := client.reactAgent.Generate(ctx, dialogue, agentOpt,
@@ -260,8 +273,13 @@ func (client *GptCliEINOAIClient) StreamChatCompletion(ctx context.Context,
 	agentOpt := agent.WithComposeOptions(composeOpt)
 
 	// attach callbacks for model and tool invocations
-	cbComposeOpt := compose.WithCallbacks(client.auditHandler,
-		client.statusHandlers)
+	var cbComposeOpt compose.Option
+	if client.auditHandler != nil {
+		cbComposeOpt = compose.WithCallbacks(client.auditHandler,
+			client.statusHandlers)
+	} else {
+		cbComposeOpt = compose.WithCallbacks(client.statusHandlers)
+	}
 	cbAgentOpt := agent.WithComposeOptions(cbComposeOpt)
 
 	stream, err := client.reactAgent.Stream(ctx, dialogue, agentOpt, cbAgentOpt)

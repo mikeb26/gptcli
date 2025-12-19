@@ -30,6 +30,8 @@ const (
 	ApprovePolicyFile     = "approvals.json"
 	ThreadsDir            = "threads"
 	ArchiveDir            = "archive_threads"
+	LogsDir               = "logs"
+	AuditLogFile          = "audit.log"
 	CodeBlockDelim        = "```"
 	CodeBlockDelimNewline = "```\n"
 	ThreadParseErrFmt     = "Could not parse %v. Please enter a valid thread number.\n"
@@ -39,6 +41,7 @@ const (
 type Prefs struct {
 	SummarizePrior bool   `json:"summarize_prior"`
 	Vendor         string `json:"vendor"`
+	EnableAuditLog bool   `json:"enable_audit_log"`
 }
 
 type GptCliContext struct {
@@ -94,6 +97,7 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 		prefs: Prefs{
 			SummarizePrior: false,
 			Vendor:         internal.DefaultVendor,
+			EnableAuditLog: true,
 		},
 		archiveThreadGroup: nil,
 		mainThreadGroup:    nil,
@@ -138,6 +142,22 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 		return err
 	}
 
+	if gptCliCtx.prefs.EnableAuditLog {
+		auditLogsDir, err := getLogsDir()
+		if err != nil {
+			return err
+		}
+		err = os.MkdirAll(auditLogsDir, 0700)
+		if err != nil {
+			return fmt.Errorf("Could not create logs directory %v: %w", auditLogsDir, err)
+		}
+	}
+
+	auditLogPath, err := getAuditLogPath()
+	if err != nil {
+		return err
+	}
+
 	policyPath, err := getApprovePolicyPath()
 	if err != nil {
 		return err
@@ -149,7 +169,8 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 
 	gptCliCtx.client = llmclient.NewEINOClient(ctx, gptCliCtx.prefs.Vendor,
 		gptCliCtx.uiProxy, keyText,
-		internal.DefaultModels[gptCliCtx.prefs.Vendor], 0, policyStore)
+		internal.DefaultModels[gptCliCtx.prefs.Vendor], 0, policyStore,
+		gptCliCtx.prefs.EnableAuditLog, auditLogPath)
 
 	for _, thrGrp := range gptCliCtx.threadGroups {
 		err := thrGrp.LoadThreads()

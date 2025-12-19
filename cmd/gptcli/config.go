@@ -19,6 +19,14 @@ import (
 )
 
 func (gptCliCtx *GptCliContext) loadPrefs() error {
+	// Establish defaults so newly added prefs fields take the intended defaults
+	// even when loading older prefs.json files that don't include them.
+	gptCliCtx.prefs = Prefs{
+		SummarizePrior: false,
+		Vendor:         internal.DefaultVendor,
+		EnableAuditLog: true,
+	}
+
 	filePath, err := getPrefsPath()
 	if err != nil {
 		return fmt.Errorf("Failed to get prefs path: %w", err)
@@ -90,21 +98,40 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext) error {
 	gptCliCtx.prefs.Vendor = vendor
 
 	keyPath := path.Join(configDir, fmt.Sprintf(KeyFileFmt, vendor))
-	_, err = os.Stat(keyPath)
+	keyBytes, err := os.ReadFile(keyPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("Could not open %v API key file %v: %w", vendor,
 			keyPath, err)
 	}
-	keyPrompt := fmt.Sprintf("Enter your %v API key: ", vendor)
-	key, err := gptCliCtx.realUI.Get(keyPrompt)
-	if err != nil {
-		return err
+
+	existingKey := strings.TrimSpace(string(keyBytes))
+	keepKey := false
+	if existingKey != "" {
+		keepPrompt := fmt.Sprintf(
+			"An existing %v API key is already configured. Keep using it? (y/n) [y]: ",
+			vendor,
+		)
+		defaultKeep := true
+		trueOpt := types.GptCliUIOption{Key: "y", Label: "y"}
+		falseOpt := types.GptCliUIOption{Key: "n", Label: "n"}
+		keepKey, err = gptCliCtx.realUI.SelectBool(keepPrompt, trueOpt, falseOpt, &defaultKeep)
+		if err != nil {
+			return err
+		}
 	}
-	key = strings.TrimSpace(key)
-	err = os.WriteFile(keyPath, []byte(key), 0600)
-	if err != nil {
-		return fmt.Errorf("Could not write %v API key file %v: %w", vendor,
-			keyPath, err)
+
+	if !keepKey {
+		keyPrompt := fmt.Sprintf("Enter your %v API key: ", vendor)
+		key, err := gptCliCtx.realUI.Get(keyPrompt)
+		if err != nil {
+			return err
+		}
+		key = strings.TrimSpace(key)
+		err = os.WriteFile(keyPath, []byte(key), 0600)
+		if err != nil {
+			return fmt.Errorf("Could not write %v API key file %v: %w", vendor,
+				keyPath, err)
+		}
 	}
 	threadsPath := path.Join(configDir, ThreadsDir)
 	err = os.MkdirAll(threadsPath, 0700)
@@ -134,6 +161,31 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext) error {
 
 	gptCliCtx.prefs.SummarizePrior = summarize
 	gptCliCtx.curSummaryToggle = gptCliCtx.prefs.SummarizePrior
+
+	auditLogPath, err := getAuditLogPath()
+	if err != nil {
+		return err
+	}
+	auditPrompt := fmt.Sprintf(
+		"Enable audit logging (logs prompts/tool use) to %v? (y/n) [y]: ",
+		auditLogPath,
+	)
+	defaultAudit := true
+	enableAudit, err := gptCliCtx.realUI.SelectBool(auditPrompt, trueOpt, falseOpt, &defaultAudit)
+	if err != nil {
+		return err
+	}
+	gptCliCtx.prefs.EnableAuditLog = enableAudit
+	if gptCliCtx.prefs.EnableAuditLog {
+		logsDir, err := getLogsDir()
+		if err != nil {
+			return err
+		}
+		err = os.MkdirAll(logsDir, 0700)
+		if err != nil {
+			return fmt.Errorf("Could not create logs directory %v: %w", logsDir, err)
+		}
+	}
 
 	err = gptCliCtx.savePrefs()
 	if err != nil {
@@ -190,6 +242,22 @@ func getArchiveDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(configDir, ArchiveDir), nil
+}
+
+func getLogsDir() (string, error) {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, LogsDir), nil
+}
+
+func getAuditLogPath() (string, error) {
+	logsDir, err := getLogsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(logsDir, AuditLogFile), nil
 }
 
 func loadKey(vendor string) (string, error) {

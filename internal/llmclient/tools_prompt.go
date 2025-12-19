@@ -51,7 +51,8 @@ func newPromptRunTool(ctxIn context.Context, vendor string,
 		approvalUI: approvalUI,
 		depth:      depthIn,
 		client: NewEINOClient(ctxIn, vendor, approvalUI.GetUI(), apiKey,
-			model, depthIn+1, policyStore),
+			model, depthIn+1, policyStore,
+			false, ""),
 	}
 
 	return t.Define()
