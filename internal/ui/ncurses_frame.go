@@ -216,70 +216,138 @@ func (f *Frame) Render(blinkOn bool) {
 		textWidth = 1
 	}
 
-	// Determine effective scroll offset.
-	offset := f.scroll
-	if offset < 0 {
-		offset = 0
-	}
-	if offset > len(source) {
-		offset = len(source)
+	// Expand the logical lines into display lines with soft wrapping.
+	// This mirrors the thread history behavior: when a line wraps, it
+	// ends with a '\\' marker in the last visible text column.
+	//
+	// NOTE: This is done at render time so that editable frames (input
+	// buffers) can flow visually without mutating their underlying logical
+	// buffer.
+	type displayLine struct {
+		runes      []rune
+		attr       gc.Char
+		logicalIdx int
+		// startCol is the starting logical column (rune index) this display
+		// line represents within the logical line.
+		startCol int
+		// wrapped indicates whether the display line should end with a
+		// continuation marker.
+		wrapped bool
 	}
 
-	// Render visible lines.
-	for row := 0; row < visibleHeight; row++ {
-		idx := offset + row
-		if idx >= len(source) {
-			break
-		}
-		line := source[idx]
-		lineRunes := line.Runes
-
-		// Apply per-line attributes when provided.
+	var display []displayLine
+	for li, line := range source {
 		attr := line.Attr
 		if attr == 0 {
 			attr = gc.A_NORMAL
 		}
-		_ = f.Win.AttrSet(attr)
+		segments, wrappedFlags := WrapRunesWithContinuation(line.Runes, textWidth)
+		col := 0
+		for si, seg := range segments {
+			dl := displayLine{
+				runes:      seg,
+				attr:       attr,
+				logicalIdx: li,
+				startCol:   col,
+				wrapped:    wrappedFlags[si],
+			}
+			display = append(display, dl)
+			col += len(seg)
+		}
+	}
 
-		// Truncate by rune count; when truncated, append a continuation
-		// marker in the last text column.
-		textRunes := lineRunes
-		if len(textRunes) > textWidth {
+	if len(display) == 0 {
+		f.Win.Refresh()
+		return
+	}
+
+	// Determine effective scroll offset (in display lines).
+	offset := f.scroll
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(display) {
+		offset = len(display)
+	}
+
+	// Render visible display lines.
+	for row := 0; row < visibleHeight; row++ {
+		idx := offset + row
+		if idx >= len(display) {
+			break
+		}
+		dl := display[idx]
+		_ = f.Win.AttrSet(dl.attr)
+
+		textRunes := dl.runes
+		if dl.wrapped {
 			if textWidth == 1 {
 				textRunes = []rune{'\\'}
 			} else {
-				textRunes = append(append([]rune{}, textRunes[:textWidth-1]...), '\\')
+				textRunes = append(append([]rune{}, textRunes...), '\\')
 			}
+		}
+		if len(textRunes) > textWidth {
+			// Safety clamp; wrapping helper should prevent this.
+			textRunes = textRunes[:textWidth]
 		}
 		f.Win.MovePrint(contentY+row, contentX, string(textRunes))
 	}
 
 	// Draw scrollbar in the last column of the content area.
-	f.renderScrollbar(contentY, contentX+contentW-1, visibleHeight, len(source), offset)
+	f.renderScrollbar(contentY, contentX+contentW-1, visibleHeight, len(display), offset)
 
 	// Software cursor overlay.
 	if f.HasCursor && blinkOn {
-		cy := contentY + (f.cursorLine - offset)
+		// Map logical cursor position to display coordinates.
+		cursorY := -1
+		cursorX := 0
+		cursorCh := ' '
+
+		// Identify which display line contains the logical cursor.
+		for di := 0; di < len(display); di++ {
+			dl := display[di]
+			if dl.logicalIdx != f.cursorLine {
+				continue
+			}
+			// Cursor can be at len(line) (end-of-line). Treat that as being
+			// within the last segment for that line.
+			col := f.cursorCol
+			if col < dl.startCol {
+				continue
+			}
+			segEnd := dl.startCol + len(dl.runes)
+			// Include end-of-segment when this is the last segment for the line.
+			isLastSeg := !dl.wrapped
+			if col < segEnd || (isLastSeg && col == segEnd) {
+				cursorY = di
+				cursorX = col - dl.startCol
+				// Determine underlying rune for cursor cell.
+				if f.cursorLine >= 0 && f.cursorLine < len(source) {
+					lineRunes := source[f.cursorLine].Runes
+					if col >= 0 && col < len(lineRunes) {
+						cursorCh = lineRunes[col]
+					}
+				}
+				break
+			}
+		}
+
+		if cursorY == -1 {
+			cursorY = 0
+			cursorX = 0
+		}
+
+		cy := contentY + (cursorY - offset)
 		if cy < contentY {
 			cy = contentY
 		}
 		if cy >= contentY+visibleHeight {
 			cy = contentY + visibleHeight - 1
 		}
-
-		cx := f.clampCursorX(f.cursorCol, contentW)
+		cx := f.clampCursorX(cursorX, contentW)
 		cx += contentX
-
-		// Determine underlying rune for cursor cell.
-		ch := ' '
-		if f.cursorLine >= 0 && f.cursorLine < len(source) {
-			lineRunes := source[f.cursorLine].Runes
-			if f.cursorCol >= 0 && f.cursorCol < len(lineRunes) {
-				ch = lineRunes[f.cursorCol]
-			}
-		}
-
-		f.drawSoftCursor(cy, cx, ch)
+		f.drawSoftCursor(cy, cx, cursorCh)
 	}
 
 	f.Win.Refresh()

@@ -83,6 +83,17 @@ func (f *Frame) MoveCursorUp() {
 	if !f.HasCursor {
 		return
 	}
+	if f.HasInput {
+		textWidth := f.contentTextWidth()
+		pos := f.cursorDisplayPos(textWidth)
+		if pos.displayLineIdx <= 0 {
+			return
+		}
+		line, col := f.displayIndexToCursor(textWidth, pos.displayLineIdx-1, pos.x)
+		f.cursorLine = line
+		f.cursorCol = col
+		return
+	}
 	if f.cursorLine == 0 {
 		return
 	}
@@ -96,6 +107,21 @@ func (f *Frame) MoveCursorUp() {
 // horizontal column.
 func (f *Frame) MoveCursorDown() {
 	if !f.HasCursor {
+		return
+	}
+	if f.HasInput {
+		textWidth := f.contentTextWidth()
+		pos := f.cursorDisplayPos(textWidth)
+		total := f.totalDisplayLines(textWidth)
+		if total <= 0 {
+			return
+		}
+		if pos.displayLineIdx >= total-1 {
+			return
+		}
+		line, col := f.displayIndexToCursor(textWidth, pos.displayLineIdx+1, pos.x)
+		f.cursorLine = line
+		f.cursorCol = col
 		return
 	}
 	if f.cursorLine >= len(f.lines)-1 {

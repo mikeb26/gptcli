@@ -156,6 +156,59 @@ func (f *Frame) EnsureCursorVisible() {
 		return
 	}
 
+	// When the frame is editable, we render with soft wrapping (like the
+	// history view). The scroll offset is therefore tracked in display
+	// (wrapped) rows rather than logical lines. We compute the cursor's
+	// current display row and clamp the viewport accordingly.
+	if f.HasInput {
+		textWidth := f.contentTextWidth()
+		visible := f.visibleContentHeight()
+		if visible < 1 {
+			visible = 1
+		}
+
+		// Clamp logical cursor line/col.
+		if f.cursorLine < 0 {
+			f.cursorLine = 0
+		}
+		if f.cursorLine > len(f.lines)-1 {
+			f.cursorLine = len(f.lines) - 1
+		}
+		line := f.lines[f.cursorLine].Runes
+		if f.cursorCol < 0 {
+			f.cursorCol = 0
+		}
+		if f.cursorCol > len(line) {
+			f.cursorCol = len(line)
+		}
+
+		cursorPos := f.cursorDisplayPos(textWidth)
+		totalDisplay := f.totalDisplayLines(textWidth)
+		maxScroll := totalDisplay - visible
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if f.scroll < 0 {
+			f.scroll = 0
+		}
+		if f.scroll > maxScroll {
+			f.scroll = maxScroll
+		}
+		if cursorPos.displayLineIdx < f.scroll {
+			f.scroll = cursorPos.displayLineIdx
+		} else if cursorPos.displayLineIdx >= f.scroll+visible {
+			f.scroll = cursorPos.displayLineIdx - visible + 1
+		}
+		if f.scroll < 0 {
+			f.scroll = 0
+		}
+		if f.scroll > maxScroll {
+			f.scroll = maxScroll
+		}
+
+		return
+	}
+
 	visible := f.visibleContentHeight()
 	if visible < 1 {
 		visible = 1
@@ -209,6 +262,26 @@ func (f *Frame) ScrollPageUp() {
 		f.scroll = 0
 		return
 	}
+	if f.HasInput {
+		textWidth := f.contentTextWidth()
+		visible := f.visibleContentHeight()
+		if visible < 1 {
+			visible = 1
+		}
+		pos := f.cursorDisplayPos(textWidth)
+		target := pos.displayLineIdx - visible
+		if target < 0 {
+			target = 0
+		}
+		line, col := f.displayIndexToCursor(textWidth, target, pos.x)
+		f.cursorLine = line
+		f.cursorCol = col
+		f.scroll -= visible
+		if f.scroll < 0 {
+			f.scroll = 0
+		}
+		return
+	}
 	visible := f.visibleContentHeight()
 	if visible < 1 {
 		visible = 1
@@ -240,6 +313,34 @@ func (f *Frame) ScrollPageDown() {
 		f.cursorLine = 0
 		f.cursorCol = 0
 		f.scroll = 0
+		return
+	}
+	if f.HasInput {
+		textWidth := f.contentTextWidth()
+		visible := f.visibleContentHeight()
+		if visible < 1 {
+			visible = 1
+		}
+		pos := f.cursorDisplayPos(textWidth)
+		total := f.totalDisplayLines(textWidth)
+		if total <= 0 {
+			return
+		}
+		target := pos.displayLineIdx + visible
+		if target > total-1 {
+			target = total - 1
+		}
+		line, col := f.displayIndexToCursor(textWidth, target, pos.x)
+		f.cursorLine = line
+		f.cursorCol = col
+		maxScroll := total - visible
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		f.scroll += visible
+		if f.scroll > maxScroll {
+			f.scroll = maxScroll
+		}
 		return
 	}
 	visible := f.visibleContentHeight()
@@ -306,6 +407,16 @@ func (f *Frame) MoveEnd() {
 	f.cursorLine = len(f.lines) - 1
 	line := f.lines[f.cursorLine].Runes
 	f.cursorCol = len(line)
+	if f.HasInput {
+		textWidth := f.contentTextWidth()
+		total := f.totalDisplayLines(textWidth)
+		maxScroll := total - visible
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		f.scroll = maxScroll
+		return
+	}
 	if len(f.lines) > visible {
 		f.scroll = len(f.lines) - visible
 	} else {
