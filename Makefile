@@ -19,7 +19,7 @@ cmd/gptcli/version.txt:
 mocks:
 	cd internal/types; go generate
 
-TESTPKGS=github.com/mikeb26/gptcli/cmd/gptcli github.com/mikeb26/gptcli/internal github.com/mikeb26/gptcli/internal/prompts github.com/mikeb26/gptcli/internal/ui github.com/mikeb26/gptcli/internal/am
+TESTPKGS=github.com/mikeb26/gptcli/cmd/gptcli github.com/mikeb26/gptcli/internal github.com/mikeb26/gptcli/internal/prompts github.com/mikeb26/gptcli/internal/ui github.com/mikeb26/gptcli/internal/am github.com/mikeb26/gptcli/internal/llmclient
 
 .PHONY: test
 test: mocks
