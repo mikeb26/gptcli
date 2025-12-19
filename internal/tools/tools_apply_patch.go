@@ -166,7 +166,7 @@ func (t FilePatchTool) Define() types.GptCliTool {
 func (t FilePatchTool) Invoke(ctx context.Context, req *FilePatchReq) (*FilePatchResp, error) {
 	ret := &FilePatchResp{}
 
-	err := GetUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

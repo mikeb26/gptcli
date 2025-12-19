@@ -78,7 +78,7 @@ func (t PromptRunTool) Invoke(ctx context.Context,
 
 	ret := &PrompRunResp{}
 
-	err := tools.GetUserApproval(t.approvalUI, t, req.String())
+	err := tools.GetUserApproval(ctx, t.approvalUI, t, req.String())
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

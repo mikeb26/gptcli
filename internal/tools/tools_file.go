@@ -329,7 +329,7 @@ func (t CreateFileTool) Invoke(ctx context.Context,
 
 	ret := &CreateFileResp{}
 
-	err := GetUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -348,7 +348,7 @@ func (t AppendFileTool) Invoke(ctx context.Context,
 
 	ret := &AppendFileResp{}
 
-	err := GetUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -373,7 +373,7 @@ func (t ReadFileTool) Invoke(ctx context.Context,
 
 	ret := &ReadFileResp{}
 
-	err := GetUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -394,7 +394,7 @@ func (t DeleteFileTool) Invoke(ctx context.Context,
 
 	ret := &DeleteFileResp{}
 
-	err := GetUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

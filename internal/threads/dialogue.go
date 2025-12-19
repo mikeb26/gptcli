@@ -20,6 +20,7 @@ import (
 // and non-streaming callers can share the same preparation and
 // finalization logic.
 type PreparedChat struct {
+	Ctx             context.Context
 	Thread          *GptCliThread
 	FullDialogue    []*types.GptCliMessage // full history + user request
 	WorkingDialogue []*types.GptCliMessage // possibly summarized + user request
@@ -46,6 +47,11 @@ func (thrGrp *GptCliThreadGroup) prepareChatOnceInCurrentThread(
 	}
 
 	thread := thrGrp.threads[thrGrp.curThreadNum-1]
+	thread.state = GptCliThreadStateRunning
+	// Attach a thread-state setter so lower layers (e.g. tool approval prompts)
+	// can signal when the active thread is blocked waiting on user interaction
+	// without creating an import cycle.
+	ctx = types.WithThreadStateSetter(ctx, &threadStateSetter{thread: thread})
 	fullDialogue := thread.Dialogue
 	summaryDialogue := fullDialogue
 
@@ -63,6 +69,7 @@ func (thrGrp *GptCliThreadGroup) prepareChatOnceInCurrentThread(
 	}
 
 	prep := &PreparedChat{
+		Ctx:             ctx,
 		Thread:          thread,
 		FullDialogue:    fullDialogue,
 		WorkingDialogue: workingDialogue,
@@ -87,6 +94,7 @@ func (thrGrp *GptCliThreadGroup) FinalizeChatOnceInCurrentThread(
 	thread.Dialogue = fullDialogue
 	thread.ModTime = time.Now()
 	thread.AccessTime = time.Now()
+	thread.state = GptCliThreadStateIdle
 
 	if err := thread.save(thrGrp.dir); err != nil {
 		return err
@@ -107,7 +115,7 @@ func (thrGrp *GptCliThreadGroup) ChatOnceInCurrentThread(
 		return nil, err
 	}
 
-	replyMsg, err := llmClient.CreateChatCompletion(ctx, prep.WorkingDialogue)
+	replyMsg, err := llmClient.CreateChatCompletion(prep.Ctx, prep.WorkingDialogue)
 	if err != nil {
 		return nil, err
 	}
@@ -134,8 +142,8 @@ func (thrGrp *GptCliThreadGroup) ChatOnceInCurrentThreadStream(
 		return nil, nil, err
 	}
 
-	ctx, prep.InvocationID = llmclient.EnsureInvocationID(ctx)
-	res, err := llmClient.StreamChatCompletion(ctx, prep.WorkingDialogue)
+	prep.Ctx, prep.InvocationID = llmclient.EnsureInvocationID(prep.Ctx)
+	res, err := llmClient.StreamChatCompletion(prep.Ctx, prep.WorkingDialogue)
 	if err != nil {
 		return nil, nil, err
 	}

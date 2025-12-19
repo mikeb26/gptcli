@@ -72,6 +72,7 @@ func (thrGrp *GptCliThreadGroup) LoadThreads() error {
 			_ = os.Remove(oldPath)
 			_ = thread.save(thrGrp.dir)
 		}
+		thread.state = GptCliThreadStateIdle
 
 		_ = thrGrp.addThread(&thread)
 	}
@@ -85,8 +86,8 @@ func ThreadGroupHeaderString(includeSpacers bool) string {
 	if includeSpacers {
 		sb.WriteString(RowSpacer)
 	}
-	sb.WriteString(fmt.Sprintf(RowFmt, "Thread#", "Last Accessed", "Last Modified",
-		"Created", "Name"))
+	sb.WriteString(fmt.Sprintf(RowFmt, "Thread#", "State", "Last Accessed",
+		"Last Modified", "Created", "Name"))
 
 	if includeSpacers {
 		sb.WriteString(RowSpacer)
@@ -157,6 +158,7 @@ func (thrGrp *GptCliThreadGroup) NewThread(name string) error {
 		ModTime:    cTime,
 		Dialogue:   dialogue,
 		fileName:   fileName,
+		state:      GptCliThreadStateIdle,
 	}
 
 	thrGrp.curThreadNum = thrGrp.addThread(curThread)

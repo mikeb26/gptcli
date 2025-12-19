@@ -5,6 +5,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/mikeb26/gptcli/internal/am"
@@ -16,14 +17,10 @@ import (
 // Implementations can use stdio, ncurses, GUI, etc. to collect the
 // decision; tools and getUserApproval remain UI-agnostic.
 type ToolApprovalUI interface {
-	// AskApproval should return true if the user approves running this tool
-	// with the given argument, false otherwise.
-	AskApproval(t types.Tool, arg any) (bool, error)
-
-	// AskApprovalEx is an extended approval call which operates on a richer
+	// AskApproval is an extended approval call which operates on a richer
 	// request/decision model that can support multiple options and policy
 	// scopes.
-	AskApprovalEx(req ToolApprovalRequest) (ToolApprovalDecision, error)
+	AskApproval(ctx context.Context, req ToolApprovalRequest) (ToolApprovalDecision, error)
 	// GetUI gets the underlying ui component that the approval ui was built
 	// from
 	GetUI() types.GptCliUI
@@ -44,18 +41,11 @@ func (aui *approvalUI) GetUI() types.GptCliUI {
 	return aui.ui
 }
 
-func (aui *approvalUI) AskApproval(t types.Tool, arg any) (bool, error) {
-	req := DefaultApprovalRequest(t, arg)
-	dec, err := aui.AskApprovalEx(req)
-	if err != nil {
-		return false, err
-	}
-	return dec.Allowed, nil
-}
+// AskApproval implements the approval interaction using the underlying UI's
+// SelectOption method.
+func (aui *approvalUI) AskApproval(ctx context.Context,
+	req ToolApprovalRequest) (ToolApprovalDecision, error) {
 
-// AskApprovalEx implements the extended approval interaction using the
-// underlying UI's SelectOption method.
-func (aui *approvalUI) AskApprovalEx(req ToolApprovalRequest) (ToolApprovalDecision, error) {
 	// If we have a policy store and this request declares required
 	// actions, try to short-circuit based on cached policy. We only
 	// consider choices that have a PolicyID (i.e. are eligible for
@@ -78,6 +68,11 @@ func (aui *approvalUI) AskApprovalEx(req ToolApprovalRequest) (ToolApprovalDecis
 	if len(req.Choices) == 0 {
 		return ToolApprovalDecision{}, fmt.Errorf("no approval choices provided")
 	}
+
+	// If the caller attached a thread-state setter to the context, mark the
+	// thread blocked while we prompt for user input.
+	aui.setThreadBlocked(ctx)
+	defer aui.setThreadRunning(ctx)
 
 	choices := make([]types.GptCliUIOption, len(req.Choices))
 	for i, ch := range req.Choices {
@@ -121,7 +116,9 @@ func (aui *approvalUI) AskApprovalEx(req ToolApprovalRequest) (ToolApprovalDecis
 
 // GetUserApproval is a helper that enforces the RequiresUserApproval contract
 // and delegates the actual interaction to the provided ToolApprovalUI.
-func GetUserApproval(ui ToolApprovalUI, t types.Tool, arg any) error {
+func GetUserApproval(ctx context.Context, ui ToolApprovalUI,
+	t types.Tool, arg any) error {
+
 	if !t.RequiresUserApproval() {
 		return nil
 	}
@@ -132,7 +129,7 @@ func GetUserApproval(ui ToolApprovalUI, t types.Tool, arg any) error {
 	} else {
 		req = DefaultApprovalRequest(t, arg)
 	}
-	dec, err := ui.AskApprovalEx(req)
+	dec, err := ui.AskApproval(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -146,9 +143,9 @@ func GetUserApproval(ui ToolApprovalUI, t types.Tool, arg any) error {
 
 // ToolApprovalRequest describes an approval interaction for a tool.
 type ToolApprovalRequest struct {
-	Tool    types.Tool
-	Arg     any
-	Prompt  string
+	Tool   types.Tool
+	Arg    any
+	Prompt string
 	// RequiredActions is the set of actions that must be permitted by a
 	// cached policy (if any) in order for this request to be
 	// auto-approved without prompting the user.
@@ -193,6 +190,23 @@ func DefaultApprovalRequest(t types.Tool, arg any) ToolApprovalRequest {
 		Choices: choices,
 	}
 }
+
+func (aui *approvalUI) setThreadBlocked(ctx context.Context) {
+	setter, ok := types.GetThreadStateSetter(ctx)
+	if !ok || setter == nil {
+		return
+	}
+	setter.SetThreadStateBlocked()
+}
+
+func (aui *approvalUI) setThreadRunning(ctx context.Context) {
+	setter, ok := types.GetThreadStateSetter(ctx)
+	if !ok || setter == nil {
+		return
+	}
+	setter.SetThreadStateRunning()
+}
+
 
 // hasAllApprovalActions reports whether "have" contains all actions in
 // "need". Both slices are treated as sets; order and duplicates are

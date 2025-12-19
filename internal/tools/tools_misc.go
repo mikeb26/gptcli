@@ -153,7 +153,7 @@ func (t ChdirTool) Invoke(ctx context.Context,
 
 	ret := &ChdirResp{}
 
-	err := GetUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -253,7 +253,7 @@ func (t EnvGetTool) Invoke(ctx context.Context,
 
 	ret := &EnvGetResp{}
 
-	err := GetUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -344,7 +344,7 @@ func (t EnvSetTool) Invoke(ctx context.Context,
 
 	ret := &EnvSetResp{}
 
-	err := GetUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

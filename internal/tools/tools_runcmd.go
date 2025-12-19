@@ -129,7 +129,8 @@ func (t RunCommandTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 // invocation "prefix" where all arguments except the last must match.
 //
 // Example:
-//   cmd="go", args=["test","somepkg"] => key = "go:test"
+//
+//	cmd="go", args=["test","somepkg"] => key = "go:test"
 //
 // This returns an empty string when there is no meaningful prefix
 // (e.g. zero args).
@@ -176,7 +177,7 @@ func (t RunCommandTool) Invoke(ctx context.Context,
 
 	resp := &CmdRunResp{}
 
-	err := GetUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approvalUI, t, req)
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, nil

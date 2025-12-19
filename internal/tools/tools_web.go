@@ -85,7 +85,7 @@ func (t RetrieveUrlTool) Invoke(ctx context.Context,
 
 	ret := &RetrieveUrlResp{}
 
-	err := GetUserApproval(t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approvalUI, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
