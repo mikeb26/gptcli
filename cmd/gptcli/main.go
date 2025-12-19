@@ -43,8 +43,19 @@ type Prefs struct {
 
 type GptCliContext struct {
 	client types.GptCliAIClient
-	//	input              *bufio.Reader
-	ui                 types.GptCliUI
+	// uiProxy is the UI handle passed to background/worker code (LLM client,
+	// tool approvals, etc.).
+	//
+	// IMPORTANT: For ncurses, this must NOT be a direct *ui.NcursesUI
+	// because ncurses rendering must be confined to a single goroutine.
+	// We therefore set this to *ui.ProxyUI and have the ncurses goroutine
+	// service proxy requests.
+	uiProxy *ui.ProxyUI
+
+	// realUI is the concrete ncurses UI implementation owned by the
+	// ncurses/rendering goroutine.
+	realUI *ui.NcursesUI
+
 	scr                *gc.Window
 	needConfig         bool
 	curSummaryToggle   bool
@@ -60,19 +71,22 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 
 	//	inputLocal := bufio.NewReader(os.Stdin)
 
-	var uiLocal types.GptCliUI
 	var err error
 	var scrLocal *gc.Window
 	scrLocal, err = gcInit()
 	if err != nil {
 		panic("fix me")
 	}
-	uiLocal = ui.NewNcursesUI(scrLocal)
+	// real ncurses UI (must only be used from the ncurses goroutine)
+	realUILocal := ui.NewNcursesUI(scrLocal)
+	// proxy UI (safe to be called from any goroutine)
+	proxyUILocal := ui.NewProxyUI(32)
 
 	gptCliCtx := &GptCliContext{
 		client: nil,
 		//		input:            inputLocal,
-		ui:               uiLocal,
+		realUI:           realUILocal,
+		uiProxy:          proxyUILocal,
 		scr:              scrLocal,
 		needConfig:       true,
 		curSummaryToggle: false,
@@ -134,8 +148,8 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 	}
 
 	gptCliCtx.client = llmclient.NewEINOClient(ctx, gptCliCtx.prefs.Vendor,
-		gptCliCtx.ui, keyText, internal.DefaultModels[gptCliCtx.prefs.Vendor],
-		0, policyStore)
+		gptCliCtx.uiProxy, keyText,
+		internal.DefaultModels[gptCliCtx.prefs.Vendor], 0, policyStore)
 
 	for _, thrGrp := range gptCliCtx.threadGroups {
 		err := thrGrp.LoadThreads()

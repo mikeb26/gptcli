@@ -79,7 +79,7 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext) error {
 		choices = append(choices, types.GptCliUIOption{Key: v, Label: v})
 	}
 
-	selection, err := gptCliCtx.ui.SelectOption("Choose an LLM vendor:", choices)
+	selection, err := gptCliCtx.realUI.SelectOption("Choose an LLM vendor:", choices)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext) error {
 			keyPath, err)
 	}
 	keyPrompt := fmt.Sprintf("Enter your %v API key: ", vendor)
-	key, err := gptCliCtx.ui.Get(keyPrompt)
+	key, err := gptCliCtx.realUI.Get(keyPrompt)
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext) error {
 	trueOpt := types.GptCliUIOption{Key: "y", Label: "y"}
 	falseOpt := types.GptCliUIOption{Key: "n", Label: "n"}
 
-	summarize, err := gptCliCtx.ui.SelectBool(summarizePrompt, trueOpt, falseOpt, &defaultSummarize)
+	summarize, err := gptCliCtx.realUI.SelectBool(summarizePrompt, trueOpt, falseOpt, &defaultSummarize)
 	if err != nil {
 		return err
 	}

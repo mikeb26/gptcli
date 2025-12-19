@@ -16,7 +16,6 @@ import (
 	"github.com/famz/SetLocale"
 	gc "github.com/gbin/goncurses"
 	"github.com/mikeb26/gptcli/internal/threads"
-	"github.com/mikeb26/gptcli/internal/ui"
 	iui "github.com/mikeb26/gptcli/internal/ui"
 	"golang.org/x/term"
 )
@@ -222,7 +221,7 @@ func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) er
 	}
 	needErase := true
 	upgradeChecked := false
-	ncui := gptCliCtx.ui.(*ui.NcursesUI)
+	ncui := gptCliCtx.realUI
 
 	for {
 		if needErase {

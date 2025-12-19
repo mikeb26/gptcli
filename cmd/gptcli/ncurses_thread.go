@@ -167,35 +167,72 @@ func consumeInputNonStreamingWithRetry(
 	prompt string,
 	ncui *ui.NcursesUI,
 ) {
-	retry := true
-	for retry {
-		_, err := gptCliCtx.ChatOnceInCurrentThread(ctx, prompt)
-		if err == nil {
-			retry = false
-			break
-		}
+	// IMPORTANT: Since gptCliCtx.ui is a ProxyUI (so tool approval and other
+	// dialogues are routed to the ncurses goroutine), we must run the LLM call
+	// in a background goroutine and keep this goroutine free to service proxy
+	// requests.
+	for {
+		resultCh := make(chan error, 1)
+		go func() {
+			_, err := gptCliCtx.ChatOnceInCurrentThread(ctx, prompt)
+			resultCh <- err
+			close(resultCh)
+		}()
 
-		// Show error modal asking whether to retry.
-		wantRetry, modalErr := showErrorRetryModal(ncui, err.Error())
-		if modalErr != nil || !wantRetry {
-			retry = false
-			break
+		for {
+			select {
+			case req := <-gptCliCtx.uiProxy.Requests:
+				ui.ServeProxyRequest(ncui, req)
+			case err := <-resultCh:
+				if err == nil {
+					return
+				}
+
+				// Show error modal asking whether to retry.
+				wantRetry, modalErr := showErrorRetryModal(ncui, err.Error())
+				if modalErr != nil || !wantRetry {
+					return
+				}
+
+				// Retry: break out and start a new worker.
+				goto retry
+			}
 		}
+	retry:
+		continue
 	}
 }
 
-func updateThreadStatusFromProgress(statusText string, ev types.ProgressEvent) string {
+func updateThreadStatusFromProgress(statusText string, toolCalls *int,
+	requestCount *int, ev types.ProgressEvent) string {
+
+	var statusPrefix string
+	addSuffix := true
+
 	switch ev.Component {
 	case types.ProgressComponentModel:
-		return "LLM: thinking"
+		statusPrefix = "LLM: thinking"
+		if ev.Phase == types.ProgressPhaseStart {
+			(*requestCount)++
+		}
 	case types.ProgressComponentTool:
 		if ev.Phase == types.ProgressPhaseStart {
-			return "Tool: running " + ev.DisplayText
+			(*toolCalls)++
+			statusPrefix = "Tool: running " + ev.DisplayText
+			addSuffix = false
+		} else {
+			statusPrefix = "LLM: thinking"
 		}
-		return "LLM: thinking"
 	default:
-		return statusText
+		statusPrefix = statusText
 	}
+
+	if !addSuffix {
+		return statusPrefix
+	}
+
+	return fmt.Sprintf("%v (requests:%v toolcalls:%v)...", statusPrefix,
+		*requestCount, *toolCalls)
 }
 
 func startStreamingChatOnce(
@@ -280,19 +317,30 @@ func consumeInputBuffer(
 	var chunkCh <-chan chunkOrErr
 	var buffer strings.Builder
 	streamDone := false
+	toolCalls := 0
+	requestCount := 0
 
 	for !streamDone {
 		drawThreadStatus(scr, focusInput, statusText)
 		scr.Refresh()
 
 		select {
+		case req := <-gptCliCtx.uiProxy.Requests:
+			// Tools and other background workers can request user interaction
+			// via the proxy UI. Serve those requests here so that all ncurses
+			// rendering stays confined to this goroutine.
+			ui.ServeProxyRequest(ncui, req)
+			// Redraw the underlying frames after the modal closes.
+			historyFrame.Render(false)
+			inputFrame.Render(true)
+			scr.Refresh()
 		case ev, ok := <-progressCh:
 			if !ok {
 				progressCh = nil
 				continue
 			}
-			statusText = updateThreadStatusFromProgress(statusText, ev)
-
+			statusText = updateThreadStatusFromProgress(statusText, &toolCalls,
+				&requestCount, ev)
 		case res, ok := <-startCh:
 			if !ok {
 				startCh = nil
@@ -405,7 +453,7 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 	defer signal.Stop(sigCh)
 
 	maxY, maxX := scr.MaxYX()
-	ncui := gptCliCtx.ui.(*ui.NcursesUI)
+	ncui := gptCliCtx.realUI
 	historyLines := buildHistoryLines(thread, maxX)
 	// History frame occupies the region between the header and the input
 	// label. It is read-only but uses the Frame's cursor/scroll helpers

@@ -42,7 +42,7 @@ func upgradeIfNeeded(ctx context.Context, gptCliCtx *GptCliContext) error {
 	trueOpt := types.GptCliUIOption{Key: "y", Label: "y"}
 	falseOpt := types.GptCliUIOption{Key: "n", Label: "n"}
 	defaultYes := true
-	shouldUpgrade, err := gptCliCtx.ui.SelectBool(prompt+" (y/n) [y]: ",
+	shouldUpgrade, err := gptCliCtx.realUI.SelectBool(prompt+" (y/n) [y]: ",
 		trueOpt, falseOpt, &defaultYes)
 	if err != nil {
 		return err
