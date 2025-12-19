@@ -181,6 +181,14 @@ func gcInit() (*gc.Window, error) {
 	}
 
 	SetLocale.SetLocale(SetLocale.LC_ALL, "en_US.UTF-8")
+	// Reduce ncurses' ESC-key delay so pressing ESC is responsive.
+	//
+	// In keypad mode, ncurses must disambiguate a literal ESC press from
+	// an escape sequence (e.g. arrow keys), and it does so by waiting up
+	// to ESCDELAY milliseconds for additional bytes.
+	//
+	// This MUST be set before initializing ncurses via gc.Init().
+	_ = os.Setenv("ESCDELAY", "100")
 	// Ensure environment is consistent for UTF-8 rendering.
 	_ = os.Setenv("LANG", "en_US.UTF-8")
 	_ = os.Setenv("LC_ALL", "en_US.UTF-8")
