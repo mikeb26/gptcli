@@ -34,6 +34,8 @@ type GptCliEINOAIClient struct {
 	auditHandler    callbacks.Handler
 	statusHandlers  callbacks.Handler
 
+	ui types.GptCliUI
+
 	subsMu sync.RWMutex
 	subs   map[string][]chan types.ProgressEvent //index by invocationID
 
@@ -185,11 +187,24 @@ func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel
 		reactAgent:      client,
 		reasoningEffort: laclopenai.ReasoningEffortLevelMedium,
 		auditHandler:    auditHandler,
+		ui:             ui,
 		subs:            make(map[string][]chan types.ProgressEvent),
 		current:         make(map[string]types.ProgressEvent),
 	}
 	clientOut.statusHandlers = newStatusCallbackHandlers(clientOut)
 	return clientOut
+}
+
+// UI returns the UI handle that this client was constructed with.
+//
+// This is not part of the types.GptCliAIClient interface because most callers
+// do not need it, but UI layers that need to service proxy UI requests can
+// type-assert to this method.
+func (client *GptCliEINOAIClient) UI() types.GptCliUI {
+	if client == nil {
+		return nil
+	}
+	return client.ui
 }
 
 func defineTools(ctx context.Context, vendor string, ui types.GptCliUI,
