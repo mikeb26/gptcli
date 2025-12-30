@@ -166,10 +166,12 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	approver := am.NewPolicyStoreApprover(ui.NewUIApprover(gptCliCtx.uiProxy),
+		policyStore)
 
 	gptCliCtx.client = llmclient.NewEINOClient(ctx, gptCliCtx.prefs.Vendor,
-		gptCliCtx.uiProxy, keyText,
-		internal.DefaultModels[gptCliCtx.prefs.Vendor], 0, policyStore,
+		approver, keyText,
+		internal.DefaultModels[gptCliCtx.prefs.Vendor], 0,
 		gptCliCtx.prefs.EnableAuditLog, auditLogPath)
 
 	for _, thrGrp := range gptCliCtx.threadGroups {

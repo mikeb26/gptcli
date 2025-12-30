@@ -4,6 +4,10 @@
  */
 package am
 
+import (
+	"context"
+)
+
 // ApprovalScope encodes the semantics of a user's approval decision.
 type ApprovalScope string
 
@@ -98,4 +102,29 @@ type ApprovalPolicyStore interface {
 	// Save uses replace semantics: the stored set becomes exactly the
 	// provided actions slice.
 	Save(policyID string, actions []ApprovalAction)
+}
+
+// ApprovalRequest describes an approval interaction.
+type ApprovalRequest struct {
+	Prompt string
+	// RequiredActions is the set of actions that must be permitted by a
+	// cached policy (if any) in order for this request to be
+	// auto-approved without prompting the user.
+	RequiredActions []ApprovalAction
+	Choices         []ApprovalChoice
+}
+
+// ToolApprovalDecision captures the user's decision from an approval
+// interaction.
+type ApprovalDecision struct {
+	Allowed bool
+	Choice  ApprovalChoice
+}
+
+// Approver abstracts how the user is asked to approve an action.
+type Approver interface {
+	// AskApproval is an extended approval call which operates on a richer
+	// request/decision model that can support multiple options and policy
+	// scopes.
+	AskApproval(ctx context.Context, req ApprovalRequest) (ApprovalDecision, error)
 }

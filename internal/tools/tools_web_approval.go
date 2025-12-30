@@ -21,7 +21,7 @@ import (
 // defaults to GET. Methods GET, HEAD, and OPTIONS are treated as
 // read-only; all others are considered write (and thus also imply
 // read).
-func buildWebApprovalRequest(t types.Tool, arg any, rawURL, method string) ToolApprovalRequest {
+func buildWebApprovalRequest(t types.Tool, arg any, rawURL, method string) am.ApprovalRequest {
 	// Parse the URL to extract a stable origin/domain component for
 	// domain-scoped policies. If parsing fails, fall back to the
 	// default approval behavior to avoid mis-caching.
@@ -114,9 +114,7 @@ func buildWebApprovalRequest(t types.Tool, arg any, rawURL, method string) ToolA
 		required = append(required, am.ApprovalActionWrite)
 	}
 
-	return ToolApprovalRequest{
-		Tool:            t,
-		Arg:             arg,
+	return am.ApprovalRequest{
 		Prompt:          promptBuilder.String(),
 		RequiredActions: required,
 		Choices:         choices,

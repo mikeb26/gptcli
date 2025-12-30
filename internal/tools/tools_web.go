@@ -13,11 +13,12 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
 type RetrieveUrlTool struct {
-	approvalUI ToolApprovalUI
+	approver am.Approver
 }
 
 type RetrieveUrlRequestHeader struct {
@@ -54,7 +55,7 @@ func (t RetrieveUrlTool) RequiresUserApproval() bool {
 // per-URL (file-equivalent) and per-domain (directory-equivalent)
 // basis. HTTP GET, HEAD, and OPTIONS are treated as reads, while all
 // other methods are treated as writes (which also imply read).
-func (t RetrieveUrlTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+func (t RetrieveUrlTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	req, ok := arg.(*RetrieveUrlReq)
 	if !ok || req == nil {
 		return DefaultApprovalRequest(t, arg)
@@ -62,9 +63,9 @@ func (t RetrieveUrlTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 
 	return buildWebApprovalRequest(t, arg, req.Url, req.Method)
 }
-func NewRetrieveUrlTool(approvalUI ToolApprovalUI) types.GptCliTool {
+func NewRetrieveUrlTool(approver am.Approver) types.GptCliTool {
 	t := &RetrieveUrlTool{
-		approvalUI: approvalUI,
+		approver: approver,
 	}
 
 	return t.Define()
@@ -85,7 +86,7 @@ func (t RetrieveUrlTool) Invoke(ctx context.Context,
 
 	ret := &RetrieveUrlResp{}
 
-	err := GetUserApproval(ctx, t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approver, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

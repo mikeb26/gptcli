@@ -15,7 +15,7 @@ import (
 )
 
 type PwdTool struct {
-	approvalUI ToolApprovalUI
+	approver am.Approver
 }
 
 type PwdReq struct {
@@ -27,7 +27,7 @@ type PwdResp struct {
 }
 
 type ChdirTool struct {
-	approvalUI ToolApprovalUI
+	approver am.Approver
 }
 
 type ChdirReq struct {
@@ -39,7 +39,7 @@ type ChdirResp struct {
 }
 
 type EnvGetTool struct {
-	approvalUI ToolApprovalUI
+	approver am.Approver
 }
 
 type EnvGetReq struct {
@@ -52,7 +52,7 @@ type EnvGetResp struct {
 }
 
 type EnvSetTool struct {
-	approvalUI ToolApprovalUI
+	approver am.Approver
 }
 
 type EnvSetReq struct {
@@ -71,9 +71,9 @@ func (t PwdTool) GetOp() types.ToolCallOp {
 func (t PwdTool) RequiresUserApproval() bool {
 	return false
 }
-func NewPwdTool(approvalUI ToolApprovalUI) types.GptCliTool {
+func NewPwdTool(approver am.Approver) types.GptCliTool {
 	t := &PwdTool{
-		approvalUI: approvalUI,
+		approver: approver,
 	}
 
 	return t.Define()
@@ -115,7 +115,7 @@ func (t ChdirTool) RequiresUserApproval() bool {
 // cached on a per-directory-tree basis. Approvals can be granted for a
 // single chdir, or for a specific target directory and all of its
 // subdirectories.
-func (t ChdirTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+func (t ChdirTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	req, ok := arg.(*ChdirReq)
 	if !ok || req == nil {
 		return DefaultApprovalRequest(t, arg)
@@ -130,9 +130,9 @@ func (t ChdirTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 
 	return commonFileBuildApprovalRequest(t, arg, newDir, false)
 }
-func NewChdirTool(approvalUI ToolApprovalUI) types.GptCliTool {
+func NewChdirTool(approver am.Approver) types.GptCliTool {
 	t := &ChdirTool{
-		approvalUI: approvalUI,
+		approver: approver,
 	}
 
 	return t.Define()
@@ -153,7 +153,7 @@ func (t ChdirTool) Invoke(ctx context.Context,
 
 	ret := &ChdirResp{}
 
-	err := GetUserApproval(ctx, t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approver, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -179,7 +179,7 @@ func (t EnvGetTool) RequiresUserApproval() bool {
 // EnvGetTool so that read access to environment variables can be
 // cached on a per-variable or global basis. EnvGet is read-only and
 // only ever requests ApprovalActionRead.
-func (t EnvGetTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+func (t EnvGetTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	req, ok := arg.(*EnvGetReq)
 	if !ok || req == nil {
 		return DefaultApprovalRequest(t, arg)
@@ -222,17 +222,16 @@ func (t EnvGetTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 		},
 	}
 
-	return ToolApprovalRequest{
-		Tool:            t,
-		Arg:             arg,
+	return am.ApprovalRequest{
 		Prompt:          prompt,
 		RequiredActions: []am.ApprovalAction{am.ApprovalActionRead},
 		Choices:         choices,
 	}
 }
-func NewEnvGetTool(approvalUI ToolApprovalUI) types.GptCliTool {
+
+func NewEnvGetTool(approver am.Approver) types.GptCliTool {
 	t := &EnvGetTool{
-		approvalUI: approvalUI,
+		approver: approver,
 	}
 
 	return t.Define()
@@ -253,7 +252,7 @@ func (t EnvGetTool) Invoke(ctx context.Context,
 
 	ret := &EnvGetResp{}
 
-	err := GetUserApproval(ctx, t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approver, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -276,7 +275,7 @@ func (t EnvSetTool) RequiresUserApproval() bool {
 // EnvSetTool so that write access to environment variables can be
 // cached on a per-variable or global basis. Writes imply the ability
 // to read as well.
-func (t EnvSetTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+func (t EnvSetTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	req, ok := arg.(*EnvSetReq)
 	if !ok || req == nil {
 		return DefaultApprovalRequest(t, arg)
@@ -313,17 +312,16 @@ func (t EnvSetTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 		},
 	}
 
-	return ToolApprovalRequest{
-		Tool:            t,
-		Arg:             arg,
+	return am.ApprovalRequest{
 		Prompt:          prompt,
 		RequiredActions: []am.ApprovalAction{am.ApprovalActionWrite, am.ApprovalActionRead},
 		Choices:         choices,
 	}
 }
-func NewEnvSetTool(approvalUI ToolApprovalUI) types.GptCliTool {
+
+func NewEnvSetTool(approver am.Approver) types.GptCliTool {
 	t := &EnvSetTool{
-		approvalUI: approvalUI,
+		approver: approver,
 	}
 
 	return t.Define()
@@ -344,7 +342,7 @@ func (t EnvSetTool) Invoke(ctx context.Context,
 
 	ret := &EnvSetResp{}
 
-	err := GetUserApproval(ctx, t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approver, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

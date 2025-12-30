@@ -11,6 +11,7 @@ import (
 
 	"github.com/chromedp/chromedp"
 	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
@@ -20,7 +21,7 @@ import (
 // Future extensions can add screenshot capture or other outputs without breaking the API.
 
 type RenderWebTool struct {
-	approvalUI ToolApprovalUI
+	approver am.Approver
 }
 
 // RenderWebReq defines the input for the render web tool.
@@ -55,7 +56,7 @@ func (t RenderWebTool) RequiresUserApproval() bool {
 // RenderWebTool using the same per-URL and per-domain approval
 // semantics as RetrieveUrlTool. Render operations are conceptually
 // read-only and are treated as GET requests for approval purposes.
-func (t RenderWebTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+func (t RenderWebTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	req, ok := arg.(*RenderWebReq)
 	if !ok || req == nil {
 		return DefaultApprovalRequest(t, arg)
@@ -66,9 +67,9 @@ func (t RenderWebTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 }
 
 // NewRenderWebTool initializes a new instance of the RenderWebTool.
-func NewRenderWebTool(approvalUI ToolApprovalUI) types.GptCliTool {
+func NewRenderWebTool(approver am.Approver) types.GptCliTool {
 	t := &RenderWebTool{
-		approvalUI: approvalUI,
+		approver: approver,
 	}
 	return t.Define()
 }
@@ -90,7 +91,7 @@ func (t RenderWebTool) Invoke(ctx context.Context, req *RenderWebReq) (*RenderWe
 	resp := &RenderWebResp{}
 
 	// Require user approval before proceeding
-	err := GetUserApproval(ctx, t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approver, t, req)
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, nil

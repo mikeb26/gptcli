@@ -19,7 +19,7 @@ import (
 )
 
 type RunCommandTool struct {
-	approvalUI ToolApprovalUI
+	approver am.Approver
 }
 
 type CmdRunReq struct {
@@ -46,7 +46,7 @@ func (t RunCommandTool) RequiresUserApproval() bool {
 // command execution. Approvals can be granted for a single
 // invocation, for all invocations of a specific command name, or for
 // a specific command+argument combination (hashed for brevity).
-func (t RunCommandTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+func (t RunCommandTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	req, ok := arg.(*CmdRunReq)
 	if !ok || req == nil {
 		return DefaultApprovalRequest(t, arg)
@@ -116,9 +116,7 @@ func (t RunCommandTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 		}, choices[2:]...)...)
 	}
 
-	return ToolApprovalRequest{
-		Tool:            t,
-		Arg:             arg,
+	return am.ApprovalRequest{
 		Prompt:          prompt,
 		RequiredActions: []am.ApprovalAction{am.ApprovalActionExecute},
 		Choices:         choices,
@@ -153,9 +151,9 @@ func buildCommandInvocationKey(cmd string, args []string) string {
 	return fmt.Sprintf("%s:%s", cmd, hex.EncodeToString(h[:8]))
 }
 
-func NewRunCommandTool(approvalUI ToolApprovalUI) types.GptCliTool {
+func NewRunCommandTool(approver am.Approver) types.GptCliTool {
 	t := &RunCommandTool{
-		approvalUI: approvalUI,
+		approver: approver,
 	}
 
 	return t.Define()
@@ -177,7 +175,7 @@ func (t RunCommandTool) Invoke(ctx context.Context,
 
 	resp := &CmdRunResp{}
 
-	err := GetUserApproval(ctx, t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approver, t, req)
 	if err != nil {
 		resp.Error = err.Error()
 		return resp, nil

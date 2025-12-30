@@ -21,7 +21,7 @@ import (
 )
 
 type FilePatchTool struct {
-	approvalUI ToolApprovalUI
+	approver am.Approver
 }
 
 type FilePatchReq struct {
@@ -46,7 +46,7 @@ func (t FilePatchTool) RequiresUserApproval() bool {
 // directory-scoped approval request. This allows policies granted for a
 // directory (e.g. via the file tools) to automatically apply to
 // apply_patch as well.
-func (t FilePatchTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+func (t FilePatchTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	req, ok := arg.(*FilePatchReq)
 	if !ok || req == nil {
 		return DefaultApprovalRequest(t, arg)
@@ -135,17 +135,16 @@ func (t FilePatchTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 		Scope: am.ApprovalScopeDeny,
 	})
 
-	return ToolApprovalRequest{
-		Tool:            t,
-		Arg:             arg,
+	return am.ApprovalRequest{
 		Prompt:          promptBuilder.String(),
 		RequiredActions: []am.ApprovalAction{am.ApprovalActionWrite},
 		Choices:         choices,
 	}
 }
-func NewFilePatchTool(approvalUI ToolApprovalUI) types.GptCliTool {
+
+func NewFilePatchTool(approver am.Approver) types.GptCliTool {
 	t := &FilePatchTool{
-		approvalUI: approvalUI,
+		approver: approver,
 	}
 
 	return t.Define()
@@ -166,7 +165,7 @@ func (t FilePatchTool) Define() types.GptCliTool {
 func (t FilePatchTool) Invoke(ctx context.Context, req *FilePatchReq) (*FilePatchResp, error) {
 	ret := &FilePatchResp{}
 
-	err := GetUserApproval(ctx, t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approver, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

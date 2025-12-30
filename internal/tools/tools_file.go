@@ -17,7 +17,7 @@ import (
 )
 
 type CreateFileTool struct {
-	approvalUI ToolApprovalUI
+	approver am.Approver
 }
 
 type CreateFileReq struct {
@@ -38,7 +38,7 @@ func (t CreateFileTool) RequiresUserApproval() bool {
 }
 
 func commonFileBuildApprovalRequest(t types.Tool, arg any, filenameIn string,
-	writeRequired bool) ToolApprovalRequest {
+	writeRequired bool) am.ApprovalRequest {
 
 	// Normalize to an absolute, cleaned path so that approval policies
 	// are keyed consistently regardless of how the tool was invoked
@@ -131,9 +131,7 @@ func commonFileBuildApprovalRequest(t types.Tool, arg any, filenameIn string,
 		Scope: am.ApprovalScopeDeny,
 	})
 
-	return ToolApprovalRequest{
-		Tool:            t,
-		Arg:             arg,
+	return am.ApprovalRequest{
 		Prompt:          promptBuilder.String(),
 		RequiredActions: []am.ApprovalAction{am.ApprovalActionWrite},
 		Choices:         choices,
@@ -143,7 +141,7 @@ func commonFileBuildApprovalRequest(t types.Tool, arg any, filenameIn string,
 // BuildApprovalRequest implements ToolWithCustomApproval for
 // CreateFileTool so that write permissions can be cached on a per-file
 // or per-directory basis using ApprovalActionWrite.
-func (t CreateFileTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+func (t CreateFileTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	req, ok := arg.(*CreateFileReq)
 	if !ok || req == nil {
 		return DefaultApprovalRequest(t, arg)
@@ -153,7 +151,7 @@ func (t CreateFileTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 }
 
 type AppendFileTool struct {
-	approvalUI ToolApprovalUI
+	approver am.Approver
 }
 
 type AppendFileReq struct {
@@ -175,7 +173,7 @@ func (t AppendFileTool) RequiresUserApproval() bool {
 // BuildApprovalRequest implements ToolWithCustomApproval for
 // AppendFileTool so that write permissions can be cached similarly to
 // CreateFileTool.
-func (t AppendFileTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+func (t AppendFileTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	req, ok := arg.(*AppendFileReq)
 	if !ok || req == nil {
 		return DefaultApprovalRequest(t, arg)
@@ -185,7 +183,7 @@ func (t AppendFileTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 }
 
 type ReadFileTool struct {
-	approvalUI ToolApprovalUI
+	approver am.Approver
 }
 
 type ReadFileReq struct {
@@ -209,7 +207,7 @@ func (t ReadFileTool) RequiresUserApproval() bool {
 // file- and directory-specific approval prompts and options. It supports
 // granting approval for a single read, for a specific file, or for all
 // reads within a directory tree (recursively).
-func (t ReadFileTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+func (t ReadFileTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	req, ok := arg.(*ReadFileReq)
 	if !ok || req == nil {
 		// Fallback to the default behavior if the argument is not as
@@ -221,7 +219,7 @@ func (t ReadFileTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 }
 
 type DeleteFileTool struct {
-	approvalUI ToolApprovalUI
+	approver am.Approver
 }
 
 type DeleteFileReq struct {
@@ -243,7 +241,7 @@ func (t DeleteFileTool) RequiresUserApproval() bool {
 // BuildApprovalRequest implements ToolWithCustomApproval for
 // DeleteFileTool so that write permissions can be cached consistently
 // with CreateFileTool and AppendFileTool.
-func (t DeleteFileTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
+func (t DeleteFileTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	req, ok := arg.(*DeleteFileReq)
 	if !ok || req == nil {
 		return DefaultApprovalRequest(t, arg)
@@ -252,17 +250,17 @@ func (t DeleteFileTool) BuildApprovalRequest(arg any) ToolApprovalRequest {
 	return commonFileBuildApprovalRequest(t, arg, req.Filename, true)
 }
 
-func NewDeleteFileTool(approvalUI ToolApprovalUI) types.GptCliTool {
+func NewDeleteFileTool(approver am.Approver) types.GptCliTool {
 	t := &DeleteFileTool{
-		approvalUI: approvalUI,
+		approver: approver,
 	}
 
 	return t.Define()
 }
 
-func NewReadFileTool(approvalUI ToolApprovalUI) types.GptCliTool {
+func NewReadFileTool(approver am.Approver) types.GptCliTool {
 	t := &ReadFileTool{
-		approvalUI: approvalUI,
+		approver: approver,
 	}
 
 	return t.Define()
@@ -288,9 +286,9 @@ func (t DeleteFileTool) Define() types.GptCliTool {
 	return ret
 }
 
-func NewAppendFileTool(approvalUI ToolApprovalUI) types.GptCliTool {
+func NewAppendFileTool(approver am.Approver) types.GptCliTool {
 	t := &AppendFileTool{
-		approvalUI: approvalUI,
+		approver: approver,
 	}
 
 	return t.Define()
@@ -306,9 +304,9 @@ func (t AppendFileTool) Define() types.GptCliTool {
 	return ret
 }
 
-func NewCreateFileTool(approvalUI ToolApprovalUI) types.GptCliTool {
+func NewCreateFileTool(approver am.Approver) types.GptCliTool {
 	t := &CreateFileTool{
-		approvalUI: approvalUI,
+		approver: approver,
 	}
 
 	return t.Define()
@@ -329,7 +327,7 @@ func (t CreateFileTool) Invoke(ctx context.Context,
 
 	ret := &CreateFileResp{}
 
-	err := GetUserApproval(ctx, t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approver, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -348,7 +346,7 @@ func (t AppendFileTool) Invoke(ctx context.Context,
 
 	ret := &AppendFileResp{}
 
-	err := GetUserApproval(ctx, t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approver, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -373,7 +371,7 @@ func (t ReadFileTool) Invoke(ctx context.Context,
 
 	ret := &ReadFileResp{}
 
-	err := GetUserApproval(ctx, t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approver, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil
@@ -394,7 +392,7 @@ func (t DeleteFileTool) Invoke(ctx context.Context,
 
 	ret := &DeleteFileResp{}
 
-	err := GetUserApproval(ctx, t.approvalUI, t, req)
+	err := GetUserApproval(ctx, t.approver, t, req)
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

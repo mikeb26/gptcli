@@ -19,11 +19,10 @@ import (
 // defined here due to recursion with newEINOClient()
 
 type PromptRunTool struct {
-	ctx         context.Context
-	client      types.GptCliAIClient
-	approvalUI  tools.ToolApprovalUI
-	policyStore am.ApprovalPolicyStore
-	depth       int
+	ctx      context.Context
+	client   types.GptCliAIClient
+	approver am.Approver
+	depth    int
 }
 
 type PromptRunReq struct {
@@ -43,16 +42,15 @@ func (t PromptRunTool) RequiresUserApproval() bool {
 	return false
 }
 func newPromptRunTool(ctxIn context.Context, vendor string,
-	approvalUI tools.ToolApprovalUI, apiKey string, model string, depthIn int,
-	policyStore am.ApprovalPolicyStore) types.GptCliTool {
+	approver am.Approver, apiKey string, model string,
+	depthIn int) types.GptCliTool {
 
 	t := &PromptRunTool{
-		ctx:        ctxIn,
-		approvalUI: approvalUI,
-		depth:      depthIn,
-		client: NewEINOClient(ctxIn, vendor, approvalUI.GetUI(), apiKey,
-			model, depthIn+1, policyStore,
-			false, ""),
+		ctx:      ctxIn,
+		approver: approver,
+		depth:    depthIn,
+		client: NewEINOClient(ctxIn, vendor, approver, apiKey,
+			model, depthIn+1, false, ""),
 	}
 
 	return t.Define()
@@ -79,7 +77,7 @@ func (t PromptRunTool) Invoke(ctx context.Context,
 
 	ret := &PrompRunResp{}
 
-	err := tools.GetUserApproval(ctx, t.approvalUI, t, req.String())
+	err := tools.GetUserApproval(ctx, t.approver, t, req.String())
 	if err != nil {
 		ret.Error = err.Error()
 		return ret, nil

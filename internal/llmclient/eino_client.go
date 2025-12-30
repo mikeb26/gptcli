@@ -34,7 +34,7 @@ type GptCliEINOAIClient struct {
 	auditHandler    callbacks.Handler
 	statusHandlers  callbacks.Handler
 
-	ui types.GptCliUI
+	approver am.Approver
 
 	subsMu sync.RWMutex
 	subs   map[string][]chan types.ProgressEvent //index by invocationID
@@ -74,19 +74,18 @@ func EnsureInvocationID(ctx context.Context) (context.Context, string) {
 }
 
 func NewEINOClient(ctx context.Context, vendor string,
-	ui types.GptCliUI, apiKey string, model string,
-	depth int, policyStore am.ApprovalPolicyStore,
-	enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
+	approver am.Approver, apiKey string, model string,
+	depth int, enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
 
 	if vendor == "openai" {
-		return newOpenAIEINOClient(ctx, vendor, ui, apiKey, model, depth,
-			policyStore, enableAuditLog, auditLogPath)
+		return newOpenAIEINOClient(ctx, vendor, approver, apiKey, model, depth,
+			enableAuditLog, auditLogPath)
 	} else if vendor == "anthropic" {
-		return newAnthropicEINOClient(ctx, vendor, ui, apiKey, model, depth,
-			policyStore, enableAuditLog, auditLogPath)
+		return newAnthropicEINOClient(ctx, vendor, approver, apiKey, model, depth,
+			enableAuditLog, auditLogPath)
 	} else if vendor == "google" {
-		return newGoogleEINOClient(ctx, vendor, ui, apiKey, model, depth,
-			policyStore, enableAuditLog, auditLogPath)
+		return newGoogleEINOClient(ctx, vendor, approver, apiKey, model, depth,
+			enableAuditLog, auditLogPath)
 	} // else
 
 	panic("unsupported vendor")
@@ -94,8 +93,8 @@ func NewEINOClient(ctx context.Context, vendor string,
 }
 
 func newOpenAIEINOClient(ctx context.Context, vendor string,
-	ui types.GptCliUI, apiKey string, model string,
-	depth int, policyStore am.ApprovalPolicyStore,
+	approver am.Approver, apiKey string, model string,
+	depth int,
 	enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
 
 	chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
@@ -106,13 +105,13 @@ func newOpenAIEINOClient(ctx context.Context, vendor string,
 		panic(err)
 	}
 
-	return newEINOClient(ctx, vendor, chatModel, ui, apiKey, model, depth,
-		policyStore, enableAuditLog, auditLogPath)
+	return newEINOClient(ctx, vendor, chatModel, approver, apiKey, model, depth,
+		enableAuditLog, auditLogPath)
 }
 
 func newAnthropicEINOClient(ctx context.Context, vendor string,
-	ui types.GptCliUI, apiKey string, model string,
-	depth int, policyStore am.ApprovalPolicyStore,
+	approver am.Approver, apiKey string, model string,
+	depth int,
 	enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
 
 	chatModel, err := claude.NewChatModel(ctx, &claude.Config{
@@ -123,13 +122,13 @@ func newAnthropicEINOClient(ctx context.Context, vendor string,
 		panic(err)
 	}
 
-	return newEINOClient(ctx, vendor, chatModel, ui, apiKey, model, depth,
-		policyStore, enableAuditLog, auditLogPath)
+	return newEINOClient(ctx, vendor, chatModel, approver, apiKey, model, depth,
+		enableAuditLog, auditLogPath)
 }
 
 func newGoogleEINOClient(ctx context.Context, vendor string,
-	ui types.GptCliUI, apiKey string, model string,
-	depth int, policyStore am.ApprovalPolicyStore,
+	approver am.Approver, apiKey string, model string,
+	depth int,
 	enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
 
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
@@ -147,17 +146,15 @@ func newGoogleEINOClient(ctx context.Context, vendor string,
 		panic(err)
 	}
 
-	return newEINOClient(ctx, vendor, chatModel, ui, apiKey, model, depth,
-		policyStore, enableAuditLog, auditLogPath)
+	return newEINOClient(ctx, vendor, chatModel, approver, apiKey, model, depth,
+		enableAuditLog, auditLogPath)
 }
 
 func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel,
-	ui types.GptCliUI, apiKey string, model string,
-	depth int, policyStore am.ApprovalPolicyStore,
-	enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
+	approver am.Approver, apiKey string, model string,
+	depth int, enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
 
-	tools := defineTools(ctx, vendor, ui, apiKey, model, depth,
-		policyStore)
+	tools := defineTools(ctx, vendor, approver, apiKey, model, depth)
 	baseTools := make([]tool.BaseTool, len(tools))
 	for ii, _ := range tools {
 		baseTools[ii] = tools[ii]
@@ -187,7 +184,7 @@ func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel
 		reactAgent:      client,
 		reasoningEffort: laclopenai.ReasoningEffortLevelMedium,
 		auditHandler:    auditHandler,
-		ui:             ui,
+		approver:        approver,
 		subs:            make(map[string][]chan types.ProgressEvent),
 		current:         make(map[string]types.ProgressEvent),
 	}
@@ -195,40 +192,26 @@ func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel
 	return clientOut
 }
 
-// UI returns the UI handle that this client was constructed with.
-//
-// This is not part of the types.GptCliAIClient interface because most callers
-// do not need it, but UI layers that need to service proxy UI requests can
-// type-assert to this method.
-func (client *GptCliEINOAIClient) UI() types.GptCliUI {
-	if client == nil {
-		return nil
-	}
-	return client.ui
-}
+func defineTools(ctx context.Context, vendor string, approver am.Approver,
+	apiKey string, model string, depth int) []types.GptCliTool {
 
-func defineTools(ctx context.Context, vendor string, ui types.GptCliUI,
-	apiKey string, model string, depth int,
-	policyStore am.ApprovalPolicyStore) []types.GptCliTool {
-
-	approvalUI := tools.NewApprovalUI(ui, policyStore)
 	tools := []types.GptCliTool{
-		tools.NewRunCommandTool(approvalUI),
-		tools.NewCreateFileTool(approvalUI),
-		tools.NewAppendFileTool(approvalUI),
-		tools.NewFilePatchTool(approvalUI),
-		tools.NewReadFileTool(approvalUI),
-		tools.NewDeleteFileTool(approvalUI),
-		tools.NewPwdTool(approvalUI),
-		tools.NewChdirTool(approvalUI),
-		tools.NewEnvGetTool(approvalUI),
-		tools.NewEnvSetTool(approvalUI),
-		tools.NewRetrieveUrlTool(approvalUI),
-		tools.NewRenderWebTool(approvalUI),
+		tools.NewRunCommandTool(approver),
+		tools.NewCreateFileTool(approver),
+		tools.NewAppendFileTool(approver),
+		tools.NewFilePatchTool(approver),
+		tools.NewReadFileTool(approver),
+		tools.NewDeleteFileTool(approver),
+		tools.NewPwdTool(approver),
+		tools.NewChdirTool(approver),
+		tools.NewEnvGetTool(approver),
+		tools.NewEnvSetTool(approver),
+		tools.NewRetrieveUrlTool(approver),
+		tools.NewRenderWebTool(approver),
 	}
 	if depth <= internal.MaxDepth {
-		tools = append(tools, newPromptRunTool(ctx, vendor, approvalUI, apiKey,
-			model, depth, policyStore))
+		tools = append(tools, newPromptRunTool(ctx, vendor, approver, apiKey,
+			model, depth))
 	}
 
 	return tools

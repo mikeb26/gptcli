@@ -11,7 +11,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/golang/mock/gomock"
 	"github.com/mikeb26/gptcli/internal/am"
-	"github.com/mikeb26/gptcli/internal/tools"
+	uipkg "github.com/mikeb26/gptcli/internal/ui"
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/stretchr/testify/assert"
 )
@@ -48,9 +48,12 @@ func TestPromptRunTool_Define_OpName(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockClient := types.NewMockGptCliAIClient(ctrl)
-	approvalUI := tools.NewApprovalUI(fakeUI{}, am.NewMemoryApprovalPolicyStore())
+	approver := am.NewPolicyStoreApprover(
+		uipkg.NewUIApprover(fakeUI{}),
+		am.NewMemoryApprovalPolicyStore(),
+	)
 
-	prt := PromptRunTool{client: mockClient, approvalUI: approvalUI, depth: 0}
+	prt := PromptRunTool{client: mockClient, approver: approver, depth: 0}
 	defined := prt.Define()
 
 	info, err := defined.Info(context.Background())
@@ -65,7 +68,10 @@ func TestPromptRunTool_Invoke_CallsClient(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockClient := types.NewMockGptCliAIClient(ctrl)
-	approvalUI := tools.NewApprovalUI(fakeUI{}, am.NewMemoryApprovalPolicyStore())
+	approver := am.NewPolicyStoreApprover(
+		uipkg.NewUIApprover(fakeUI{}),
+		am.NewMemoryApprovalPolicyStore(),
+	)
 
 	ctx := context.Background()
 
@@ -74,7 +80,7 @@ func TestPromptRunTool_Invoke_CallsClient(t *testing.T) {
 
 	mockClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).Return(respMsg, nil)
 
-	prt := PromptRunTool{client: mockClient, approvalUI: approvalUI, depth: 1}
+	prt := PromptRunTool{client: mockClient, approver: approver, depth: 1}
 	resp, err := prt.Invoke(ctx, req)
 	if !assert.NoError(t, err) {
 		return
