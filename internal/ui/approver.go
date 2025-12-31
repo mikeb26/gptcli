@@ -28,11 +28,6 @@ func NewUIApprover(
 func (ta *UIApprover) AskApproval(ctx context.Context,
 	req am.ApprovalRequest) (am.ApprovalDecision, error) {
 
-	// If the caller attached a thread-state setter to the context, mark the
-	// thread blocked while we prompt for user input.
-	ta.setThreadBlocked(ctx)
-	defer ta.setThreadRunning(ctx)
-
 	choices := make([]types.GptCliUIOption, len(req.Choices))
 	for i, ch := range req.Choices {
 		choices[i] = types.GptCliUIOption{Key: ch.Key, Label: ch.Label}
@@ -63,20 +58,4 @@ func (ta *UIApprover) AskApproval(ctx context.Context,
 		Allowed: allowed,
 		Choice:  chosen,
 	}, nil
-}
-
-func (ta *UIApprover) setThreadBlocked(ctx context.Context) {
-	setter, ok := types.GetThreadStateSetter(ctx)
-	if !ok || setter == nil {
-		return
-	}
-	setter.SetThreadStateBlocked()
-}
-
-func (ta *UIApprover) setThreadRunning(ctx context.Context) {
-	setter, ok := types.GetThreadStateSetter(ctx)
-	if !ok || setter == nil {
-		return
-	}
-	setter.SetThreadStateRunning()
 }

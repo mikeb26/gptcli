@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	laclopenai "github.com/cloudwego/eino-ext/libs/acl/openai"
-	"github.com/cloudwego/eino/schema"
 	gc "github.com/gbin/goncurses"
 
 	"github.com/mikeb26/gptcli/internal"
@@ -46,14 +45,10 @@ type Prefs struct {
 
 type GptCliContext struct {
 	client types.GptCliAIClient
-	// uiProxy is the UI handle passed to background/worker code (LLM client,
-	// tool approvals, etc.).
-	//
-	// IMPORTANT: For ncurses, this must NOT be a direct *ui.NcursesUI
-	// because ncurses rendering must be confined to a single goroutine.
-	// We therefore set this to *ui.ProxyUI and have the ncurses goroutine
-	// service proxy requests.
-	uiProxy *ui.ProxyUI
+	// For ncurses, the underlying approver must only be invoked
+	// from the ncurses goroutine; AsyncApprover forwards approval requests
+	// over a channel so the ncurses goroutine can serve them.
+	asyncApprover *am.AsyncApprover
 
 	// realUI is the concrete ncurses UI implementation owned by the
 	// ncurses/rendering goroutine.
@@ -62,7 +57,6 @@ type GptCliContext struct {
 	scr                *gc.Window
 	needConfig         bool
 	curSummaryToggle   bool
-	useStreaming       bool
 	prefs              Prefs
 	threadGroups       []*threads.GptCliThreadGroup
 	archiveThreadGroup *threads.GptCliThreadGroup
@@ -82,18 +76,14 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 	}
 	// real ncurses UI (must only be used from the ncurses goroutine)
 	realUILocal := ui.NewNcursesUI(scrLocal)
-	// proxy UI (safe to be called from any goroutine)
-	proxyUILocal := ui.NewProxyUI(32)
 
 	gptCliCtx := &GptCliContext{
 		client: nil,
 		//		input:            inputLocal,
 		realUI:           realUILocal,
-		uiProxy:          proxyUILocal,
 		scr:              scrLocal,
 		needConfig:       true,
 		curSummaryToggle: false,
-		useStreaming:     true,
 		prefs: Prefs{
 			SummarizePrior: false,
 			Vendor:         internal.DefaultVendor,
@@ -166,11 +156,13 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	approver := am.NewPolicyStoreApprover(ui.NewUIApprover(gptCliCtx.uiProxy),
-		policyStore)
+	var approver am.Approver
+	approver = ui.NewUIApprover(gptCliCtx.realUI)
+	approver = am.NewPolicyStoreApprover(approver, policyStore)
+	gptCliCtx.asyncApprover = am.NewAsyncApprover(approver)
 
 	gptCliCtx.client = llmclient.NewEINOClient(ctx, gptCliCtx.prefs.Vendor,
-		approver, keyText,
+		gptCliCtx.asyncApprover, keyText,
 		internal.DefaultModels[gptCliCtx.prefs.Vendor], 0,
 		gptCliCtx.prefs.EnableAuditLog, auditLogPath)
 
@@ -303,42 +295,4 @@ func main() {
 	}
 
 	menuMain(ctx, gptCliCtx, make([]string, 2))
-}
-
-// ChatOnceInCurrentThread encapsulates the core request/response flow
-// for sending a prompt to the current thread, updating dialogue
-// history, and persisting the result. It performs no direct terminal
-// I/O so callers can render the assistant reply however they choose.
-func (gptCliCtx *GptCliContext) ChatOnceInCurrentThread(
-	ctx context.Context, prompt string) (*types.GptCliMessage, error) {
-
-	thrGrp := gptCliCtx.curThreadGroup
-	if thrGrp == gptCliCtx.archiveThreadGroup {
-		return nil, fmt.Errorf("Cannot edit archived thread; use unarchive first")
-	}
-	return thrGrp.ChatOnceInCurrentThread(ctx, gptCliCtx.client, prompt,
-		gptCliCtx.curSummaryToggle)
-}
-
-// ChatOnceInCurrentThreadStream mirrors ChatOnceInCurrentThread but
-// returns a PreparedChat and a streaming reader for incremental
-// rendering of the assistant reply. Callers are responsible for
-// consuming the stream, assembling the final reply message, and then
-// invoking FinalizeChatOnceInCurrentThread.
-func (gptCliCtx *GptCliContext) ChatOnceInCurrentThreadStream(
-	ctx context.Context, prompt string,
-) (*threads.PreparedChat, *schema.StreamReader[*types.GptCliMessage], error) {
-
-	thrGrp := gptCliCtx.curThreadGroup
-	if thrGrp == gptCliCtx.archiveThreadGroup {
-		return nil, nil, fmt.Errorf("Cannot edit archived thread; use unarchive first")
-	}
-	return thrGrp.ChatOnceInCurrentThreadStream(
-		ctx, gptCliCtx.client, prompt, gptCliCtx.curSummaryToggle,
-	)
-}
-
-func (gptCliCtx *GptCliContext) FinalizeChatOnceInCurrentThread(
-	prep *threads.PreparedChat, msg *types.GptCliMessage) error {
-	return gptCliCtx.curThreadGroup.FinalizeChatOnceInCurrentThread(prep, msg)
 }

@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/mikeb26/gptcli/internal/types"
 )
 
 // AsyncApprover is an Approver implementation that forwards approval requests
@@ -72,6 +74,11 @@ func (a *AsyncApprover) AskApproval(ctx context.Context, req ApprovalRequest) (A
 		ReplyCh: replyCh,
 	}
 
+	// If the caller attached a thread-state setter to the context, mark the
+	// thread blocked while we prompt for user input.
+	a.setThreadBlocked(ctx)
+	defer a.setThreadRunning(ctx)
+
 	// send the approval request
 	select {
 	case <-ctx.Done():
@@ -119,4 +126,20 @@ func (a *AsyncApprover) ServeRequest(req AsyncApprovalRequest) {
 
 	dec, err := real.AskApproval(ctx, req.Request)
 	req.ReplyCh <- AsyncApprovalResponse{Decision: dec, Err: err}
+}
+
+func (a *AsyncApprover) setThreadBlocked(ctx context.Context) {
+	setter, ok := types.GetThreadStateSetter(ctx)
+	if !ok || setter == nil {
+		return
+	}
+	setter.SetThreadStateBlocked()
+}
+
+func (a *AsyncApprover) setThreadRunning(ctx context.Context) {
+	setter, ok := types.GetThreadStateSetter(ctx)
+	if !ok || setter == nil {
+		return
+	}
+	setter.SetThreadStateRunning()
 }

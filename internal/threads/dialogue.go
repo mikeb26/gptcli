@@ -28,44 +28,57 @@ type PreparedChat struct {
 	InvocationID    string
 }
 
-// prepareChatOnceInCurrentThread performs all work needed before
-// sending a request to the LLM: validating the current thread,
-// constructing the user message, optionally summarizing prior dialogue,
-// and returning both the full and working dialogue slices.
-func (thrGrp *GptCliThreadGroup) prepareChatOnceInCurrentThread(
-	ctx context.Context, llmClient types.GptCliAIClient, prompt string,
-	summarizePrior bool,
-) (*PreparedChat, error) {
-
+// getCurrentThread() returns the currently selected thread, if any
+//
+// NOTE: Callers that need a stable reference for the lifetime of a request
+// should call this once and hold on to the returned pointer; callers should
+// not repeatedly consult "current thread" state from the thread group.
+func (thrGrp *GptCliThreadGroup) getCurrentThread() (*GptCliThread, error) {
 	if thrGrp.curThreadNum == 0 || thrGrp.curThreadNum > thrGrp.totThreads {
-		return nil, fmt.Errorf("No thread is currently selected. Select one with 'thread <thread#>'.")
+		return nil, fmt.Errorf("No thread is currently selected.")
 	}
+	return thrGrp.threads[thrGrp.curThreadNum-1], nil
+}
+
+// prepareChatOnceInThread performs all work needed before sending a request to
+// the LLM for a specific thread: validating inputs, constructing the user
+// message, optionally summarizing prior dialogue, and returning both the full
+// and working dialogue slices.
+//
+// This method intentionally does not consult thrGrp's notion of "current
+// thread" so that callers can safely record a thread pointer once and reuse it
+// for the lifetime of a run.
+func (thrGrp *GptCliThreadGroup) prepareChatOnceInThread(
+	ctx context.Context, llmClient types.GptCliAIClient, thread *GptCliThread,
+	prompt string, summarizePrior bool) (*PreparedChat, error) {
 
 	reqMsg := &types.GptCliMessage{
 		Role:    types.GptCliMessageRoleUser,
 		Content: prompt,
 	}
 
-	thread := thrGrp.threads[thrGrp.curThreadNum-1]
-	thread.state = GptCliThreadStateRunning
 	// Attach a thread-state setter so lower layers (e.g. tool approval prompts)
 	// can signal when the active thread is blocked waiting on user interaction
 	// without creating an import cycle.
 	ctx = types.WithThreadStateSetter(ctx, &threadStateSetter{thread: thread})
-	fullDialogue := thread.Dialogue
-	summaryDialogue := fullDialogue
+
+	// Copy the dialogue slice so that preparing a request does not mutate the
+	// thread's in-memory dialogue (and is safer under concurrent reads).
+	fullDialogue := make([]*types.GptCliMessage, len(thread.Dialogue))
+	copy(fullDialogue, thread.Dialogue)
 
 	fullDialogue = append(fullDialogue, reqMsg)
 	workingDialogue := fullDialogue
 
 	var err error
 	if summarizePrior && len(fullDialogue) > 2 {
-		summaryDialogue, err = summarizeDialogue(ctx, llmClient, summaryDialogue)
-		if err != nil {
-			return nil, err
+		// Summarize only the prior dialogue (exclude the current user request).
+		prior := fullDialogue[:len(fullDialogue)-1]
+		summaryDialogue, sumErr := summarizeDialogue(ctx, llmClient, prior)
+		if sumErr != nil {
+			return nil, sumErr
 		}
-		summaryDialogue = append(summaryDialogue, reqMsg)
-		workingDialogue = summaryDialogue
+		workingDialogue = append(summaryDialogue, reqMsg)
 	}
 
 	prep := &PreparedChat{
@@ -76,13 +89,13 @@ func (thrGrp *GptCliThreadGroup) prepareChatOnceInCurrentThread(
 		ReqMsg:          reqMsg,
 	}
 
-	return prep, nil
+	return prep, err
 }
 
-// FinalizeChatOnceInCurrentThread appends the assistant reply to the
+// FinalizeChatOnce appends the assistant reply to the
 // thread's dialogue, updates timestamps, and persists the thread to
 // disk.
-func (thrGrp *GptCliThreadGroup) FinalizeChatOnceInCurrentThread(
+func (thrGrp *GptCliThreadGroup) finalizeChatOnce(
 	prep *PreparedChat, replyMsg *types.GptCliMessage,
 ) error {
 	if prep == nil || prep.Thread == nil {
@@ -103,41 +116,17 @@ func (thrGrp *GptCliThreadGroup) FinalizeChatOnceInCurrentThread(
 	return nil
 }
 
-// ChatOnceInCurrentThread encapsulates the core request/response flow
-// for sending a prompt to the current thread using a non-streaming LLM
-// call, updating dialogue history, and persisting the result.
-func (thrGrp *GptCliThreadGroup) ChatOnceInCurrentThread(
-	ctx context.Context, llmClient types.GptCliAIClient, prompt string,
-	summarizePrior bool) (*types.GptCliMessage, error) {
-
-	prep, err := thrGrp.prepareChatOnceInCurrentThread(ctx, llmClient, prompt, summarizePrior)
-	if err != nil {
-		return nil, err
-	}
-
-	replyMsg, err := llmClient.CreateChatCompletion(prep.Ctx, prep.WorkingDialogue)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := thrGrp.FinalizeChatOnceInCurrentThread(prep, replyMsg); err != nil {
-		return nil, err
-	}
-
-	return replyMsg, nil
-}
-
-// ChatOnceInCurrentThreadStream prepares the current thread dialogue
+// ChatOnceStream prepares the current thread dialogue
 // for a new user prompt and returns both the PreparedChat and a
 // streaming reader for the assistant reply. Callers are responsible for
 // consuming the stream, assembling the final reply message, and then
-// invoking FinalizeChatOnceInCurrentThread.
-func (thrGrp *GptCliThreadGroup) ChatOnceInCurrentThreadStream(
-	ctx context.Context, llmClient types.GptCliAIClient, prompt string,
+// invoking FinalizeChatOnce.
+func (thrGrp *GptCliThreadGroup) chatOnceStreamInThread(
+	ctx context.Context, llmClient types.GptCliAIClient, thread *GptCliThread, prompt string,
 	summarizePrior bool,
 ) (*PreparedChat, *schema.StreamReader[*types.GptCliMessage], error) {
 
-	prep, err := thrGrp.prepareChatOnceInCurrentThread(ctx, llmClient, prompt, summarizePrior)
+	prep, err := thrGrp.prepareChatOnceInThread(ctx, llmClient, thread, prompt, summarizePrior)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -12,9 +12,9 @@ import (
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
+	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/llmclient"
 	"github.com/mikeb26/gptcli/internal/types"
-	"github.com/mikeb26/gptcli/internal/ui"
 )
 
 // RunningThreadChunk represents one incremental streamed message chunk or an
@@ -57,10 +57,10 @@ type RunningThreadState struct {
 	Thread   *GptCliThread
 	Prepared *PreparedChat
 
-	Progress      <-chan types.ProgressEvent
-	Start         <-chan RunningThreadStart
-	Chunk         <-chan RunningThreadChunk
-	ProxyRequests <-chan ui.ProxyRequest
+	Progress         <-chan types.ProgressEvent
+	Start            <-chan RunningThreadStart
+	Chunk            <-chan RunningThreadChunk
+	ApprovalRequests <-chan am.AsyncApprovalRequest
 
 	Result <-chan RunningThreadResult
 	Done   <-chan struct{}
@@ -76,8 +76,8 @@ func (s *RunningThreadState) Stop() {
 	s.Cancel()
 }
 
-// ChatOnceInCurrentThreadAsync is the fully-asynchronous analogue of
-// ChatOnceInCurrentThread / ChatOnceInCurrentThreadStream.
+// ChatOnceAsync is the fully-asynchronous analogue of
+// ChatOnce / ChatOnceStream.
 //
 // It returns immediately with a RunningThreadState that exposes channels for:
 //   - progress events
@@ -89,10 +89,19 @@ func (s *RunningThreadState) Stop() {
 //
 // The worker goroutine fully manages the request lifecycle, including
 // finalizing and persisting the thread upon success.
-func (thrGrp *GptCliThreadGroup) ChatOnceInCurrentThreadAsync(
+func (thrGrp *GptCliThreadGroup) ChatOnceAsync(
 	ctx context.Context, llmClient types.GptCliAIClient, prompt string,
 	summarizePrior bool,
-) *RunningThreadState {
+	asyncApprover *am.AsyncApprover,
+) (*RunningThreadState, error) {
+	// Record the current thread immediately so that the lifetime of this run is
+	// independent of any subsequent changes to the thread group's notion of
+	// "current thread".
+	thread, err := thrGrp.getCurrentThread()
+	if err != nil {
+		return nil, err
+	}
+	thread.SetState(GptCliThreadStateRunning)
 
 	// Seed an invocation ID up-front so the UI can subscribe to progress events
 	// before the agent begins executing.
@@ -106,49 +115,32 @@ func (thrGrp *GptCliThreadGroup) ChatOnceInCurrentThreadAsync(
 	doneCh := make(chan struct{})
 
 	state := &RunningThreadState{
-		Prompt:        prompt,
-		InvocationID:  invocationID,
-		Progress:      progressCh,
-		Start:         startCh,
-		Chunk:         chunkCh,
-		ProxyRequests: proxyRequestsFromClient(llmClient),
-		Result:        resultCh,
-		Done:          doneCh,
-		Cancel:        cancel,
+		Prompt:           prompt,
+		InvocationID:     invocationID,
+		Thread:           thread,
+		Progress:         progressCh,
+		Start:            startCh,
+		Chunk:            chunkCh,
+		ApprovalRequests: asyncApprover.Requests,
+		Result:           resultCh,
+		Done:             doneCh,
+		Cancel:           cancel,
 	}
 
-	go runChatOnceInCurrentThreadAsync(
-		thrGrp, ctx, llmClient, prompt, summarizePrior,
+	go runChatOnceAsync(
+		thrGrp, ctx, llmClient, thread, prompt, summarizePrior,
 		invocationID, progressCh,
 		state, startCh, chunkCh, resultCh, doneCh,
 	)
 
-	return state
+	return state, nil
 }
 
-func proxyRequestsFromClient(llmClient types.GptCliAIClient) <-chan ui.ProxyRequest {
-	type uiGetter interface {
-		UI() types.GptCliUI
-	}
-	getter, ok := llmClient.(uiGetter)
-	if !ok {
-		return nil
-	}
-	uiHandle := getter.UI()
-	if uiHandle == nil {
-		return nil
-	}
-	proxy, ok := uiHandle.(*ui.ProxyUI)
-	if !ok {
-		return nil
-	}
-	return proxy.Requests
-}
-
-func runChatOnceInCurrentThreadAsync(
+func runChatOnceAsync(
 	thrGrp *GptCliThreadGroup,
 	ctx context.Context,
 	llmClient types.GptCliAIClient,
+	thread *GptCliThread,
 	prompt string,
 	summarizePrior bool,
 	invocationID string,
@@ -164,11 +156,12 @@ func runChatOnceInCurrentThreadAsync(
 	defer close(resultCh)
 	defer llmClient.UnsubscribeProgress(progressCh, invocationID)
 
-	prep, stream, err := thrGrp.ChatOnceInCurrentThreadStream(ctx, llmClient, prompt, summarizePrior)
+	prep, stream, err := thrGrp.chatOnceStreamInThread(ctx, llmClient, thread, prompt, summarizePrior)
 	if err != nil {
 		startCh <- RunningThreadStart{Prepared: nil, Err: err}
 		close(startCh)
 		resultCh <- RunningThreadResult{Prepared: nil, Reply: nil, Err: err}
+		thread.SetState(GptCliThreadStateIdle)
 		return
 	}
 	if prep == nil || stream == nil {
@@ -176,10 +169,9 @@ func runChatOnceInCurrentThreadAsync(
 		startCh <- RunningThreadStart{Prepared: nil, Err: err}
 		close(startCh)
 		resultCh <- RunningThreadResult{Prepared: nil, Reply: nil, Err: err}
+		thread.SetState(GptCliThreadStateIdle)
 		return
 	}
-
-	state.Thread = prep.Thread
 	state.Prepared = prep
 
 	startCh <- RunningThreadStart{Prepared: prep, Err: nil}
@@ -197,6 +189,7 @@ func runChatOnceInCurrentThreadAsync(
 			}
 			trySendChunk(ctx, chunkCh, RunningThreadChunk{Msg: nil, Err: recvErr})
 			resultCh <- RunningThreadResult{Prepared: prep, Reply: nil, Err: recvErr}
+			thread.SetState(GptCliThreadStateIdle)
 			return
 		}
 		if msg == nil {
@@ -210,7 +203,7 @@ func runChatOnceInCurrentThreadAsync(
 		Role:    types.GptCliMessageRoleAssistant,
 		Content: buffer.String(),
 	}
-	if err := thrGrp.FinalizeChatOnceInCurrentThread(prep, replyMsg); err != nil {
+	if err := thrGrp.finalizeChatOnce(prep, replyMsg); err != nil {
 		resultCh <- RunningThreadResult{Prepared: prep, Reply: nil, Err: err}
 		return
 	}

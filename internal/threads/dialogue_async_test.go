@@ -8,13 +8,20 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/golang/mock/gomock"
+	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/llmclient"
 	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestChatOnceInCurrentThreadAsyncStreamsAndFinalizes(t *testing.T) {
+type noopApprover struct{}
+
+func (n noopApprover) AskApproval(ctx context.Context, req am.ApprovalRequest) (am.ApprovalDecision, error) {
+	return am.ApprovalDecision{Allowed: true}, nil
+}
+
+func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 	dir := t.TempDir()
 	grp := NewGptCliThreadGroup("", dir)
 	assert.NoError(t, grp.NewThread("t1"))
@@ -51,7 +58,8 @@ func TestChatOnceInCurrentThreadAsyncStreamsAndFinalizes(t *testing.T) {
 		},
 	).Times(1)
 
-	state := grp.ChatOnceInCurrentThreadAsync(ctx, mockClient, "hi", false)
+	asyncApprover := am.NewAsyncApprover(noopApprover{})
+	state := grp.ChatOnceAsync(ctx, mockClient, "hi", false, asyncApprover)
 	if assert.NotNil(t, state) {
 		assert.Equal(t, invocationID, state.InvocationID)
 	}
@@ -90,7 +98,7 @@ func TestChatOnceInCurrentThreadAsyncStreamsAndFinalizes(t *testing.T) {
 	}
 }
 
-func TestChatOnceInCurrentThreadAsyncPropagatesStreamError(t *testing.T) {
+func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 	dir := t.TempDir()
 	grp := NewGptCliThreadGroup("", dir)
 	assert.NoError(t, grp.NewThread("t1"))
@@ -117,7 +125,8 @@ func TestChatOnceInCurrentThreadAsyncPropagatesStreamError(t *testing.T) {
 		&types.StreamResult{InvocationID: invocationID, Stream: sr}, nil,
 	).Times(1)
 
-	state := grp.ChatOnceInCurrentThreadAsync(ctx, mockClient, "hi", false)
+	asyncApprover := am.NewAsyncApprover(noopApprover{})
+	state := grp.ChatOnceAsync(ctx, mockClient, "hi", false, asyncApprover)
 	start := <-state.Start
 	assert.NoError(t, start.Err)
 

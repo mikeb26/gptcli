@@ -7,17 +7,13 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
-	"github.com/cloudwego/eino/schema"
 	gc "github.com/gbin/goncurses"
-	"github.com/mikeb26/gptcli/internal/llmclient"
 	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/mikeb26/gptcli/internal/ui"
@@ -107,17 +103,6 @@ func drawThreadHeader(scr *gc.Window, thread *threads.GptCliThread) {
 	_ = scr.AttrSet(gc.A_NORMAL)
 }
 
-type streamStartResult struct {
-	prep   *threads.PreparedChat
-	stream *schema.StreamReader[*types.GptCliMessage]
-	err    error
-}
-
-type chunkOrErr struct {
-	Msg *types.GptCliMessage
-	Err error
-}
-
 func setupConsumeInputBuffer(
 	scr *gc.Window,
 	thread *threads.GptCliThread,
@@ -161,48 +146,6 @@ func setupConsumeInputBuffer(
 	return prompt, displayThread, historyLines, maxX, true
 }
 
-func consumeInputNonStreamingWithRetry(
-	ctx context.Context,
-	gptCliCtx *GptCliContext,
-	prompt string,
-	ncui *ui.NcursesUI,
-) {
-	// IMPORTANT: Since gptCliCtx.ui is a ProxyUI (so tool approval and other
-	// dialogues are routed to the ncurses goroutine), we must run the LLM call
-	// in a background goroutine and keep this goroutine free to service proxy
-	// requests.
-	for {
-		resultCh := make(chan error, 1)
-		go func() {
-			_, err := gptCliCtx.ChatOnceInCurrentThread(ctx, prompt)
-			resultCh <- err
-			close(resultCh)
-		}()
-
-		for {
-			select {
-			case req := <-gptCliCtx.uiProxy.Requests:
-				ui.ServeProxyRequest(ncui, req)
-			case err := <-resultCh:
-				if err == nil {
-					return
-				}
-
-				// Show error modal asking whether to retry.
-				wantRetry, modalErr := showErrorRetryModal(ncui, err.Error())
-				if modalErr != nil || !wantRetry {
-					return
-				}
-
-				// Retry: break out and start a new worker.
-				goto retry
-			}
-		}
-	retry:
-		continue
-	}
-}
-
 func updateThreadStatusFromProgress(statusText string, toolCalls *int,
 	requestCount *int, ev types.ProgressEvent) string {
 
@@ -235,35 +178,6 @@ func updateThreadStatusFromProgress(statusText string, toolCalls *int,
 		*requestCount, *toolCalls)
 }
 
-func startStreamingChatOnce(
-	ctx context.Context,
-	gptCliCtx *GptCliContext,
-	prompt string,
-) <-chan streamStartResult {
-	startCh := make(chan streamStartResult, 1)
-	go func() {
-		prep, stream, err := gptCliCtx.ChatOnceInCurrentThreadStream(ctx, prompt)
-		startCh <- streamStartResult{prep: prep, stream: stream, err: err}
-		close(startCh)
-	}()
-	return startCh
-}
-
-func drainMessageStream(stream *schema.StreamReader[*types.GptCliMessage]) <-chan chunkOrErr {
-	chunkCh := make(chan chunkOrErr, 1)
-	go func() {
-		defer close(chunkCh)
-		for {
-			msg, err := stream.Recv()
-			chunkCh <- chunkOrErr{Msg: msg, Err: err}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	return chunkCh
-}
-
 // consumeInputBuffer handles Ctrl-D in the input pane. It reads the
 // current prompt from the input frame and either executes a
 // non-streaming request (the existing behavior) or, when streaming is
@@ -282,54 +196,44 @@ func consumeInputBuffer(
 	if !ok {
 		return
 	}
-
-	// Non-streaming path preserves existing semantics.
-	if !gptCliCtx.useStreaming {
-		consumeInputNonStreamingWithRetry(ctx, gptCliCtx, prompt, ncui)
+	if gptCliCtx.curThreadGroup == gptCliCtx.archiveThreadGroup {
+		_, _ = showErrorRetryModal(ncui, "Cannot edit archived thread; use unarchive first")
 		return
 	}
 
-	// Streaming path: prepare dialogue and consume chunks while
-	// incrementally updating the history frame.
-	//
-	// Seed an invocation ID in the context up-front so we can subscribe to
-	// callback-driven progress events before the agent begins executing.
-	ctx, invocationID := llmclient.EnsureInvocationID(ctx)
-
-	progressCh := gptCliCtx.client.SubscribeProgress(invocationID)
-	defer gptCliCtx.client.UnsubscribeProgress(progressCh, invocationID)
-
-	// Start the streaming request in a goroutine. The underlying EINO agent
-	// may block while setting up the stream (e.g. while it probes early chunks
-	// to detect tool calls), and we still want to update the status line while
-	// that happens.
-	startCh := startStreamingChatOnce(ctx, gptCliCtx, prompt)
-
-	// Start from the history that already includes the just-submitted
-	// user message (rendered above via displayThread/historyLines) and
-	// add a new assistant block that we grow as chunks arrive. We reuse
-	// displayThread here so that rebuildHistory's wrapping logic stays in
-	// sync with the base history slice.
+	state, err := gptCliCtx.curThreadGroup.ChatOnceAsync(
+		ctx,
+		gptCliCtx.client,
+		prompt,
+		gptCliCtx.curSummaryToggle,
+		gptCliCtx.asyncApprover,
+	)
+	if err != nil {
+		_, _ = showErrorRetryModal(ncui, err.Error())
+		return
+	}
 
 	statusText := "LLM: thinking"
-	var prep *threads.PreparedChat
-	var stream *schema.StreamReader[*types.GptCliMessage]
-	var chunkCh <-chan chunkOrErr
+	startCh := state.Start
+	chunkCh := state.Chunk
+	resultCh := state.Result
+	progressCh := state.Progress
+	approvalCh := state.ApprovalRequests
 	var buffer strings.Builder
-	streamDone := false
+	gotResult := false
 	toolCalls := 0
 	requestCount := 0
 
-	for !streamDone {
+	for startCh != nil || chunkCh != nil || !gotResult {
 		drawThreadStatus(scr, focusInput, statusText)
 		scr.Refresh()
 
 		select {
-		case req := <-gptCliCtx.uiProxy.Requests:
+		case req := <-approvalCh:
 			// Tools and other background workers can request user interaction
-			// via the proxy UI. Serve those requests here so that all ncurses
-			// rendering stays confined to this goroutine.
-			ui.ServeProxyRequest(ncui, req)
+			// via the async approver. Serve those requests here so that all
+			// ncurses rendering stays confined to this goroutine.
+			gptCliCtx.asyncApprover.ServeRequest(req)
 			// Redraw the underlying frames after the modal closes.
 			historyFrame.Render(false)
 			inputFrame.Render(true)
@@ -341,36 +245,33 @@ func consumeInputBuffer(
 			}
 			statusText = updateThreadStatusFromProgress(statusText, &toolCalls,
 				&requestCount, ev)
-		case res, ok := <-startCh:
+		case start, ok := <-startCh:
 			if !ok {
 				startCh = nil
 				continue
 			}
 			startCh = nil
-			if res.err != nil {
-				_, _ = showErrorRetryModal(ncui, res.err.Error())
+			if start.Err != nil {
+				state.Stop()
+				_, _ = showErrorRetryModal(ncui, start.Err.Error())
 				return
 			}
-			if res.prep == nil || res.stream == nil {
-				_, _ = showErrorRetryModal(ncui, "nil stream result")
+			if start.Prepared == nil {
+				state.Stop()
+				_, _ = showErrorRetryModal(ncui, "nil prepared chat")
 				return
 			}
-			prep = res.prep
-			stream = res.stream
-			defer stream.Close()
-			chunkCh = drainMessageStream(stream)
-
 		case ce, ok := <-chunkCh:
 			if !ok {
-				// Stream ended unexpectedly; treat as completion.
-				streamDone = true
+				// Stream completed.
+				chunkCh = nil
+				if gotResult {
+					return
+				}
 				continue
 			}
 			if ce.Err != nil {
-				if errors.Is(ce.Err, io.EOF) {
-					streamDone = true
-					continue
-				}
+				state.Stop()
 				_, _ = showErrorRetryModal(ncui, ce.Err.Error())
 				return
 			}
@@ -383,15 +284,19 @@ func consumeInputBuffer(
 			statusText = "LLM: answering"
 			buffer.WriteString(ce.Msg.Content)
 			rebuildHistory(scr, historyFrame, &displayThread, historyLines, maxX, buffer.String())
+		case res, ok := <-resultCh:
+			if !ok {
+				resultCh = nil
+				continue
+			}
+			resultCh = nil
+			gotResult = true
+			if res.Err != nil {
+				state.Stop()
+				_, _ = showErrorRetryModal(ncui, res.Err.Error())
+				return
+			}
 		}
-	}
-
-	replyMsg := &types.GptCliMessage{
-		Role:    types.GptCliMessageRoleAssistant,
-		Content: buffer.String(),
-	}
-	if err := gptCliCtx.FinalizeChatOnceInCurrentThread(prep, replyMsg); err != nil {
-		_, _ = showErrorRetryModal(ncui, err.Error())
 	}
 }
 
@@ -439,7 +344,7 @@ func rebuildHistory(
 // runThreadView provides an ncurses-based view for interacting with a
 // single thread. It renders the existing dialogue and allows the user
 // to enter a multi-line prompt in a 3-line input box. Ctrl-D sends the
-// current input buffer via ChatOnceInCurrentThread. History and input
+// current input buffer via ChatOnce. History and input
 // areas are independently scrollable via focus switching (Tab) and
 // standard navigation keys. Pressing 'q' or ESC in the history focus
 // returns to the menu.
