@@ -54,7 +54,7 @@ type RunningThreadState struct {
 	Prompt       string
 	InvocationID string
 
-	Thread   *GptCliThread
+	Thread   *Thread
 	Prepared *PreparedChat
 
 	Progress         <-chan types.ProgressEvent
@@ -89,7 +89,7 @@ func (s *RunningThreadState) Stop() {
 //
 // The worker goroutine fully manages the request lifecycle, including
 // finalizing and persisting the thread upon success.
-func (thrGrp *GptCliThreadGroup) ChatOnceAsync(
+func (thrGrp *ThreadGroup) ChatOnceAsync(
 	ctx context.Context, llmClient types.GptCliAIClient, prompt string,
 	summarizePrior bool,
 	asyncApprover *am.AsyncApprover,
@@ -136,10 +136,10 @@ func (thrGrp *GptCliThreadGroup) ChatOnceAsync(
 }
 
 func runChatOnceAsync(
-	thrGrp *GptCliThreadGroup,
+	thrGrp *ThreadGroup,
 	ctx context.Context,
 	llmClient types.GptCliAIClient,
-	thread *GptCliThread,
+	thread *Thread,
 	prompt string,
 	summarizePrior bool,
 	invocationID string,

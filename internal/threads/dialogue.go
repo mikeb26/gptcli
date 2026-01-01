@@ -21,7 +21,7 @@ import (
 // finalization logic.
 type PreparedChat struct {
 	Ctx             context.Context
-	Thread          *GptCliThread
+	Thread          *Thread
 	FullDialogue    []*types.GptCliMessage // full history + user request
 	WorkingDialogue []*types.GptCliMessage // possibly summarized + user request
 	ReqMsg          *types.GptCliMessage
@@ -34,7 +34,7 @@ type PreparedChat struct {
 // NOTE: Callers that need a stable reference for the lifetime of a request
 // should call this once and hold on to the returned pointer; callers should
 // not repeatedly consult "current thread" state from the thread group.
-func (thrGrp *GptCliThreadGroup) setCurrentThreadRunning() (*GptCliThread, error) {
+func (thrGrp *ThreadGroup) setCurrentThreadRunning() (*Thread, error) {
 	thrGrp.mu.RLock()
 	defer thrGrp.mu.RUnlock()
 
@@ -66,8 +66,8 @@ func (thrGrp *GptCliThreadGroup) setCurrentThreadRunning() (*GptCliThread, error
 // This method intentionally does not consult thrGrp's notion of "current
 // thread" so that callers can safely record a thread pointer once and reuse it
 // for the lifetime of a run.
-func (thrGrp *GptCliThreadGroup) prepareChatOnceInThread(
-	ctx context.Context, llmClient types.GptCliAIClient, thread *GptCliThread,
+func (thrGrp *ThreadGroup) prepareChatOnceInThread(
+	ctx context.Context, llmClient types.GptCliAIClient, thread *Thread,
 	prompt string, summarizePrior bool) (*PreparedChat, error) {
 
 	reqMsg := &types.GptCliMessage{
@@ -115,7 +115,7 @@ func (thrGrp *GptCliThreadGroup) prepareChatOnceInThread(
 // FinalizeChatOnce appends the assistant reply to the
 // thread's dialogue, updates timestamps, and persists the thread to
 // disk.
-func (thrGrp *GptCliThreadGroup) finalizeChatOnce(
+func (thrGrp *ThreadGroup) finalizeChatOnce(
 	prep *PreparedChat, replyMsg *types.GptCliMessage,
 ) error {
 	if prep == nil || prep.Thread == nil {
@@ -145,8 +145,8 @@ func (thrGrp *GptCliThreadGroup) finalizeChatOnce(
 // streaming reader for the assistant reply. Callers are responsible for
 // consuming the stream, assembling the final reply message, and then
 // invoking FinalizeChatOnce.
-func (thrGrp *GptCliThreadGroup) chatOnceStreamInThread(
-	ctx context.Context, llmClient types.GptCliAIClient, thread *GptCliThread, prompt string,
+func (thrGrp *ThreadGroup) chatOnceStreamInThread(
+	ctx context.Context, llmClient types.GptCliAIClient, thread *Thread, prompt string,
 	summarizePrior bool,
 ) (*PreparedChat, *schema.StreamReader[*types.GptCliMessage], error) {
 

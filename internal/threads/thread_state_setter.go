@@ -10,7 +10,7 @@ import "github.com/mikeb26/gptcli/internal/types"
 // interface so that lower layers (e.g. tools) can update thread state without
 // importing the threads package.
 type threadStateSetter struct {
-	thread *GptCliThread
+	thread *Thread
 }
 
 var _ types.ThreadStateSetter = (*threadStateSetter)(nil)

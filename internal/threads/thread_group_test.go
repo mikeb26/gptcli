@@ -51,7 +51,7 @@ func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
 	grp := NewGptCliThreadGroup("T", dir)
 
 	base := time.Now().Add(-time.Hour)
-	thr := &GptCliThread{persisted: persistedThread{
+	thr := &Thread{persisted: persistedThread{
 		Name:       "activate-me",
 		CreateTime: base,
 		AccessTime: base,
@@ -76,7 +76,7 @@ func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(dir, thr.fileName))
 	assert.NoError(t, err)
 
-	var diskThread GptCliThread
+	var diskThread Thread
 	assert.NoError(t, json.Unmarshal(data, &diskThread.persisted))
 	assert.True(t, diskThread.persisted.AccessTime.After(oldAccess))
 }
@@ -102,7 +102,7 @@ func TestLoadThreadsLoadsAndRenamesStaleFiles(t *testing.T) {
 	// Create a thread JSON with a stale filename that does not match
 	// the genUniqFileName scheme so LoadThreads will rename it.
 	base := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
-	orig := &GptCliThread{persisted: persistedThread{
+	orig := &Thread{persisted: persistedThread{
 		Name:       "rename-thread",
 		CreateTime: base,
 		AccessTime: base,
@@ -145,7 +145,7 @@ func TestMoveThreadMovesFileAndReloadsSourceGroup(t *testing.T) {
 	dstGrp := NewGptCliThreadGroup("D", dstDir)
 
 	base := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
-	thr := &GptCliThread{persisted: persistedThread{
+	thr := &Thread{persisted: persistedThread{
 		Name:       "move-me",
 		CreateTime: base,
 		AccessTime: base,

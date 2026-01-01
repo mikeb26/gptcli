@@ -82,7 +82,7 @@ func drawThreadStatus(scr *gc.Window, focus threadViewFocus, msg string) {
 }
 
 // drawThreadHeader renders a single-line header for the thread view.
-func drawThreadHeader(scr *gc.Window, thread *threads.GptCliThread) {
+func drawThreadHeader(scr *gc.Window, thread *threads.Thread) {
 	maxY, maxX := scr.MaxYX()
 	if maxY <= 0 {
 		return
@@ -105,17 +105,17 @@ func drawThreadHeader(scr *gc.Window, thread *threads.GptCliThread) {
 
 func setupConsumeInputBuffer(
 	scr *gc.Window,
-	thread *threads.GptCliThread,
+	thread *threads.Thread,
 	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
-) (prompt string, displayThread threads.GptCliThread, historyLines []ui.FrameLine, maxX int, ok bool) {
+) (prompt string, displayThread threads.Thread, historyLines []ui.FrameLine, maxX int, ok bool) {
 	// Capture the raw multi-line input and trim it in the same way as the
 	// non-UI helpers so that what we display matches what is actually sent
 	// to the LLM and eventually persisted in the thread dialogue.
 	rawInput := inputFrame.InputString()
 	prompt = strings.TrimSpace(rawInput)
 	if prompt == "" {
-		return "", threads.GptCliThread{}, nil, 0, false
+		return "", threads.Thread{}, nil, 0, false
 	}
 
 	// Immediately reflect the user's input at the end of the history
@@ -187,7 +187,7 @@ func consumeInputBuffer(
 	ctx context.Context,
 	scr *gc.Window,
 	gptCliCtx *GptCliContext,
-	thread *threads.GptCliThread,
+	thread *threads.Thread,
 	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
 	ncui *ui.NcursesUI,
@@ -307,7 +307,7 @@ func consumeInputBuffer(
 func rebuildHistory(
 	scr *gc.Window,
 	historyFrame *ui.Frame,
-	thread *threads.GptCliThread,
+	thread *threads.Thread,
 	historyLines []ui.FrameLine,
 	maxX int,
 	extraText string,
@@ -349,7 +349,7 @@ func rebuildHistory(
 // standard navigation keys. Pressing 'q' or ESC in the history focus
 // returns to the menu.
 func runThreadView(ctx context.Context, scr *gc.Window,
-	gptCliCtx *GptCliContext, thread *threads.GptCliThread) error {
+	gptCliCtx *GptCliContext, thread *threads.Thread) error {
 	// Listen for SIGWINCH so we can adjust layout on resize while inside
 	// the thread view. This mirrors the behavior of showMenu but keeps
 	// all ncurses calls confined to this goroutine.

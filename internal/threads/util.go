@@ -74,7 +74,7 @@ func formatHeaderTime(ts time.Time, now time.Time) string {
 // RenderBlocks that capture the semantic structure (user prompt,
 // assistant text, assistant code) without imposing any particular UI
 // representation.
-func (thread *GptCliThread) RenderBlocks() []RenderBlock {
+func (thread *Thread) RenderBlocks() []RenderBlock {
 	thread.mu.RLock()
 	defer thread.mu.RUnlock()
 

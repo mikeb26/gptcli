@@ -18,7 +18,7 @@ import (
 // "LLM:") and soft wrapping with a trailing '\\' on wrapped
 // segments. The resulting slice is suitable for direct line-by-line
 // rendering in the history pane via a ui.Frame.
-func buildHistoryLines(thread *threads.GptCliThread, width int) []ui.FrameLine {
+func buildHistoryLines(thread *threads.Thread, width int) []ui.FrameLine {
 	// We need at least two columns: one for text and one for the history
 	// frame's scrollbar. Below that threshold we simply omit history
 	// rendering.

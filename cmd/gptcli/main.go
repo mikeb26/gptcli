@@ -58,10 +58,10 @@ type GptCliContext struct {
 	needConfig         bool
 	curSummaryToggle   bool
 	prefs              Prefs
-	threadGroups       []*threads.GptCliThreadGroup
-	archiveThreadGroup *threads.GptCliThreadGroup
-	mainThreadGroup    *threads.GptCliThreadGroup
-	curThreadGroup     *threads.GptCliThreadGroup
+	threadGroups       []*threads.ThreadGroup
+	archiveThreadGroup *threads.ThreadGroup
+	mainThreadGroup    *threads.ThreadGroup
+	curThreadGroup     *threads.ThreadGroup
 }
 
 func NewGptCliContext(ctx context.Context) *GptCliContext {
@@ -92,7 +92,7 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 		archiveThreadGroup: nil,
 		mainThreadGroup:    nil,
 		curThreadGroup:     nil,
-		threadGroups:       make([]*threads.GptCliThreadGroup, 0),
+		threadGroups:       make([]*threads.ThreadGroup, 0),
 	}
 
 	threadsDirLocal, err := getThreadsDir()
@@ -206,7 +206,7 @@ func summaryToggleMain(ctx context.Context, gptCliCtx *GptCliContext,
 	return nil
 }
 
-func threadContainsSearchStr(t *threads.GptCliThread, searchStr string) bool {
+func threadContainsSearchStr(t *threads.Thread, searchStr string) bool {
 	for _, msg := range t.Dialogue() {
 		if msg.Role == types.GptCliMessageRoleSystem {
 			continue

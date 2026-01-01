@@ -55,7 +55,7 @@ type persistedThread struct {
 	Dialogue   []*types.GptCliMessage `json:"dialogue"`
 }
 
-type GptCliThread struct {
+type Thread struct {
 	persisted persistedThread
 
 	fileName string
@@ -65,7 +65,7 @@ type GptCliThread struct {
 
 // State returns the current thread state. It is primarily intended for UI
 // layers that want to render state (running/blocked/etc.).
-func (thread *GptCliThread) State() GptCliThreadState {
+func (thread *Thread) State() GptCliThreadState {
 	thread.mu.RLock()
 	defer thread.mu.RUnlock()
 
@@ -73,7 +73,7 @@ func (thread *GptCliThread) State() GptCliThreadState {
 }
 
 // SetState sets the current thread state.
-func (thread *GptCliThread) SetState(state GptCliThreadState) {
+func (thread *Thread) SetState(state GptCliThreadState) {
 	thread.mu.Lock()
 	defer thread.mu.Unlock()
 
@@ -81,7 +81,7 @@ func (thread *GptCliThread) SetState(state GptCliThreadState) {
 }
 
 // Dialogue returns a deep copy of the thread's dialogue
-func (thread *GptCliThread) Dialogue() []*types.GptCliMessage {
+func (thread *Thread) Dialogue() []*types.GptCliMessage {
 	thread.mu.RLock()
 	defer thread.mu.RUnlock()
 
@@ -93,7 +93,7 @@ func (thread *GptCliThread) Dialogue() []*types.GptCliMessage {
 }
 
 // AppendDialogue appends a message to the existing thred dialogue
-func (thread *GptCliThread) AppendDialogue(msg *types.GptCliMessage) {
+func (thread *Thread) AppendDialogue(msg *types.GptCliMessage) {
 	thread.mu.Lock()
 	defer thread.mu.Unlock()
 
@@ -101,7 +101,7 @@ func (thread *GptCliThread) AppendDialogue(msg *types.GptCliMessage) {
 }
 
 // Name returns the thread's name
-func (thread *GptCliThread) Name() string {
+func (thread *Thread) Name() string {
 	thread.mu.RLock()
 	defer thread.mu.RUnlock()
 
@@ -109,15 +109,15 @@ func (thread *GptCliThread) Name() string {
 }
 
 // Copy returns a deep copy of the thread
-func (thread *GptCliThread) Copy() *GptCliThread {
+func (thread *Thread) Copy() *Thread {
 	thread.mu.RLock()
 	defer thread.mu.RUnlock()
 
 	return thread.copyInt()
 }
 
-func (thread *GptCliThread) copyInt() *GptCliThread {
-	var thrCopy GptCliThread
+func (thread *Thread) copyInt() *Thread {
+	var thrCopy Thread
 	thrCopy = *thread
 	thrCopy.mu = sync.RWMutex{}
 	thrCopy.state = GptCliThreadStateIdle
@@ -131,7 +131,7 @@ func (thread *GptCliThread) copyInt() *GptCliThread {
 
 // save persists the thread's dialogue to a file; callers should already hold
 // a write lock on the thread's mutex
-func (thread *GptCliThread) save(dir string) error {
+func (thread *Thread) save(dir string) error {
 	if thread.state != GptCliThreadStateIdle {
 		return fmt.Errorf("cannot save non-idle thread state:%v", thread.state)
 	}
@@ -154,7 +154,7 @@ func (thread *GptCliThread) save(dir string) error {
 
 // remove deletes the thread's persisted dialogue; callers should already hold
 // a write lock on the thread's mutex
-func (thread *GptCliThread) remove(dir string) error {
+func (thread *Thread) remove(dir string) error {
 	if thread.state != GptCliThreadStateIdle {
 		return fmt.Errorf("cannot remove non-idle thread state:%v",
 			thread.state)
@@ -170,7 +170,7 @@ func (thread *GptCliThread) remove(dir string) error {
 	return nil
 }
 
-func (t *GptCliThread) HeaderString(threadNum string) string {
+func (t *Thread) HeaderString(threadNum string) string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
