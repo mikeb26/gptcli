@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
@@ -22,6 +25,7 @@ type GptCliThreadGroup struct {
 	totThreads   int
 	dir          string
 	curThreadNum int
+	mu           sync.RWMutex
 }
 
 func NewGptCliThreadGroup(PrefixIn string, dirIn string) *GptCliThreadGroup {
@@ -38,10 +42,37 @@ func NewGptCliThreadGroup(PrefixIn string, dirIn string) *GptCliThreadGroup {
 }
 
 func (thrGrp *GptCliThreadGroup) Threads() []*GptCliThread {
-	return thrGrp.threads
+	thrGrp.mu.RLock()
+	defer thrGrp.mu.RUnlock()
+
+	thrCopies := make([]*GptCliThread, 0, len(thrGrp.threads))
+	for _, thr := range thrGrp.threads {
+		thrCopies = append(thrCopies, thr.Copy())
+	}
+
+	return thrCopies
+}
+
+func (thrGrp *GptCliThreadGroup) hasNonIdleThreads() bool {
+	// caller holds thrGrp.mu so each thread's state cannot transition
+	// out of idle; see setCurrentThreadRunning()
+	for _, thr := range thrGrp.threads {
+		if thr.State() != GptCliThreadStateIdle {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (thrGrp *GptCliThreadGroup) LoadThreads() error {
+	thrGrp.mu.Lock()
+	defer thrGrp.mu.Unlock()
+
+	if thrGrp.hasNonIdleThreads() {
+		return fmt.Errorf("Cannot re-load thread group with non-idle threads")
+	}
+
 	thrGrp.curThreadNum = 0
 	thrGrp.totThreads = 0
 	thrGrp.threads = make([]*GptCliThread, 0)
@@ -59,11 +90,13 @@ func (thrGrp *GptCliThreadGroup) LoadThreads() error {
 		}
 
 		var thread GptCliThread
-		err = json.Unmarshal(threadFileText, &thread)
+		err = json.Unmarshal(threadFileText, &thread.persisted)
 		if err != nil {
 			return fmt.Errorf("Failed to parse %v: %w", fullpath, err)
 		}
-		thread.fileName = genUniqFileName(thread.Name, thread.CreateTime)
+		thread.state = GptCliThreadStateIdle
+		thread.fileName = genUniqFileName(thread.persisted.Name,
+			thread.persisted.CreateTime)
 		if thread.fileName != dEnt.Name() {
 			oldPath := filepath.Join(thrGrp.dir, dEnt.Name())
 			newPath := filepath.Join(thrGrp.dir, thread.fileName)
@@ -72,7 +105,6 @@ func (thrGrp *GptCliThreadGroup) LoadThreads() error {
 			_ = os.Remove(oldPath)
 			_ = thread.save(thrGrp.dir)
 		}
-		thread.state = GptCliThreadStateIdle
 
 		_ = thrGrp.addThread(&thread)
 	}
@@ -107,6 +139,9 @@ func (thrGrp *GptCliThreadGroup) String(header bool, footer bool) string {
 		sb.WriteString(ThreadGroupHeaderString(true))
 	}
 
+	thrGrp.mu.RLock()
+	defer thrGrp.mu.RUnlock()
+
 	for idx, t := range thrGrp.threads {
 		threadNum := fmt.Sprintf("%v%v", thrGrp.Prefix, idx+1)
 		sb.WriteString(t.HeaderString(threadNum))
@@ -124,6 +159,9 @@ func (thrGrp *GptCliThreadGroup) String(header bool, footer bool) string {
 // performs no user-facing I/O and is therefore safe to call from
 // different UIs (CLI, ncurses, etc.).
 func (thrGrp *GptCliThreadGroup) ActivateThread(threadNum int) (*GptCliThread, error) {
+	thrGrp.mu.Lock()
+	defer thrGrp.mu.Unlock()
+
 	if threadNum > thrGrp.totThreads || threadNum == 0 {
 		threadNumPrint := fmt.Sprintf("%v%v", thrGrp.Prefix, threadNum)
 		return nil, fmt.Errorf(ThreadNoExistErrFmt, threadNumPrint)
@@ -131,7 +169,11 @@ func (thrGrp *GptCliThreadGroup) ActivateThread(threadNum int) (*GptCliThread, e
 
 	thrGrp.curThreadNum = threadNum
 	thread := thrGrp.threads[thrGrp.curThreadNum-1]
-	thread.AccessTime = time.Now()
+
+	thread.mu.Lock()
+	defer thread.mu.Unlock()
+
+	thread.persisted.AccessTime = time.Now()
 	if err := thread.save(thrGrp.dir); err != nil {
 		return nil, err
 	}
@@ -143,6 +185,9 @@ func (thrGrp *GptCliThreadGroup) ActivateThread(threadNum int) (*GptCliThread, e
 // thread in the main thread group. It is used both by the CLI "new"
 // subcommand and the ncurses menu UI so their behavior stays in sync.
 func (thrGrp *GptCliThreadGroup) NewThread(name string) error {
+	thrGrp.mu.Lock()
+	defer thrGrp.mu.Unlock()
+
 	cTime := time.Now()
 	fileName := genUniqFileName(name, cTime)
 
@@ -152,13 +197,15 @@ func (thrGrp *GptCliThreadGroup) NewThread(name string) error {
 	}
 
 	curThread := &GptCliThread{
-		Name:       name,
-		CreateTime: cTime,
-		AccessTime: cTime,
-		ModTime:    cTime,
-		Dialogue:   dialogue,
-		fileName:   fileName,
-		state:      GptCliThreadStateIdle,
+		persisted: persistedThread{
+			Name:       name,
+			CreateTime: cTime,
+			AccessTime: cTime,
+			ModTime:    cTime,
+			Dialogue:   dialogue,
+		},
+		fileName: fileName,
+		state:    GptCliThreadStateIdle,
 	}
 
 	thrGrp.curThreadNum = thrGrp.addThread(curThread)
@@ -177,11 +224,25 @@ func (thrGrp *GptCliThreadGroup) addThread(curThread *GptCliThread) int {
 //  unarchiveThreadMain()
 
 func (thrGrp *GptCliThreadGroup) Count() int {
+	thrGrp.mu.RLock()
+	defer thrGrp.mu.RUnlock()
+
 	return thrGrp.totThreads
 }
 
 func (srcThrGrp *GptCliThreadGroup) MoveThread(threadNum int,
 	dstThrGrp *GptCliThreadGroup) error {
+	// Ensure consistent locking order to prevent deadlocks if two goroutines
+	// concurrently move threads in opposite directions between two groups.
+	first, second := srcThrGrp, dstThrGrp
+	if uintptr(unsafe.Pointer(first)) > uintptr(unsafe.Pointer(second)) {
+		first, second = second, first
+	}
+
+	first.mu.Lock()
+	defer first.mu.Unlock()
+	second.mu.Lock()
+	defer second.mu.Unlock()
 
 	if threadNum > srcThrGrp.totThreads || threadNum == 0 {
 		threadNumPrint := fmt.Sprintf("%v%v", srcThrGrp.Prefix, threadNum)
@@ -189,6 +250,9 @@ func (srcThrGrp *GptCliThreadGroup) MoveThread(threadNum int,
 	}
 
 	thread := srcThrGrp.threads[threadNum-1]
+
+	thread.mu.Lock()
+	defer thread.mu.Unlock()
 
 	err := thread.save(dstThrGrp.dir)
 	if err != nil {
@@ -203,5 +267,8 @@ func (srcThrGrp *GptCliThreadGroup) MoveThread(threadNum int,
 
 	dstThrGrp.addThread(thread)
 
-	return srcThrGrp.LoadThreads()
+	srcThrGrp.totThreads--
+	srcThrGrp.threads = slices.Delete(srcThrGrp.threads, threadNum-1, threadNum)
+
+	return nil
 }

@@ -207,7 +207,7 @@ func summaryToggleMain(ctx context.Context, gptCliCtx *GptCliContext,
 }
 
 func threadContainsSearchStr(t *threads.GptCliThread, searchStr string) bool {
-	for _, msg := range t.Dialogue {
+	for _, msg := range t.Dialogue() {
 		if msg.Role == types.GptCliMessageRoleSystem {
 			continue
 		}

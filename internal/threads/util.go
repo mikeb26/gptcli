@@ -75,9 +75,12 @@ func formatHeaderTime(ts time.Time, now time.Time) string {
 // assistant text, assistant code) without imposing any particular UI
 // representation.
 func (thread *GptCliThread) RenderBlocks() []RenderBlock {
+	thread.mu.RLock()
+	defer thread.mu.RUnlock()
+
 	blocks := make([]RenderBlock, 0)
 
-	for _, msg := range thread.Dialogue {
+	for _, msg := range thread.persisted.Dialogue {
 		if msg.Role == types.GptCliMessageRoleSystem {
 			continue
 		}

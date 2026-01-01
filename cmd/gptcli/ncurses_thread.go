@@ -87,7 +87,7 @@ func drawThreadHeader(scr *gc.Window, thread *threads.GptCliThread) {
 	if maxY <= 0 {
 		return
 	}
-	header := fmt.Sprintf("Thread: %s", thread.Name)
+	header := fmt.Sprintf("Thread: %s", thread.Name())
 	if len([]rune(header)) > maxX {
 		header = string([]rune(header)[:maxX])
 	}
@@ -123,12 +123,12 @@ func setupConsumeInputBuffer(
 	// rendering against a temporary thread that includes the pending user
 	// message.
 	_, maxX = scr.MaxYX()
-	displayThread = *thread
+	displayThread = *(thread.Copy())
 	userMsg := &types.GptCliMessage{
 		Role:    types.GptCliMessageRoleUser,
 		Content: prompt,
 	}
-	displayThread.Dialogue = append(displayThread.Dialogue, userMsg)
+	displayThread.AppendDialogue(userMsg)
 	historyLines = buildHistoryLines(&displayThread, maxX)
 	historyFrame.SetLines(historyLines)
 	historyFrame.MoveEnd()
@@ -326,7 +326,7 @@ func rebuildHistory(
 			Role:    types.GptCliMessageRoleAssistant,
 			Content: extraText,
 		}
-		tmpThread.Dialogue = append(tmpThread.Dialogue, tmpMsg)
+		tmpThread.AppendDialogue(tmpMsg)
 		extraLines := buildHistoryLines(&tmpThread, maxX)
 		// Only keep the lines corresponding to the new assistant message by
 		// dropping the original history length.

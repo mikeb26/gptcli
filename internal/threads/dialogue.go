@@ -28,16 +28,34 @@ type PreparedChat struct {
 	InvocationID    string
 }
 
-// getCurrentThread() returns the currently selected thread, if any
+// setCurrentThreadRunning() returns the currently selected thread, if any,
+// and sets it to a running sttate
 //
 // NOTE: Callers that need a stable reference for the lifetime of a request
 // should call this once and hold on to the returned pointer; callers should
 // not repeatedly consult "current thread" state from the thread group.
-func (thrGrp *GptCliThreadGroup) getCurrentThread() (*GptCliThread, error) {
+func (thrGrp *GptCliThreadGroup) setCurrentThreadRunning() (*GptCliThread, error) {
+	thrGrp.mu.RLock()
+	defer thrGrp.mu.RUnlock()
+
 	if thrGrp.curThreadNum == 0 || thrGrp.curThreadNum > thrGrp.totThreads {
 		return nil, fmt.Errorf("No thread is currently selected.")
 	}
-	return thrGrp.threads[thrGrp.curThreadNum-1], nil
+
+	thr := thrGrp.threads[thrGrp.curThreadNum-1]
+
+	thr.mu.Lock()
+	defer thr.mu.Unlock()
+
+	if thr.state != GptCliThreadStateIdle {
+		return nil, fmt.Errorf("cannot set non-idle thread to running state:%v",
+			thr.state)
+	}
+
+	thr.state = GptCliThreadStateRunning
+
+	return thr, nil
+
 }
 
 // prepareChatOnceInThread performs all work needed before sending a request to
@@ -64,8 +82,10 @@ func (thrGrp *GptCliThreadGroup) prepareChatOnceInThread(
 
 	// Copy the dialogue slice so that preparing a request does not mutate the
 	// thread's in-memory dialogue (and is safer under concurrent reads).
-	fullDialogue := make([]*types.GptCliMessage, len(thread.Dialogue))
-	copy(fullDialogue, thread.Dialogue)
+	thread.mu.RLock()
+	fullDialogue := make([]*types.GptCliMessage, len(thread.persisted.Dialogue))
+	copy(fullDialogue, thread.persisted.Dialogue)
+	thread.mu.RUnlock()
 
 	fullDialogue = append(fullDialogue, reqMsg)
 	workingDialogue := fullDialogue
@@ -104,9 +124,13 @@ func (thrGrp *GptCliThreadGroup) finalizeChatOnce(
 
 	thread := prep.Thread
 	fullDialogue := append(prep.FullDialogue, replyMsg)
-	thread.Dialogue = fullDialogue
-	thread.ModTime = time.Now()
-	thread.AccessTime = time.Now()
+
+	thread.mu.Lock()
+	defer thread.mu.Unlock()
+
+	thread.persisted.Dialogue = fullDialogue
+	thread.persisted.ModTime = time.Now()
+	thread.persisted.AccessTime = time.Now()
 	thread.state = GptCliThreadStateIdle
 
 	if err := thread.save(thrGrp.dir); err != nil {
@@ -126,7 +150,8 @@ func (thrGrp *GptCliThreadGroup) chatOnceStreamInThread(
 	summarizePrior bool,
 ) (*PreparedChat, *schema.StreamReader[*types.GptCliMessage], error) {
 
-	prep, err := thrGrp.prepareChatOnceInThread(ctx, llmClient, thread, prompt, summarizePrior)
+	prep, err := thrGrp.prepareChatOnceInThread(ctx, llmClient, thread, prompt,
+		summarizePrior)
 	if err != nil {
 		return nil, nil, err
 	}

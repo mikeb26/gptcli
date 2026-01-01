@@ -9,15 +9,13 @@ import (
 )
 
 func TestHeaderStringUsesFormattedTimes(t *testing.T) {
-    thr := &GptCliThread{
-        Name: "test-thread",
-    }
+    thr := &GptCliThread{persisted: persistedThread{Name: "test-thread"}}
 
     // Fix timestamps so behavior is deterministic.
     base := time.Date(2025, 1, 15, 10, 30, 0, 0, time.Local)
-    thr.CreateTime = base.Add(-2 * time.Hour)
-    thr.AccessTime = base.Add(-1 * time.Hour)
-    thr.ModTime = base.Add(-30 * time.Minute)
+    thr.persisted.CreateTime = base.Add(-2 * time.Hour)
+    thr.persisted.AccessTime = base.Add(-1 * time.Hour)
+    thr.persisted.ModTime = base.Add(-30 * time.Minute)
 
     header := thr.HeaderString("T1")
 
@@ -27,13 +25,11 @@ func TestHeaderStringUsesFormattedTimes(t *testing.T) {
 }
 
 func TestRenderBlocksSkipsSystemAndSplitsAssistantCode(t *testing.T) {
-    thr := &GptCliThread{
-        Dialogue: []*types.GptCliMessage{
-            {Role: types.GptCliMessageRoleSystem, Content: "sys"},
-            {Role: types.GptCliMessageRoleUser, Content: "user prompt"},
-            {Role: types.GptCliMessageRoleAssistant, Content: "before```\ncode\n```after"},
-        },
-    }
+    thr := &GptCliThread{persisted: persistedThread{Dialogue: []*types.GptCliMessage{
+        {Role: types.GptCliMessageRoleSystem, Content: "sys"},
+        {Role: types.GptCliMessageRoleUser, Content: "user prompt"},
+        {Role: types.GptCliMessageRoleAssistant, Content: "before```\ncode\n```after"},
+    }}}
 
     blocks := thr.RenderBlocks()
 

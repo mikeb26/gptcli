@@ -24,15 +24,16 @@ func TestNewThreadInitializesAndRegistersThread(t *testing.T) {
 	threads := grp.Threads()
 	if assert.Len(t, threads, 1) {
 		thr := threads[0]
-		assert.Equal(t, "first-thread", thr.Name)
+		assert.Equal(t, "first-thread", thr.Name())
 		// All timestamps are initialized to the same creation time.
-		assert.True(t, thr.CreateTime.Equal(thr.AccessTime))
-		assert.True(t, thr.CreateTime.Equal(thr.ModTime))
+		assert.True(t, thr.persisted.CreateTime.Equal(thr.persisted.AccessTime))
+		assert.True(t, thr.persisted.CreateTime.Equal(thr.persisted.ModTime))
 		assert.NotEmpty(t, thr.fileName)
 
 		// Initial dialogue contains only the system message.
-		if assert.Len(t, thr.Dialogue, 1) {
-			msg := thr.Dialogue[0]
+		d := thr.Dialogue()
+		if assert.Len(t, d, 1) {
+			msg := d[0]
 			assert.Equal(t, types.GptCliMessageRoleSystem, msg.Role)
 			assert.Equal(t, prompts.SystemMsg, msg.Content)
 		}
@@ -50,33 +51,34 @@ func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
 	grp := NewGptCliThreadGroup("T", dir)
 
 	base := time.Now().Add(-time.Hour)
-	thr := &GptCliThread{
+	thr := &GptCliThread{persisted: persistedThread{
 		Name:       "activate-me",
 		CreateTime: base,
 		AccessTime: base,
 		ModTime:    base,
 		Dialogue:   []*types.GptCliMessage{},
-	}
-	thr.fileName = genUniqFileName(thr.Name, thr.CreateTime)
+	}}
+	thr.state = GptCliThreadStateIdle
+	thr.fileName = genUniqFileName(thr.persisted.Name, thr.persisted.CreateTime)
 	// Persist initial state so ActivateThread can overwrite it.
 	assert.NoError(t, thr.save(dir))
 
 	grp.addThread(thr)
-	oldAccess := thr.AccessTime
+	oldAccess := thr.persisted.AccessTime
 
 	activated, err := grp.ActivateThread(1)
 	assert.NoError(t, err)
 	assert.Equal(t, thr, activated)
 	assert.Equal(t, 1, grp.curThreadNum)
-	assert.True(t, activated.AccessTime.After(oldAccess))
+	assert.True(t, activated.persisted.AccessTime.After(oldAccess))
 
 	// Verify the on-disk representation has the updated access time.
 	data, err := os.ReadFile(filepath.Join(dir, thr.fileName))
 	assert.NoError(t, err)
 
 	var diskThread GptCliThread
-	assert.NoError(t, json.Unmarshal(data, &diskThread))
-	assert.True(t, diskThread.AccessTime.After(oldAccess))
+	assert.NoError(t, json.Unmarshal(data, &diskThread.persisted))
+	assert.True(t, diskThread.persisted.AccessTime.After(oldAccess))
 }
 
 func TestActivateThreadInvalidIndex(t *testing.T) {
@@ -100,15 +102,16 @@ func TestLoadThreadsLoadsAndRenamesStaleFiles(t *testing.T) {
 	// Create a thread JSON with a stale filename that does not match
 	// the genUniqFileName scheme so LoadThreads will rename it.
 	base := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
-	orig := &GptCliThread{
+	orig := &GptCliThread{persisted: persistedThread{
 		Name:       "rename-thread",
 		CreateTime: base,
 		AccessTime: base,
 		ModTime:    base,
 		Dialogue:   []*types.GptCliMessage{},
-	}
+	}}
+	orig.state = GptCliThreadStateIdle
 
-	data, err := json.Marshal(orig)
+	data, err := json.Marshal(orig.persisted)
 	assert.NoError(t, err)
 
 	staleName := "stale-name.json"
@@ -121,7 +124,7 @@ func TestLoadThreadsLoadsAndRenamesStaleFiles(t *testing.T) {
 	threads := grp.Threads()
 	if assert.Len(t, threads, 1) {
 		loaded := threads[0]
-		expectedFileName := genUniqFileName(loaded.Name, loaded.CreateTime)
+		expectedFileName := genUniqFileName(loaded.persisted.Name, loaded.persisted.CreateTime)
 		assert.Equal(t, expectedFileName, loaded.fileName)
 
 		// Old file should be gone; new one should exist.
@@ -142,14 +145,15 @@ func TestMoveThreadMovesFileAndReloadsSourceGroup(t *testing.T) {
 	dstGrp := NewGptCliThreadGroup("D", dstDir)
 
 	base := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
-	thr := &GptCliThread{
+	thr := &GptCliThread{persisted: persistedThread{
 		Name:       "move-me",
 		CreateTime: base,
 		AccessTime: base,
 		ModTime:    base,
 		Dialogue:   []*types.GptCliMessage{},
-	}
-	thr.fileName = genUniqFileName(thr.Name, thr.CreateTime)
+	}}
+	thr.state = GptCliThreadStateIdle
+	thr.fileName = genUniqFileName(thr.persisted.Name, thr.persisted.CreateTime)
 	assert.NoError(t, thr.save(srcDir))
 
 	srcGrp.addThread(thr)
@@ -167,7 +171,7 @@ func TestMoveThreadMovesFileAndReloadsSourceGroup(t *testing.T) {
 	assert.Equal(t, 1, dstGrp.Count())
 	if assert.Len(t, dstGrp.Threads(), 1) {
 		moved := dstGrp.Threads()[0]
-		assert.Equal(t, "move-me", moved.Name)
+		assert.Equal(t, "move-me", moved.Name())
 	}
 
 	// File only exists in destination directory.

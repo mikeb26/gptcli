@@ -59,7 +59,8 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 	).Times(1)
 
 	asyncApprover := am.NewAsyncApprover(noopApprover{})
-	state := grp.ChatOnceAsync(ctx, mockClient, "hi", false, asyncApprover)
+	state, err := grp.ChatOnceAsync(ctx, mockClient, "hi", false, asyncApprover)
+	assert.NoError(t, err)
 	if assert.NotNil(t, state) {
 		assert.Equal(t, invocationID, state.InvocationID)
 	}
@@ -90,11 +91,12 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 	// Thread is finalized in-memory.
 	thr := grp.Threads()[0]
 	assert.Equal(t, GptCliThreadStateIdle, thr.State())
-	if assert.Len(t, thr.Dialogue, 3) {
-		assert.Equal(t, types.GptCliMessageRoleSystem, thr.Dialogue[0].Role)
-		assert.Equal(t, types.GptCliMessageRoleUser, thr.Dialogue[1].Role)
-		assert.Equal(t, types.GptCliMessageRoleAssistant, thr.Dialogue[2].Role)
-		assert.Equal(t, "Hello world", thr.Dialogue[2].Content)
+	d := thr.Dialogue()
+	if assert.Len(t, d, 3) {
+		assert.Equal(t, types.GptCliMessageRoleSystem, d[0].Role)
+		assert.Equal(t, types.GptCliMessageRoleUser, d[1].Role)
+		assert.Equal(t, types.GptCliMessageRoleAssistant, d[2].Role)
+		assert.Equal(t, "Hello world", d[2].Content)
 	}
 }
 
@@ -126,7 +128,8 @@ func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 	).Times(1)
 
 	asyncApprover := am.NewAsyncApprover(noopApprover{})
-	state := grp.ChatOnceAsync(ctx, mockClient, "hi", false, asyncApprover)
+	state, err := grp.ChatOnceAsync(ctx, mockClient, "hi", false, asyncApprover)
+	assert.NoError(t, err)
 	start := <-state.Start
 	assert.NoError(t, start.Err)
 
@@ -145,5 +148,5 @@ func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 
 	// Thread should not have been finalized with an assistant reply.
 	thr := grp.Threads()[0]
-	assert.Len(t, thr.Dialogue, 1) // still only system message
+	assert.Len(t, thr.Dialogue(), 1) // still only system message
 }

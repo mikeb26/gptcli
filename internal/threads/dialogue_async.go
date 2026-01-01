@@ -97,11 +97,10 @@ func (thrGrp *GptCliThreadGroup) ChatOnceAsync(
 	// Record the current thread immediately so that the lifetime of this run is
 	// independent of any subsequent changes to the thread group's notion of
 	// "current thread".
-	thread, err := thrGrp.getCurrentThread()
+	thread, err := thrGrp.setCurrentThreadRunning()
 	if err != nil {
 		return nil, err
 	}
-	thread.SetState(GptCliThreadStateRunning)
 
 	// Seed an invocation ID up-front so the UI can subscribe to progress events
 	// before the agent begins executing.
