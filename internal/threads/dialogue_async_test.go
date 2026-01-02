@@ -58,7 +58,7 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 		},
 	).Times(1)
 
-	asyncApprover := am.NewAsyncApprover(noopApprover{})
+	asyncApprover := NewAsyncApprover(noopApprover{})
 	state, err := grp.ChatOnceAsync(ctx, mockClient, "hi", false, asyncApprover)
 	assert.NoError(t, err)
 	if assert.NotNil(t, state) {
@@ -127,7 +127,7 @@ func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 		&types.StreamResult{InvocationID: invocationID, Stream: sr}, nil,
 	).Times(1)
 
-	asyncApprover := am.NewAsyncApprover(noopApprover{})
+	asyncApprover := NewAsyncApprover(noopApprover{})
 	state, err := grp.ChatOnceAsync(ctx, mockClient, "hi", false, asyncApprover)
 	assert.NoError(t, err)
 	start := <-state.Start

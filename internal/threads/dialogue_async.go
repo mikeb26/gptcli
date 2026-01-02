@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
-	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/llmclient"
 	"github.com/mikeb26/gptcli/internal/types"
 )
@@ -60,7 +59,7 @@ type RunningThreadState struct {
 	Progress         <-chan types.ProgressEvent
 	Start            <-chan RunningThreadStart
 	Chunk            <-chan RunningThreadChunk
-	ApprovalRequests <-chan am.AsyncApprovalRequest
+	ApprovalRequests <-chan AsyncApprovalRequest
 
 	Result <-chan RunningThreadResult
 	Done   <-chan struct{}
@@ -92,7 +91,7 @@ func (s *RunningThreadState) Stop() {
 func (thrGrp *ThreadGroup) ChatOnceAsync(
 	ctx context.Context, llmClient types.GptCliAIClient, prompt string,
 	summarizePrior bool,
-	asyncApprover *am.AsyncApprover,
+	asyncApprover *AsyncApprover,
 ) (*RunningThreadState, error) {
 	// Record the current thread immediately so that the lifetime of this run is
 	// independent of any subsequent changes to the thread group's notion of
@@ -106,6 +105,7 @@ func (thrGrp *ThreadGroup) ChatOnceAsync(
 	// before the agent begins executing.
 	ctx, invocationID := llmclient.EnsureInvocationID(ctx)
 	ctx, cancel := context.WithCancel(ctx)
+	ctx = WithThread(ctx, thread)
 
 	progressCh := llmClient.SubscribeProgress(invocationID)
 	startCh := make(chan RunningThreadStart, 1)
@@ -225,4 +225,21 @@ func trySendChunk(ctx context.Context, ch chan<- RunningThreadChunk, ev RunningT
 	case ch <- ev:
 		return
 	}
+}
+
+type threadKey struct{}
+
+// WithThread returns a context with a Thread attached.
+func WithThread(ctx context.Context, thread *Thread) context.Context {
+	return context.WithValue(ctx, threadKey{}, thread)
+}
+
+// GetThread retrieves a Thread from a context, if any.
+func GetThread(ctx context.Context) (*Thread, bool) {
+	if v := ctx.Value(threadKey{}); v != nil {
+		if t, ok := v.(*Thread); ok && t != nil {
+			return t, true
+		}
+	}
+	return nil, false
 }

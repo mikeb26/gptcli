@@ -48,7 +48,8 @@ type GptCliContext struct {
 	// For ncurses, the underlying approver must only be invoked
 	// from the ncurses goroutine; AsyncApprover forwards approval requests
 	// over a channel so the ncurses goroutine can serve them.
-	asyncApprover *am.AsyncApprover
+	asyncApprover *threads.AsyncApprover
+	ictx          types.InternalContext
 
 	// realUI is the concrete ncurses UI implementation owned by the
 	// ncurses/rendering goroutine.
@@ -159,7 +160,16 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 	var approver am.Approver
 	approver = ui.NewUIApprover(gptCliCtx.realUI)
 	approver = am.NewPolicyStoreApprover(approver, policyStore)
-	gptCliCtx.asyncApprover = am.NewAsyncApprover(approver)
+
+	gptCliCtx.ictx.LlmVendor = gptCliCtx.prefs.Vendor
+	gptCliCtx.ictx.LlmModel = internal.DefaultModels[gptCliCtx.prefs.Vendor]
+	gptCliCtx.ictx.LlmApiKey = keyText
+	if gptCliCtx.prefs.EnableAuditLog {
+		gptCliCtx.ictx.LlmAuditLogPath = auditLogPath
+	}
+	gptCliCtx.ictx.LlmBaseApprover = approver
+
+	gptCliCtx.asyncApprover = threads.NewAsyncApprover(approver)
 
 	gptCliCtx.client = llmclient.NewEINOClient(ctx, gptCliCtx.prefs.Vendor,
 		gptCliCtx.asyncApprover, keyText,

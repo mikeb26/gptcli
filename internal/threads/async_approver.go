@@ -2,14 +2,14 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package am
+package threads
 
 import (
 	"context"
 	"fmt"
 	"sync"
 
-	"github.com/mikeb26/gptcli/internal/types"
+	"github.com/mikeb26/gptcli/internal/am"
 )
 
 // AsyncApprover is an Approver implementation that forwards approval requests
@@ -35,13 +35,13 @@ type AsyncApprover struct {
 	// Requests is the channel on which approval requests are delivered.
 	Requests chan AsyncApprovalRequest
 
-	underlying Approver
+	underlying am.Approver
 
 	mu     sync.RWMutex
 	closed bool
 }
 
-func NewAsyncApprover(underlyingIn Approver) *AsyncApprover {
+func NewAsyncApprover(underlyingIn am.Approver) *AsyncApprover {
 	return &AsyncApprover{
 		Requests:   make(chan AsyncApprovalRequest, 1),
 		underlying: underlyingIn,
@@ -62,9 +62,9 @@ func (a *AsyncApprover) isClosed() bool {
 	return a.closed
 }
 
-func (a *AsyncApprover) AskApproval(ctx context.Context, req ApprovalRequest) (ApprovalDecision, error) {
+func (a *AsyncApprover) AskApproval(ctx context.Context, req am.ApprovalRequest) (am.ApprovalDecision, error) {
 	if a.isClosed() {
-		return ApprovalDecision{}, fmt.Errorf("async approver closed")
+		return am.ApprovalDecision{}, fmt.Errorf("async approver closed")
 	}
 
 	replyCh := make(chan AsyncApprovalResponse, 1)
@@ -76,20 +76,20 @@ func (a *AsyncApprover) AskApproval(ctx context.Context, req ApprovalRequest) (A
 
 	// If the caller attached a thread-state setter to the context, mark the
 	// thread blocked while we prompt for user input.
-	a.setThreadBlocked(ctx)
-	defer a.setThreadRunning(ctx)
+	a.setThreadState(ctx, GptCliThreadStateBlocked)
+	defer a.setThreadState(ctx, GptCliThreadStateRunning)
 
 	// send the approval request
 	select {
 	case <-ctx.Done():
-		return ApprovalDecision{}, ctx.Err()
+		return am.ApprovalDecision{}, ctx.Err()
 	case a.Requests <- wrapped:
 	}
 
 	// wait for the approval decision
 	select {
 	case <-ctx.Done():
-		return ApprovalDecision{}, ctx.Err()
+		return am.ApprovalDecision{}, ctx.Err()
 	case resp := <-replyCh:
 		return resp.Decision, resp.Err
 	}
@@ -105,12 +105,12 @@ func (a *AsyncApprover) AskApproval(ctx context.Context, req ApprovalRequest) (A
 type AsyncApprovalRequest struct {
 	Ctx      context.Context
 	ThreadID string
-	Request  ApprovalRequest
+	Request  am.ApprovalRequest
 	ReplyCh  chan AsyncApprovalResponse
 }
 
 type AsyncApprovalResponse struct {
-	Decision ApprovalDecision
+	Decision am.ApprovalDecision
 	Err      error
 }
 
@@ -128,18 +128,12 @@ func (a *AsyncApprover) ServeRequest(req AsyncApprovalRequest) {
 	req.ReplyCh <- AsyncApprovalResponse{Decision: dec, Err: err}
 }
 
-func (a *AsyncApprover) setThreadBlocked(ctx context.Context) {
-	setter, ok := types.GetThreadStateSetter(ctx)
-	if !ok || setter == nil {
-		return
-	}
-	setter.SetThreadStateBlocked()
-}
+func (a *AsyncApprover) setThreadState(ctx context.Context,
+	state GptCliThreadState) {
 
-func (a *AsyncApprover) setThreadRunning(ctx context.Context) {
-	setter, ok := types.GetThreadStateSetter(ctx)
-	if !ok || setter == nil {
+	thread, ok := GetThread(ctx)
+	if !ok || thread == nil {
 		return
 	}
-	setter.SetThreadStateRunning()
+	thread.SetState(state)
 }

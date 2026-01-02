@@ -2,22 +2,24 @@
  *
  * See LICENSE file at the root of this package for license terms
  */
-package am
+package threads
 
 import (
 	"context"
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/mikeb26/gptcli/internal/am"
 )
 
 type mockApprover struct {
-	askFn func(ctx context.Context, req ApprovalRequest) (ApprovalDecision, error)
+	askFn func(ctx context.Context, req am.ApprovalRequest) (am.ApprovalDecision, error)
 }
 
-func (m *mockApprover) AskApproval(ctx context.Context, req ApprovalRequest) (ApprovalDecision, error) {
+func (m *mockApprover) AskApproval(ctx context.Context, req am.ApprovalRequest) (am.ApprovalDecision, error) {
 	if m.askFn == nil {
-		return ApprovalDecision{}, errors.New("AskApproval not implemented")
+		return am.ApprovalDecision{}, errors.New("AskApproval not implemented")
 	}
 	return m.askFn(ctx, req)
 }
@@ -26,7 +28,7 @@ func TestAsyncApprover_ClosePreventsNewRequests(t *testing.T) {
 	a := NewAsyncApprover(&mockApprover{})
 	a.Close()
 
-	_, err := a.AskApproval(context.Background(), ApprovalRequest{Prompt: "x", Choices: []ApprovalChoice{{Key: "y"}}})
+	_, err := a.AskApproval(context.Background(), am.ApprovalRequest{Prompt: "x", Choices: []am.ApprovalChoice{{Key: "y"}}})
 	if err == nil {
 		t.Fatalf("expected error from AskApproval after Close")
 	}
@@ -40,17 +42,17 @@ func TestAsyncApprover_ClosePreventsNewRequests(t *testing.T) {
 }
 
 func TestAsyncApprover_ForwardsRequestAndReturnsResponse(t *testing.T) {
-	a := NewAsyncApprover(&mockApprover{askFn: func(ctx context.Context, req ApprovalRequest) (ApprovalDecision, error) {
+	a := NewAsyncApprover(&mockApprover{askFn: func(ctx context.Context, req am.ApprovalRequest) (am.ApprovalDecision, error) {
 		if req.Prompt != "approve?" {
-			return ApprovalDecision{}, errors.New("unexpected prompt")
+			return am.ApprovalDecision{}, errors.New("unexpected prompt")
 		}
-		return ApprovalDecision{Allowed: true, Choice: ApprovalChoice{Key: "y"}}, nil
+		return am.ApprovalDecision{Allowed: true, Choice: am.ApprovalChoice{Key: "y"}}, nil
 	}})
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		dec, err := a.AskApproval(context.Background(), ApprovalRequest{Prompt: "approve?", Choices: []ApprovalChoice{{Key: "y"}}})
+		dec, err := a.AskApproval(context.Background(), am.ApprovalRequest{Prompt: "approve?", Choices: []am.ApprovalChoice{{Key: "y"}}})
 		if err != nil {
 			t.Errorf("AskApproval returned error: %v", err)
 			return
@@ -89,7 +91,7 @@ func TestAsyncApprover_ContextCanceledBeforeSendReturnsContextError(t *testing.T
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := a.AskApproval(ctx, ApprovalRequest{Prompt: "x", Choices: []ApprovalChoice{{Key: "y"}}})
+	_, err := a.AskApproval(ctx, am.ApprovalRequest{Prompt: "x", Choices: []am.ApprovalChoice{{Key: "y"}}})
 	if err == nil {
 		t.Fatalf("expected context error")
 	}
@@ -101,7 +103,7 @@ func TestAsyncApprover_ContextCanceledWhileWaitingForReplyReturnsContextError(t 
 
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := a.AskApproval(ctx, ApprovalRequest{Prompt: "x", Choices: []ApprovalChoice{{Key: "y"}}})
+		_, err := a.AskApproval(ctx, am.ApprovalRequest{Prompt: "x", Choices: []am.ApprovalChoice{{Key: "y"}}})
 		errCh <- err
 	}()
 
@@ -126,17 +128,17 @@ func TestAsyncApprover_ContextCanceledWhileWaitingForReplyReturnsContextError(t 
 
 func TestAsyncApprover_ServeRequest_DispatchesToUnderlyingApproverAndReplies(t *testing.T) {
 	m := &mockApprover{
-		askFn: func(ctx context.Context, req ApprovalRequest) (ApprovalDecision, error) {
+		askFn: func(ctx context.Context, req am.ApprovalRequest) (am.ApprovalDecision, error) {
 			if req.Prompt != "pick" {
-				return ApprovalDecision{}, errors.New("wrong prompt")
+				return am.ApprovalDecision{}, errors.New("wrong prompt")
 			}
-			return ApprovalDecision{Allowed: true, Choice: ApprovalChoice{Key: "y"}}, nil
+			return am.ApprovalDecision{Allowed: true, Choice: am.ApprovalChoice{Key: "y"}}, nil
 		},
 	}
 
 	a := NewAsyncApprover(m)
 	replyCh := make(chan AsyncApprovalResponse, 1)
-	a.ServeRequest(AsyncApprovalRequest{Ctx: context.Background(), Request: ApprovalRequest{Prompt: "pick", Choices: []ApprovalChoice{{Key: "y"}}}, ReplyCh: replyCh})
+	a.ServeRequest(AsyncApprovalRequest{Ctx: context.Background(), Request: am.ApprovalRequest{Prompt: "pick", Choices: []am.ApprovalChoice{{Key: "y"}}}, ReplyCh: replyCh})
 	resp := <-replyCh
 	if resp.Err != nil {
 		t.Fatalf("expected no error, got %v", resp.Err)

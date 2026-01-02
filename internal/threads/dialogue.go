@@ -78,7 +78,7 @@ func (thrGrp *ThreadGroup) prepareChatOnceInThread(
 	// Attach a thread-state setter so lower layers (e.g. tool approval prompts)
 	// can signal when the active thread is blocked waiting on user interaction
 	// without creating an import cycle.
-	ctx = types.WithThreadStateSetter(ctx, &threadStateSetter{thread: thread})
+	ctx = WithThread(ctx, thread)
 
 	// Copy the dialogue slice so that preparing a request does not mutate the
 	// thread's in-memory dialogue (and is safer under concurrent reads).
