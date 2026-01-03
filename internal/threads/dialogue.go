@@ -34,7 +34,8 @@ type PreparedChat struct {
 // NOTE: Callers that need a stable reference for the lifetime of a request
 // should call this once and hold on to the returned pointer; callers should
 // not repeatedly consult "current thread" state from the thread group.
-func (thrGrp *ThreadGroup) setCurrentThreadRunning() (*Thread, error) {
+func (thrGrp *ThreadGroup) setCurrentThreadRunning(ctx context.Context,
+	ictx types.InternalContext) (*Thread, error) {
 	thrGrp.mu.RLock()
 	defer thrGrp.mu.RUnlock()
 
@@ -53,6 +54,13 @@ func (thrGrp *ThreadGroup) setCurrentThreadRunning() (*Thread, error) {
 	}
 
 	thr.state = ThreadStateRunning
+	// Create the client and async approver per-thread (and only once per thread).
+	if thr.asyncApprover == nil {
+		thr.asyncApprover = NewAsyncApprover(ictx.LlmBaseApprover)
+	}
+	if thr.llmClient == nil {
+		thr.llmClient = llmclient.NewEINOClient(ctx, ictx, thr.asyncApprover, 0)
+	}
 
 	return thr, nil
 
@@ -67,7 +75,7 @@ func (thrGrp *ThreadGroup) setCurrentThreadRunning() (*Thread, error) {
 // thread" so that callers can safely record a thread pointer once and reuse it
 // for the lifetime of a run.
 func (thrGrp *ThreadGroup) prepareChatOnceInThread(
-	ctx context.Context, llmClient types.AIClient, thread *Thread,
+	ctx context.Context, thread *Thread,
 	prompt string, summarizePrior bool) (*PreparedChat, error) {
 
 	reqMsg := &types.ThreadMessage{
@@ -94,7 +102,7 @@ func (thrGrp *ThreadGroup) prepareChatOnceInThread(
 	if summarizePrior && len(fullDialogue) > 2 {
 		// Summarize only the prior dialogue (exclude the current user request).
 		prior := fullDialogue[:len(fullDialogue)-1]
-		summaryDialogue, sumErr := summarizeDialogue(ctx, llmClient, prior)
+		summaryDialogue, sumErr := summarizeDialogue(ctx, thread.llmClient, prior)
 		if sumErr != nil {
 			return nil, sumErr
 		}
@@ -146,18 +154,18 @@ func (thrGrp *ThreadGroup) finalizeChatOnce(
 // consuming the stream, assembling the final reply message, and then
 // invoking FinalizeChatOnce.
 func (thrGrp *ThreadGroup) chatOnceStreamInThread(
-	ctx context.Context, llmClient types.AIClient, thread *Thread, prompt string,
+	ctx context.Context, thread *Thread, prompt string,
 	summarizePrior bool,
 ) (*PreparedChat, *schema.StreamReader[*types.ThreadMessage], error) {
 
-	prep, err := thrGrp.prepareChatOnceInThread(ctx, llmClient, thread, prompt,
+	prep, err := thrGrp.prepareChatOnceInThread(ctx, thread, prompt,
 		summarizePrior)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	prep.Ctx, prep.InvocationID = llmclient.EnsureInvocationID(prep.Ctx)
-	res, err := llmClient.StreamChatCompletion(prep.Ctx, prep.WorkingDialogue)
+	res, err := thread.llmClient.StreamChatCompletion(prep.Ctx, prep.WorkingDialogue)
 	if err != nil {
 		return nil, nil, err
 	}

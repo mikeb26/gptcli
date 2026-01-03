@@ -25,7 +25,7 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 	dir := t.TempDir()
 	grp := NewThreadGroup("", dir)
 	assert.NoError(t, grp.NewThread("t1"))
-	_, err := grp.ActivateThread(1)
+	thread, err := grp.ActivateThread(1)
 	assert.NoError(t, err)
 
 	ctxBase := context.Background()
@@ -58,8 +58,10 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 		},
 	).Times(1)
 
-	asyncApprover := NewAsyncApprover(noopApprover{})
-	state, err := grp.ChatOnceAsync(ctx, mockClient, "hi", false, asyncApprover)
+	ictx := types.InternalContext{LlmBaseApprover: noopApprover{}}
+	// Inject a mock client into the active thread so ChatOnceAsync uses it.
+	thread.llmClient = mockClient
+	state, err := grp.ChatOnceAsync(ctx, ictx, "hi", false)
 	assert.NoError(t, err)
 	if assert.NotNil(t, state) {
 		assert.Equal(t, invocationID, state.InvocationID)
@@ -104,7 +106,7 @@ func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 	dir := t.TempDir()
 	grp := NewThreadGroup("", dir)
 	assert.NoError(t, grp.NewThread("t1"))
-	_, err := grp.ActivateThread(1)
+	thread, err := grp.ActivateThread(1)
 	assert.NoError(t, err)
 
 	ctxBase := context.Background()
@@ -127,8 +129,10 @@ func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 		&types.StreamResult{InvocationID: invocationID, Stream: sr}, nil,
 	).Times(1)
 
-	asyncApprover := NewAsyncApprover(noopApprover{})
-	state, err := grp.ChatOnceAsync(ctx, mockClient, "hi", false, asyncApprover)
+	ictx := types.InternalContext{LlmBaseApprover: noopApprover{}}
+	// Inject a mock client into the active thread so ChatOnceAsync uses it.
+	thread.llmClient = mockClient
+	state, err := grp.ChatOnceAsync(ctx, ictx, "hi", false)
 	assert.NoError(t, err)
 	start := <-state.Start
 	assert.NoError(t, start.Err)

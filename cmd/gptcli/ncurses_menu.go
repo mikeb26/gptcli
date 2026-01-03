@@ -351,6 +351,7 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 				continue
 			}
 
+			// @todo should cleanup thread.{asyncApprover, llmClient}
 			if err := gptCliCtx.mainThreadGroup.MoveThread(threadIndex, gptCliCtx.archiveThreadGroup); err != nil {
 				return fmt.Errorf("gptcli: failed to archive thread from menu: %w", err)
 			}

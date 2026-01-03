@@ -16,7 +16,6 @@ import (
 
 	"github.com/mikeb26/gptcli/internal"
 	"github.com/mikeb26/gptcli/internal/am"
-	"github.com/mikeb26/gptcli/internal/llmclient"
 	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/mikeb26/gptcli/internal/ui"
@@ -44,12 +43,7 @@ type Prefs struct {
 }
 
 type CliContext struct {
-	client types.AIClient
-	// For ncurses, the underlying approver must only be invoked
-	// from the ncurses goroutine; AsyncApprover forwards approval requests
-	// over a channel so the ncurses goroutine can serve them.
-	asyncApprover *threads.AsyncApprover
-	ictx          types.InternalContext
+	ictx types.InternalContext
 
 	// realUI is the concrete ncurses UI implementation owned by the
 	// ncurses/rendering goroutine.
@@ -79,8 +73,6 @@ func NewCliContext(ctx context.Context) *CliContext {
 	realUILocal := ui.NewNcursesUI(scrLocal)
 
 	gptCliCtx := &CliContext{
-		client: nil,
-		//		input:            inputLocal,
 		realUI:           realUILocal,
 		scr:              scrLocal,
 		needConfig:       true,
@@ -164,17 +156,11 @@ func (gptCliCtx *CliContext) load(ctx context.Context) error {
 	gptCliCtx.ictx.LlmVendor = gptCliCtx.prefs.Vendor
 	gptCliCtx.ictx.LlmModel = internal.DefaultModels[gptCliCtx.prefs.Vendor]
 	gptCliCtx.ictx.LlmApiKey = keyText
+	gptCliCtx.ictx.LlmReasoningEffort = laclopenai.ReasoningEffortLevelMedium
 	if gptCliCtx.prefs.EnableAuditLog {
 		gptCliCtx.ictx.LlmAuditLogPath = auditLogPath
 	}
 	gptCliCtx.ictx.LlmBaseApprover = approver
-
-	gptCliCtx.asyncApprover = threads.NewAsyncApprover(approver)
-
-	gptCliCtx.client = llmclient.NewEINOClient(ctx, gptCliCtx.prefs.Vendor,
-		gptCliCtx.asyncApprover, keyText,
-		internal.DefaultModels[gptCliCtx.prefs.Vendor], 0,
-		gptCliCtx.prefs.EnableAuditLog, auditLogPath)
 
 	for _, thrGrp := range gptCliCtx.threadGroups {
 		err := thrGrp.LoadThreads()
@@ -288,7 +274,9 @@ func reasoningMain(ctx context.Context, gptCliCtx *CliContext,
 		return fmt.Errorf("Unknown reasoning effort: %v", args[1])
 	}
 
-	gptCliCtx.client.SetReasoning(reasoningLvl)
+	// Reasoning effort is carried in InternalContext so that per-thread client
+	// creation can apply it.
+	gptCliCtx.ictx.LlmReasoningEffort = reasoningLvl
 	return nil
 }
 

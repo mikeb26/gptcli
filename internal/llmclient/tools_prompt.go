@@ -45,12 +45,19 @@ func newPromptRunTool(ctxIn context.Context, vendor string,
 	approver am.Approver, apiKey string, model string,
 	depthIn int) types.LlmTool {
 
+	ictx := types.InternalContext{
+		LlmVendor:       vendor,
+		LlmModel:        model,
+		LlmApiKey:       apiKey,
+		LlmAuditLogPath: "", // disabled for nested prompt_run
+		LlmBaseApprover: approver,
+	}
+
 	t := &PromptRunTool{
 		ctx:      ctxIn,
 		approver: approver,
 		depth:    depthIn,
-		client: NewEINOClient(ctxIn, vendor, approver, apiKey,
-			model, depthIn+1, false, ""),
+		client:   NewEINOClient(ctxIn, ictx, approver, depthIn+1),
 	}
 
 	return t.Define()

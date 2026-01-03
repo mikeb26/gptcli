@@ -73,23 +73,33 @@ func EnsureInvocationID(ctx context.Context) (context.Context, string) {
 	return ctx, id
 }
 
-func NewEINOClient(ctx context.Context, vendor string,
-	approver am.Approver, apiKey string, model string,
-	depth int, enableAuditLog bool, auditLogPath string) types.AIClient {
+func NewEINOClient(ctx context.Context, ictx types.InternalContext,
+	approver am.Approver, depth int) types.AIClient {
 
-	if vendor == "openai" {
-		return newOpenAIEINOClient(ctx, vendor, approver, apiKey, model, depth,
-			enableAuditLog, auditLogPath)
-	} else if vendor == "anthropic" {
-		return newAnthropicEINOClient(ctx, vendor, approver, apiKey, model, depth,
-			enableAuditLog, auditLogPath)
-	} else if vendor == "google" {
-		return newGoogleEINOClient(ctx, vendor, approver, apiKey, model, depth,
-			enableAuditLog, auditLogPath)
-	} // else
+	vendor := ictx.LlmVendor
+	apiKey := ictx.LlmApiKey
+	modelName := ictx.LlmModel
+	enableAuditLog := ictx.LlmAuditLogPath != ""
+	auditLogPath := ictx.LlmAuditLogPath
 
-	panic("unsupported vendor")
-	return nil
+	var client types.AIClient
+	switch vendor {
+	case "openai":
+		client = newOpenAIEINOClient(ctx, vendor, approver, apiKey, modelName, depth,
+			enableAuditLog, auditLogPath)
+	case "anthropic":
+		client = newAnthropicEINOClient(ctx, vendor, approver, apiKey, modelName, depth,
+			enableAuditLog, auditLogPath)
+	case "google":
+		client = newGoogleEINOClient(ctx, vendor, approver, apiKey, modelName, depth,
+			enableAuditLog, auditLogPath)
+	default:
+		panic("unsupported vendor")
+	}
+
+	client.SetReasoning(ictx.LlmReasoningEffort)
+
+	return client
 }
 
 func newOpenAIEINOClient(ctx context.Context, vendor string,

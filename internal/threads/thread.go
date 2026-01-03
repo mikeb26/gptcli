@@ -60,6 +60,12 @@ type Thread struct {
 
 	fileName string
 	state    ThreadState
+
+	// llmClient is created per-thread (and may be recreated as needed).
+	llmClient types.AIClient
+	// asyncApprover is per-thread and is used to route approvals back to the UI
+	// goroutine servicing this thread.
+	asyncApprover *AsyncApprover
 	mu       sync.RWMutex
 }
 

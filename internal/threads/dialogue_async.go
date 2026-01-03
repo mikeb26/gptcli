@@ -60,6 +60,7 @@ type RunningThreadState struct {
 	Start            <-chan RunningThreadStart
 	Chunk            <-chan RunningThreadChunk
 	ApprovalRequests <-chan AsyncApprovalRequest
+	AsyncApprover    *AsyncApprover
 
 	Result <-chan RunningThreadResult
 	Done   <-chan struct{}
@@ -89,14 +90,13 @@ func (s *RunningThreadState) Stop() {
 // The worker goroutine fully manages the request lifecycle, including
 // finalizing and persisting the thread upon success.
 func (thrGrp *ThreadGroup) ChatOnceAsync(
-	ctx context.Context, llmClient types.AIClient, prompt string,
+	ctx context.Context, ictx types.InternalContext, prompt string,
 	summarizePrior bool,
-	asyncApprover *AsyncApprover,
 ) (*RunningThreadState, error) {
 	// Record the current thread immediately so that the lifetime of this run is
 	// independent of any subsequent changes to the thread group's notion of
 	// "current thread".
-	thread, err := thrGrp.setCurrentThreadRunning()
+	thread, err := thrGrp.setCurrentThreadRunning(ctx, ictx)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (thrGrp *ThreadGroup) ChatOnceAsync(
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = WithThread(ctx, thread)
 
-	progressCh := llmClient.SubscribeProgress(invocationID)
+	progressCh := thread.llmClient.SubscribeProgress(invocationID)
 	startCh := make(chan RunningThreadStart, 1)
 	chunkCh := make(chan RunningThreadChunk, 16)
 	resultCh := make(chan RunningThreadResult, 1)
@@ -120,14 +120,15 @@ func (thrGrp *ThreadGroup) ChatOnceAsync(
 		Progress:         progressCh,
 		Start:            startCh,
 		Chunk:            chunkCh,
-		ApprovalRequests: asyncApprover.Requests,
+		ApprovalRequests: thread.asyncApprover.Requests,
+		AsyncApprover:    thread.asyncApprover,
 		Result:           resultCh,
 		Done:             doneCh,
 		Cancel:           cancel,
 	}
 
 	go runChatOnceAsync(
-		thrGrp, ctx, llmClient, thread, prompt, summarizePrior,
+		thrGrp, ctx, thread, prompt, summarizePrior,
 		invocationID, progressCh,
 		state, startCh, chunkCh, resultCh, doneCh,
 	)
@@ -138,7 +139,6 @@ func (thrGrp *ThreadGroup) ChatOnceAsync(
 func runChatOnceAsync(
 	thrGrp *ThreadGroup,
 	ctx context.Context,
-	llmClient types.AIClient,
 	thread *Thread,
 	prompt string,
 	summarizePrior bool,
@@ -153,9 +153,9 @@ func runChatOnceAsync(
 	defer close(doneCh)
 	defer close(chunkCh)
 	defer close(resultCh)
-	defer llmClient.UnsubscribeProgress(progressCh, invocationID)
+	defer thread.llmClient.UnsubscribeProgress(progressCh, invocationID)
 
-	prep, stream, err := thrGrp.chatOnceStreamInThread(ctx, llmClient, thread, prompt, summarizePrior)
+	prep, stream, err := thrGrp.chatOnceStreamInThread(ctx, thread, prompt, summarizePrior)
 	if err != nil {
 		startCh <- RunningThreadStart{Prepared: nil, Err: err}
 		close(startCh)

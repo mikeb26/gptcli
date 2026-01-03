@@ -203,10 +203,9 @@ func consumeInputBuffer(
 
 	state, err := gptCliCtx.curThreadGroup.ChatOnceAsync(
 		ctx,
-		gptCliCtx.client,
+		gptCliCtx.ictx,
 		prompt,
 		gptCliCtx.curSummaryToggle,
-		gptCliCtx.asyncApprover,
 	)
 	if err != nil {
 		_, _ = showErrorRetryModal(ncui, err.Error())
@@ -233,7 +232,7 @@ func consumeInputBuffer(
 			// Tools and other background workers can request user interaction
 			// via the async approver. Serve those requests here so that all
 			// ncurses rendering stays confined to this goroutine.
-			gptCliCtx.asyncApprover.ServeRequest(req)
+			state.AsyncApprover.ServeRequest(req)
 			// Redraw the underlying frames after the modal closes.
 			historyFrame.Render(false)
 			inputFrame.Render(true)
