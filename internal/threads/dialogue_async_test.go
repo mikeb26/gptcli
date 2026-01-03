@@ -23,7 +23,7 @@ func (n noopApprover) AskApproval(ctx context.Context, req am.ApprovalRequest) (
 
 func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 	dir := t.TempDir()
-	grp := NewGptCliThreadGroup("", dir)
+	grp := NewThreadGroup("", dir)
 	assert.NoError(t, grp.NewThread("t1"))
 	_, err := grp.ActivateThread(1)
 	assert.NoError(t, err)
@@ -90,7 +90,7 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 
 	// Thread is finalized in-memory.
 	thr := grp.Threads()[0]
-	assert.Equal(t, GptCliThreadStateIdle, thr.State())
+	assert.Equal(t, ThreadStateIdle, thr.State())
 	d := thr.Dialogue()
 	if assert.Len(t, d, 3) {
 		assert.Equal(t, types.GptCliMessageRoleSystem, d[0].Role)
@@ -102,7 +102,7 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 
 func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 	dir := t.TempDir()
-	grp := NewGptCliThreadGroup("", dir)
+	grp := NewThreadGroup("", dir)
 	assert.NoError(t, grp.NewThread("t1"))
 	_, err := grp.ActivateThread(1)
 	assert.NoError(t, err)

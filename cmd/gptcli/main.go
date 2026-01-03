@@ -106,9 +106,9 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 	}
 
 	gptCliCtx.threadGroups = append(gptCliCtx.threadGroups,
-		threads.NewGptCliThreadGroup("", threadsDirLocal))
+		threads.NewThreadGroup("", threadsDirLocal))
 	gptCliCtx.threadGroups = append(gptCliCtx.threadGroups,
-		threads.NewGptCliThreadGroup("a", archiveDirLocal))
+		threads.NewThreadGroup("a", archiveDirLocal))
 
 	gptCliCtx.mainThreadGroup = gptCliCtx.threadGroups[0]
 	gptCliCtx.archiveThreadGroup = gptCliCtx.threadGroups[1]

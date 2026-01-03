@@ -76,8 +76,8 @@ func (a *AsyncApprover) AskApproval(ctx context.Context, req am.ApprovalRequest)
 
 	// If the caller attached a thread-state setter to the context, mark the
 	// thread blocked while we prompt for user input.
-	a.setThreadState(ctx, GptCliThreadStateBlocked)
-	defer a.setThreadState(ctx, GptCliThreadStateRunning)
+	a.setThreadState(ctx, ThreadStateBlocked)
+	defer a.setThreadState(ctx, ThreadStateRunning)
 
 	// send the approval request
 	select {
@@ -129,7 +129,7 @@ func (a *AsyncApprover) ServeRequest(req AsyncApprovalRequest) {
 }
 
 func (a *AsyncApprover) setThreadState(ctx context.Context,
-	state GptCliThreadState) {
+	state ThreadState) {
 
 	thread, ok := GetThread(ctx)
 	if !ok || thread == nil {

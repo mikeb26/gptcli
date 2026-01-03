@@ -28,7 +28,7 @@ type ThreadGroup struct {
 	mu           sync.RWMutex
 }
 
-func NewGptCliThreadGroup(PrefixIn string, dirIn string) *ThreadGroup {
+func NewThreadGroup(PrefixIn string, dirIn string) *ThreadGroup {
 
 	thrGrp := &ThreadGroup{
 		Prefix:       PrefixIn,
@@ -57,7 +57,7 @@ func (thrGrp *ThreadGroup) hasNonIdleThreads() bool {
 	// caller holds thrGrp.mu so each thread's state cannot transition
 	// out of idle; see setCurrentThreadRunning()
 	for _, thr := range thrGrp.threads {
-		if thr.State() != GptCliThreadStateIdle {
+		if thr.State() != ThreadStateIdle {
 			return true
 		}
 	}
@@ -94,7 +94,7 @@ func (thrGrp *ThreadGroup) LoadThreads() error {
 		if err != nil {
 			return fmt.Errorf("Failed to parse %v: %w", fullpath, err)
 		}
-		thread.state = GptCliThreadStateIdle
+		thread.state = ThreadStateIdle
 		thread.fileName = genUniqFileName(thread.persisted.Name,
 			thread.persisted.CreateTime)
 		if thread.fileName != dEnt.Name() {
@@ -205,7 +205,7 @@ func (thrGrp *ThreadGroup) NewThread(name string) error {
 			Dialogue:   dialogue,
 		},
 		fileName: fileName,
-		state:    GptCliThreadStateIdle,
+		state:    ThreadStateIdle,
 	}
 
 	thrGrp.curThreadNum = thrGrp.addThread(curThread)

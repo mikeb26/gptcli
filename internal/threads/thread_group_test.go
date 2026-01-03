@@ -15,7 +15,7 @@ import (
 func TestNewThreadInitializesAndRegistersThread(t *testing.T) {
 	dir := t.TempDir()
 
-	grp := NewGptCliThreadGroup("T", dir)
+	grp := NewThreadGroup("T", dir)
 	err := grp.NewThread("first-thread")
 	assert.NoError(t, err)
 
@@ -48,7 +48,7 @@ func TestNewThreadInitializesAndRegistersThread(t *testing.T) {
 func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
 	dir := t.TempDir()
 
-	grp := NewGptCliThreadGroup("T", dir)
+	grp := NewThreadGroup("T", dir)
 
 	base := time.Now().Add(-time.Hour)
 	thr := &Thread{persisted: persistedThread{
@@ -58,7 +58,7 @@ func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
 		ModTime:    base,
 		Dialogue:   []*types.GptCliMessage{},
 	}}
-	thr.state = GptCliThreadStateIdle
+	thr.state = ThreadStateIdle
 	thr.fileName = genUniqFileName(thr.persisted.Name, thr.persisted.CreateTime)
 	// Persist initial state so ActivateThread can overwrite it.
 	assert.NoError(t, thr.save(dir))
@@ -83,7 +83,7 @@ func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
 
 func TestActivateThreadInvalidIndex(t *testing.T) {
 	dir := t.TempDir()
-	grp := NewGptCliThreadGroup("T", dir)
+	grp := NewThreadGroup("T", dir)
 
 	thr, err := grp.ActivateThread(1)
 	assert.Nil(t, thr)
@@ -109,7 +109,7 @@ func TestLoadThreadsLoadsAndRenamesStaleFiles(t *testing.T) {
 		ModTime:    base,
 		Dialogue:   []*types.GptCliMessage{},
 	}}
-	orig.state = GptCliThreadStateIdle
+	orig.state = ThreadStateIdle
 
 	data, err := json.Marshal(orig.persisted)
 	assert.NoError(t, err)
@@ -118,7 +118,7 @@ func TestLoadThreadsLoadsAndRenamesStaleFiles(t *testing.T) {
 	stalePath := filepath.Join(dir, staleName)
 	assert.NoError(t, os.WriteFile(stalePath, data, 0600))
 
-	grp := NewGptCliThreadGroup("T", dir)
+	grp := NewThreadGroup("T", dir)
 	assert.NoError(t, grp.LoadThreads())
 
 	threads := grp.Threads()
@@ -141,8 +141,8 @@ func TestMoveThreadMovesFileAndReloadsSourceGroup(t *testing.T) {
 	srcDir := t.TempDir()
 	dstDir := t.TempDir()
 
-	srcGrp := NewGptCliThreadGroup("S", srcDir)
-	dstGrp := NewGptCliThreadGroup("D", dstDir)
+	srcGrp := NewThreadGroup("S", srcDir)
+	dstGrp := NewThreadGroup("D", dstDir)
 
 	base := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
 	thr := &Thread{persisted: persistedThread{
@@ -152,7 +152,7 @@ func TestMoveThreadMovesFileAndReloadsSourceGroup(t *testing.T) {
 		ModTime:    base,
 		Dialogue:   []*types.GptCliMessage{},
 	}}
-	thr.state = GptCliThreadStateIdle
+	thr.state = ThreadStateIdle
 	thr.fileName = genUniqFileName(thr.persisted.Name, thr.persisted.CreateTime)
 	assert.NoError(t, thr.save(srcDir))
 
@@ -187,8 +187,8 @@ func TestMoveThreadInvalidIndex(t *testing.T) {
 	srcDir := t.TempDir()
 	dstDir := t.TempDir()
 
-	srcGrp := NewGptCliThreadGroup("S", srcDir)
-	dstGrp := NewGptCliThreadGroup("D", dstDir)
+	srcGrp := NewThreadGroup("S", srcDir)
+	dstGrp := NewThreadGroup("D", dstDir)
 
 	err := srcGrp.MoveThread(1, dstGrp)
 	assert.Error(t, err)

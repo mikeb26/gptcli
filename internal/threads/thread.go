@@ -21,25 +21,25 @@ const (
 	RowSpacer           = "──────────────────────────────────────────────────────────────────────────────────────────────\n"
 )
 
-type GptCliThreadState int
+type ThreadState int
 
 const (
-	GptCliThreadStateUnknown GptCliThreadState = iota
+	ThreadStateUnknown ThreadState = iota
 
-	GptCliThreadStateIdle
-	GptCliThreadStateRunning
-	GptCliThreadStateBlocked // e.g. waiting for user approval
+	ThreadStateIdle
+	ThreadStateRunning
+	ThreadStateBlocked // e.g. waiting for user approval
 
-	GptCliThreadStateInvalid GptCliThreadState = 2147483647
+	ThreadStateInvalid ThreadState = 2147483647
 )
 
-func (state GptCliThreadState) String() string {
+func (state ThreadState) String() string {
 	switch state {
-	case GptCliThreadStateIdle:
+	case ThreadStateIdle:
 		return "idle"
-	case GptCliThreadStateRunning:
+	case ThreadStateRunning:
 		return "running"
-	case GptCliThreadStateBlocked:
+	case ThreadStateBlocked:
 		return "blocked"
 	default:
 	}
@@ -59,13 +59,13 @@ type Thread struct {
 	persisted persistedThread
 
 	fileName string
-	state    GptCliThreadState
+	state    ThreadState
 	mu       sync.RWMutex
 }
 
 // State returns the current thread state. It is primarily intended for UI
 // layers that want to render state (running/blocked/etc.).
-func (thread *Thread) State() GptCliThreadState {
+func (thread *Thread) State() ThreadState {
 	thread.mu.RLock()
 	defer thread.mu.RUnlock()
 
@@ -73,7 +73,7 @@ func (thread *Thread) State() GptCliThreadState {
 }
 
 // SetState sets the current thread state.
-func (thread *Thread) SetState(state GptCliThreadState) {
+func (thread *Thread) SetState(state ThreadState) {
 	thread.mu.Lock()
 	defer thread.mu.Unlock()
 
@@ -120,7 +120,7 @@ func (thread *Thread) copyInt() *Thread {
 	var thrCopy Thread
 	thrCopy = *thread
 	thrCopy.mu = sync.RWMutex{}
-	thrCopy.state = GptCliThreadStateIdle
+	thrCopy.state = ThreadStateIdle
 	orig := thread.persisted.Dialogue
 	dCopy := make([]*types.GptCliMessage, len(orig))
 	copy(dCopy, orig)
@@ -132,7 +132,7 @@ func (thread *Thread) copyInt() *Thread {
 // save persists the thread's dialogue to a file; callers should already hold
 // a write lock on the thread's mutex
 func (thread *Thread) save(dir string) error {
-	if thread.state != GptCliThreadStateIdle {
+	if thread.state != ThreadStateIdle {
 		return fmt.Errorf("cannot save non-idle thread state:%v", thread.state)
 	}
 
@@ -155,7 +155,7 @@ func (thread *Thread) save(dir string) error {
 // remove deletes the thread's persisted dialogue; callers should already hold
 // a write lock on the thread's mutex
 func (thread *Thread) remove(dir string) error {
-	if thread.state != GptCliThreadStateIdle {
+	if thread.state != ThreadStateIdle {
 		return fmt.Errorf("cannot remove non-idle thread state:%v",
 			thread.state)
 	}

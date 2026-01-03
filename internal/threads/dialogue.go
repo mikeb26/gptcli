@@ -47,12 +47,12 @@ func (thrGrp *ThreadGroup) setCurrentThreadRunning() (*Thread, error) {
 	thr.mu.Lock()
 	defer thr.mu.Unlock()
 
-	if thr.state != GptCliThreadStateIdle {
+	if thr.state != ThreadStateIdle {
 		return nil, fmt.Errorf("cannot set non-idle thread to running state:%v",
 			thr.state)
 	}
 
-	thr.state = GptCliThreadStateRunning
+	thr.state = ThreadStateRunning
 
 	return thr, nil
 
@@ -131,7 +131,7 @@ func (thrGrp *ThreadGroup) finalizeChatOnce(
 	thread.persisted.Dialogue = fullDialogue
 	thread.persisted.ModTime = time.Now()
 	thread.persisted.AccessTime = time.Now()
-	thread.state = GptCliThreadStateIdle
+	thread.state = ThreadStateIdle
 
 	if err := thread.save(thrGrp.dir); err != nil {
 		return err

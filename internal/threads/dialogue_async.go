@@ -160,7 +160,7 @@ func runChatOnceAsync(
 		startCh <- RunningThreadStart{Prepared: nil, Err: err}
 		close(startCh)
 		resultCh <- RunningThreadResult{Prepared: nil, Reply: nil, Err: err}
-		thread.SetState(GptCliThreadStateIdle)
+		thread.SetState(ThreadStateIdle)
 		return
 	}
 	if prep == nil || stream == nil {
@@ -168,7 +168,7 @@ func runChatOnceAsync(
 		startCh <- RunningThreadStart{Prepared: nil, Err: err}
 		close(startCh)
 		resultCh <- RunningThreadResult{Prepared: nil, Reply: nil, Err: err}
-		thread.SetState(GptCliThreadStateIdle)
+		thread.SetState(ThreadStateIdle)
 		return
 	}
 	state.Prepared = prep
@@ -188,7 +188,7 @@ func runChatOnceAsync(
 			}
 			trySendChunk(ctx, chunkCh, RunningThreadChunk{Msg: nil, Err: recvErr})
 			resultCh <- RunningThreadResult{Prepared: prep, Reply: nil, Err: recvErr}
-			thread.SetState(GptCliThreadStateIdle)
+			thread.SetState(ThreadStateIdle)
 			return
 		}
 		if msg == nil {
