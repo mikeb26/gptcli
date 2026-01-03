@@ -16,31 +16,31 @@ import (
 // wrap eino with our own types/interfaces in order to enable the possibility
 // of switching frameworks easily in the future
 
-type GptCliMessage schema.Message
-type GptCliTool tool.BaseTool
-type GptCliRole schema.RoleType
+type ThreadMessage schema.Message
+type LlmTool tool.BaseTool
+type LlmRole schema.RoleType
 
-const GptCliMessageRoleSystem = schema.System
-const GptCliMessageRoleAssistant = schema.Assistant
-const GptCliMessageRoleUser = schema.User
+const LlmRoleSystem = schema.System
+const LlmRoleAssistant = schema.Assistant
+const LlmRoleUser = schema.User
 
 // StreamResult is returned by StreamChatCompletion to provide both the
 // streaming reader and a stable invocation ID that can be used by callers
 // to correlate callback-driven progress updates.
 type StreamResult struct {
 	InvocationID string
-	Stream       *schema.StreamReader[*GptCliMessage]
+	Stream       *schema.StreamReader[*ThreadMessage]
 }
 
 // NOTE: gomock/mockgen does not yet fully understand Go generics syntax such
-// as *schema.StreamReader[*GptCliMessage], so we no longer auto-generate this
+// as *schema.StreamReader[*ThreadMessage], so we no longer auto-generate this
 // mock via go:generate. The mock implementation in openai_client_mock.go is
 // maintained by hand.
 //
 //go:generate echo "skipping gomock generation for GptCliAIClient; using hand-maintained mock in openai_client_mock.go"
 type GptCliAIClient interface {
-	CreateChatCompletion(context.Context, []*GptCliMessage) (*GptCliMessage, error)
-	StreamChatCompletion(context.Context, []*GptCliMessage) (*StreamResult, error)
+	CreateChatCompletion(context.Context, []*ThreadMessage) (*ThreadMessage, error)
+	StreamChatCompletion(context.Context, []*ThreadMessage) (*StreamResult, error)
 	SetReasoning(laclopenai.ReasoningEffortLevel)
 	SubscribeProgress(string) chan ProgressEvent
 	UnsubscribeProgress(chan ProgressEvent, string)

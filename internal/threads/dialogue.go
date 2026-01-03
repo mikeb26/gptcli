@@ -22,9 +22,9 @@ import (
 type PreparedChat struct {
 	Ctx             context.Context
 	Thread          *Thread
-	FullDialogue    []*types.GptCliMessage // full history + user request
-	WorkingDialogue []*types.GptCliMessage // possibly summarized + user request
-	ReqMsg          *types.GptCliMessage
+	FullDialogue    []*types.ThreadMessage // full history + user request
+	WorkingDialogue []*types.ThreadMessage // possibly summarized + user request
+	ReqMsg          *types.ThreadMessage
 	InvocationID    string
 }
 
@@ -70,8 +70,8 @@ func (thrGrp *ThreadGroup) prepareChatOnceInThread(
 	ctx context.Context, llmClient types.GptCliAIClient, thread *Thread,
 	prompt string, summarizePrior bool) (*PreparedChat, error) {
 
-	reqMsg := &types.GptCliMessage{
-		Role:    types.GptCliMessageRoleUser,
+	reqMsg := &types.ThreadMessage{
+		Role:    types.LlmRoleUser,
 		Content: prompt,
 	}
 
@@ -83,7 +83,7 @@ func (thrGrp *ThreadGroup) prepareChatOnceInThread(
 	// Copy the dialogue slice so that preparing a request does not mutate the
 	// thread's in-memory dialogue (and is safer under concurrent reads).
 	thread.mu.RLock()
-	fullDialogue := make([]*types.GptCliMessage, len(thread.persisted.Dialogue))
+	fullDialogue := make([]*types.ThreadMessage, len(thread.persisted.Dialogue))
 	copy(fullDialogue, thread.persisted.Dialogue)
 	thread.mu.RUnlock()
 
@@ -116,7 +116,7 @@ func (thrGrp *ThreadGroup) prepareChatOnceInThread(
 // thread's dialogue, updates timestamps, and persists the thread to
 // disk.
 func (thrGrp *ThreadGroup) finalizeChatOnce(
-	prep *PreparedChat, replyMsg *types.GptCliMessage,
+	prep *PreparedChat, replyMsg *types.ThreadMessage,
 ) error {
 	if prep == nil || prep.Thread == nil {
 		return fmt.Errorf("invalid prepared chat: missing thread")
@@ -148,7 +148,7 @@ func (thrGrp *ThreadGroup) finalizeChatOnce(
 func (thrGrp *ThreadGroup) chatOnceStreamInThread(
 	ctx context.Context, llmClient types.GptCliAIClient, thread *Thread, prompt string,
 	summarizePrior bool,
-) (*PreparedChat, *schema.StreamReader[*types.GptCliMessage], error) {
+) (*PreparedChat, *schema.StreamReader[*types.ThreadMessage], error) {
 
 	prep, err := thrGrp.prepareChatOnceInThread(ctx, llmClient, thread, prompt,
 		summarizePrior)
@@ -177,15 +177,15 @@ func (thrGrp *ThreadGroup) chatOnceStreamInThread(
 // summarizeDialogue summarizes the entire chat history in order to reduce
 // llm token costs and refocus the context window
 func summarizeDialogue(ctx context.Context, llmClient types.GptCliAIClient,
-	dialogue []*types.GptCliMessage) ([]*types.GptCliMessage, error) {
+	dialogue []*types.ThreadMessage) ([]*types.ThreadMessage, error) {
 
-	summaryDialogue := []*types.GptCliMessage{
-		{Role: types.GptCliMessageRoleSystem,
+	summaryDialogue := []*types.ThreadMessage{
+		{Role: types.LlmRoleSystem,
 			Content: prompts.SystemMsg},
 	}
 
-	msg := &types.GptCliMessage{
-		Role:    types.GptCliMessageRoleSystem,
+	msg := &types.ThreadMessage{
+		Role:    types.LlmRoleSystem,
 		Content: prompts.SummarizeMsg,
 	}
 	dialogue = append(dialogue, msg)

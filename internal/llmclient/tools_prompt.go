@@ -26,12 +26,12 @@ type PromptRunTool struct {
 }
 
 type PromptRunReq struct {
-	Dialogue []*types.GptCliMessage `json:"dialogue" jsonschema:"description=The dialogue to send to the LLM"`
+	Dialogue []*types.ThreadMessage `json:"dialogue" jsonschema:"description=The dialogue to send to the LLM"`
 }
 
 type PrompRunResp struct {
 	Error   string              `json:"error" jsonschema:"description=The error status of the prompt run call"`
-	Message types.GptCliMessage `json:"error" jsonschema:"description=The message returned by the LLM"`
+	Message types.ThreadMessage `json:"error" jsonschema:"description=The message returned by the LLM"`
 }
 
 func (t PromptRunTool) GetOp() types.ToolCallOp {
@@ -43,7 +43,7 @@ func (t PromptRunTool) RequiresUserApproval() bool {
 }
 func newPromptRunTool(ctxIn context.Context, vendor string,
 	approver am.Approver, apiKey string, model string,
-	depthIn int) types.GptCliTool {
+	depthIn int) types.LlmTool {
 
 	t := &PromptRunTool{
 		ctx:      ctxIn,
@@ -56,7 +56,7 @@ func newPromptRunTool(ctxIn context.Context, vendor string,
 	return t.Define()
 }
 
-func (t PromptRunTool) Define() types.GptCliTool {
+func (t PromptRunTool) Define() types.LlmTool {
 	const NonLeafDesc = "Query the LLM with the provided system and user prompts. This function is useful for managing limited sized LLM context windows. Bigger picture tasks can be broken down into smaller more focused tasks (which themselves could be further subtasked). It has access to the same set of tools gptcli provides."
 	const LeafDesc = "Query the LLM with the provided system and user prompts. This function is useful for managing limited sized LLM context windows. Bigger picture tasks can be broken down into smaller more focused tasks. It has access to the same set of tools gptcli provides (except this one)."
 

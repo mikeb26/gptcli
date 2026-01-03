@@ -25,5 +25,5 @@ const (
 type Tool interface {
 	GetOp() ToolCallOp
 	RequiresUserApproval() bool
-	Define() GptCliTool
+	Define() LlmTool
 }

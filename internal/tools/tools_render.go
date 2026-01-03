@@ -67,7 +67,7 @@ func (t RenderWebTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 }
 
 // NewRenderWebTool initializes a new instance of the RenderWebTool.
-func NewRenderWebTool(approver am.Approver) types.GptCliTool {
+func NewRenderWebTool(approver am.Approver) types.LlmTool {
 	t := &RenderWebTool{
 		approver: approver,
 	}
@@ -75,7 +75,7 @@ func NewRenderWebTool(approver am.Approver) types.GptCliTool {
 }
 
 // Define registers the tool with gptcli using utilities in the utils package.
-func (t RenderWebTool) Define() types.GptCliTool {
+func (t RenderWebTool) Define() types.LlmTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "Retrieve the content of a url and locally render it with JavaScript execution", t.Invoke)
 	if err != nil {
 		panic(err)

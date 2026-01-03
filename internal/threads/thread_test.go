@@ -25,10 +25,10 @@ func TestHeaderStringUsesFormattedTimes(t *testing.T) {
 }
 
 func TestRenderBlocksSkipsSystemAndSplitsAssistantCode(t *testing.T) {
-	thr := &Thread{persisted: persistedThread{Dialogue: []*types.GptCliMessage{
-		{Role: types.GptCliMessageRoleSystem, Content: "sys"},
-		{Role: types.GptCliMessageRoleUser, Content: "user prompt"},
-		{Role: types.GptCliMessageRoleAssistant, Content: "before```\ncode\n```after"},
+	thr := &Thread{persisted: persistedThread{Dialogue: []*types.ThreadMessage{
+		{Role: types.LlmRoleSystem, Content: "sys"},
+		{Role: types.LlmRoleUser, Content: "user prompt"},
+		{Role: types.LlmRoleAssistant, Content: "before```\ncode\n```after"},
 	}}}
 
 	blocks := thr.RenderBlocks()

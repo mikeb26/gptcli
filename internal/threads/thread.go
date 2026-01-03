@@ -52,7 +52,7 @@ type persistedThread struct {
 	CreateTime time.Time              `json:"ctime"`
 	AccessTime time.Time              `json:"atime"`
 	ModTime    time.Time              `json:"mtime"`
-	Dialogue   []*types.GptCliMessage `json:"dialogue"`
+	Dialogue   []*types.ThreadMessage `json:"dialogue"`
 }
 
 type Thread struct {
@@ -81,19 +81,19 @@ func (thread *Thread) SetState(state ThreadState) {
 }
 
 // Dialogue returns a deep copy of the thread's dialogue
-func (thread *Thread) Dialogue() []*types.GptCliMessage {
+func (thread *Thread) Dialogue() []*types.ThreadMessage {
 	thread.mu.RLock()
 	defer thread.mu.RUnlock()
 
 	orig := thread.persisted.Dialogue
-	dCopy := make([]*types.GptCliMessage, len(orig))
+	dCopy := make([]*types.ThreadMessage, len(orig))
 	copy(dCopy, orig)
 
 	return dCopy
 }
 
 // AppendDialogue appends a message to the existing thred dialogue
-func (thread *Thread) AppendDialogue(msg *types.GptCliMessage) {
+func (thread *Thread) AppendDialogue(msg *types.ThreadMessage) {
 	thread.mu.Lock()
 	defer thread.mu.Unlock()
 
@@ -122,7 +122,7 @@ func (thread *Thread) copyInt() *Thread {
 	thrCopy.mu = sync.RWMutex{}
 	thrCopy.state = ThreadStateIdle
 	orig := thread.persisted.Dialogue
-	dCopy := make([]*types.GptCliMessage, len(orig))
+	dCopy := make([]*types.ThreadMessage, len(orig))
 	copy(dCopy, orig)
 	thrCopy.persisted.Dialogue = dCopy
 

@@ -24,7 +24,7 @@ import (
 // Stream completion is indicated by the Chunk channel closing; errors are
 // surfaced via Err and the Result channel.
 type RunningThreadChunk struct {
-	Msg *types.GptCliMessage
+	Msg *types.ThreadMessage
 	Err error
 }
 
@@ -39,7 +39,7 @@ type RunningThreadStart struct {
 // failure).
 type RunningThreadResult struct {
 	Prepared *PreparedChat
-	Reply    *types.GptCliMessage
+	Reply    *types.ThreadMessage
 	Err      error
 }
 
@@ -198,8 +198,8 @@ func runChatOnceAsync(
 		trySendChunk(ctx, chunkCh, RunningThreadChunk{Msg: msg, Err: nil})
 	}
 
-	replyMsg := &types.GptCliMessage{
-		Role:    types.GptCliMessageRoleAssistant,
+	replyMsg := &types.ThreadMessage{
+		Role:    types.LlmRoleAssistant,
 		Content: buffer.String(),
 	}
 	if err := thrGrp.finalizeChatOnce(prep, replyMsg); err != nil {
@@ -210,7 +210,7 @@ func runChatOnceAsync(
 	resultCh <- RunningThreadResult{Prepared: prep, Reply: replyMsg, Err: nil}
 }
 
-func closeStreamOnCancel(ctx context.Context, stream *schema.StreamReader[*types.GptCliMessage]) {
+func closeStreamOnCancel(ctx context.Context, stream *schema.StreamReader[*types.ThreadMessage]) {
 	if ctx == nil || stream == nil {
 		return
 	}

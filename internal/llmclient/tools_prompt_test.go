@@ -37,7 +37,7 @@ func (f fakeUI) Get(_ string) (string, error) {
 }
 
 func TestPromptRunReq_String(t *testing.T) {
-	req := &PromptRunReq{Dialogue: []*types.GptCliMessage{{Role: schema.User, Content: "hi"}}}
+	req := &PromptRunReq{Dialogue: []*types.ThreadMessage{{Role: schema.User, Content: "hi"}}}
 	out := req.String()
 	assert.Contains(t, out, "Role:user")
 	assert.Contains(t, out, "Msg:hi")
@@ -75,8 +75,8 @@ func TestPromptRunTool_Invoke_CallsClient(t *testing.T) {
 
 	ctx := context.Background()
 
-	req := &PromptRunReq{Dialogue: []*types.GptCliMessage{{Role: schema.User, Content: "hi"}}}
-	respMsg := &types.GptCliMessage{Role: schema.Assistant, Content: "ok"}
+	req := &PromptRunReq{Dialogue: []*types.ThreadMessage{{Role: schema.User, Content: "hi"}}}
+	respMsg := &types.ThreadMessage{Role: schema.Assistant, Content: "ok"}
 
 	mockClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).Return(respMsg, nil)
 

@@ -151,7 +151,7 @@ func buildCommandInvocationKey(cmd string, args []string) string {
 	return fmt.Sprintf("%s:%s", cmd, hex.EncodeToString(h[:8]))
 }
 
-func NewRunCommandTool(approver am.Approver) types.GptCliTool {
+func NewRunCommandTool(approver am.Approver) types.LlmTool {
 	t := &RunCommandTool{
 		approver: approver,
 	}
@@ -159,7 +159,7 @@ func NewRunCommandTool(approver am.Approver) types.GptCliTool {
 	return t.Define()
 }
 
-func (t RunCommandTool) Define() types.GptCliTool {
+func (t RunCommandTool) Define() types.LlmTool {
 	const cmdRunDesc = "Execute a single OS-level program directly (no shell by default). Do NOT call shell interpreters such as bash, sh, or zsh, and do NOT use `-lc`, unless the user has explicitly requested shell features (pipes, redirects, &&, ||, etc.)."
 
 	ret, err := utils.InferTool(string(t.GetOp()), cmdRunDesc, t.Invoke)

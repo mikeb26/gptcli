@@ -191,8 +191,8 @@ func (thrGrp *ThreadGroup) NewThread(name string) error {
 	cTime := time.Now()
 	fileName := genUniqFileName(name, cTime)
 
-	dialogue := []*types.GptCliMessage{
-		{Role: types.GptCliMessageRoleSystem,
+	dialogue := []*types.ThreadMessage{
+		{Role: types.LlmRoleSystem,
 			Content: prompts.SystemMsg},
 	}
 

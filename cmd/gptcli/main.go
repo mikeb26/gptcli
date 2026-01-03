@@ -218,7 +218,7 @@ func summaryToggleMain(ctx context.Context, gptCliCtx *GptCliContext,
 
 func threadContainsSearchStr(t *threads.Thread, searchStr string) bool {
 	for _, msg := range t.Dialogue() {
-		if msg.Role == types.GptCliMessageRoleSystem {
+		if msg.Role == types.LlmRoleSystem {
 			continue
 		}
 

@@ -21,19 +21,19 @@ func TestSummarizeDialogue(t *testing.T) {
 
 	mockClient := types.NewMockGptCliAIClient(ctrl)
 
-	initialDialogue := []*types.GptCliMessage{
-		{Role: types.GptCliMessageRoleUser, Content: "Hello!"},
-		{Role: types.GptCliMessageRoleAssistant, Content: "Hi! How can I assist you today?"},
+	initialDialogue := []*types.ThreadMessage{
+		{Role: types.LlmRoleUser, Content: "Hello!"},
+		{Role: types.LlmRoleAssistant, Content: "Hi! How can I assist you today?"},
 	}
 
 	expectedSummaryContent := "User greeted and asked for assistance."
-	expectedSummaryMessage := &types.GptCliMessage{
-		Role:    types.GptCliMessageRoleAssistant,
+	expectedSummaryMessage := &types.ThreadMessage{
+		Role:    types.LlmRoleAssistant,
 		Content: expectedSummaryContent,
 	}
 
-	initialDialogueWithSummary := append(initialDialogue, &types.GptCliMessage{
-		Role:    types.GptCliMessageRoleSystem,
+	initialDialogueWithSummary := append(initialDialogue, &types.ThreadMessage{
+		Role:    types.LlmRoleSystem,
 		Content: prompts.SummarizeMsg,
 	})
 

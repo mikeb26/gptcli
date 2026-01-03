@@ -34,7 +34,7 @@ func TestNewThreadInitializesAndRegistersThread(t *testing.T) {
 		d := thr.Dialogue()
 		if assert.Len(t, d, 1) {
 			msg := d[0]
-			assert.Equal(t, types.GptCliMessageRoleSystem, msg.Role)
+			assert.Equal(t, types.LlmRoleSystem, msg.Role)
 			assert.Equal(t, prompts.SystemMsg, msg.Content)
 		}
 	}
@@ -56,7 +56,7 @@ func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
 		CreateTime: base,
 		AccessTime: base,
 		ModTime:    base,
-		Dialogue:   []*types.GptCliMessage{},
+		Dialogue:   []*types.ThreadMessage{},
 	}}
 	thr.state = ThreadStateIdle
 	thr.fileName = genUniqFileName(thr.persisted.Name, thr.persisted.CreateTime)
@@ -107,7 +107,7 @@ func TestLoadThreadsLoadsAndRenamesStaleFiles(t *testing.T) {
 		CreateTime: base,
 		AccessTime: base,
 		ModTime:    base,
-		Dialogue:   []*types.GptCliMessage{},
+		Dialogue:   []*types.ThreadMessage{},
 	}}
 	orig.state = ThreadStateIdle
 
@@ -150,7 +150,7 @@ func TestMoveThreadMovesFileAndReloadsSourceGroup(t *testing.T) {
 		CreateTime: base,
 		AccessTime: base,
 		ModTime:    base,
-		Dialogue:   []*types.GptCliMessage{},
+		Dialogue:   []*types.ThreadMessage{},
 	}}
 	thr.state = ThreadStateIdle
 	thr.fileName = genUniqFileName(thr.persisted.Name, thr.persisted.CreateTime)

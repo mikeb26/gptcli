@@ -81,17 +81,17 @@ func (thread *Thread) RenderBlocks() []RenderBlock {
 	blocks := make([]RenderBlock, 0)
 
 	for _, msg := range thread.persisted.Dialogue {
-		if msg.Role == types.GptCliMessageRoleSystem {
+		if msg.Role == types.LlmRoleSystem {
 			continue
 		}
 
 		switch msg.Role {
-		case types.GptCliMessageRoleUser:
+		case types.LlmRoleUser:
 			blocks = append(blocks, RenderBlock{
 				Kind: RenderBlockUserPrompt,
 				Text: msg.Content,
 			})
-		case types.GptCliMessageRoleAssistant:
+		case types.LlmRoleAssistant:
 			parts := splitBlocks(msg.Content)
 			for idx, p := range parts {
 				kind := RenderBlockAssistantText

@@ -63,7 +63,7 @@ func (t RetrieveUrlTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 
 	return buildWebApprovalRequest(t, arg, req.Url, req.Method)
 }
-func NewRetrieveUrlTool(approver am.Approver) types.GptCliTool {
+func NewRetrieveUrlTool(approver am.Approver) types.LlmTool {
 	t := &RetrieveUrlTool{
 		approver: approver,
 	}
@@ -71,7 +71,7 @@ func NewRetrieveUrlTool(approver am.Approver) types.GptCliTool {
 	return t.Define()
 }
 
-func (t RetrieveUrlTool) Define() types.GptCliTool {
+func (t RetrieveUrlTool) Define() types.LlmTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "Retrieve the raw content of a url without any additional processing",
 		t.Invoke)
 	if err != nil {

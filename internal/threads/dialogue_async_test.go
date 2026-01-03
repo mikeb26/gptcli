@@ -39,19 +39,19 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 	mockClient.EXPECT().SubscribeProgress(invocationID).Return(progressCh).Times(1)
 	mockClient.EXPECT().UnsubscribeProgress(progressCh, invocationID).Times(1)
 
-	sr, sw := schema.Pipe[*types.GptCliMessage](8)
+	sr, sw := schema.Pipe[*types.ThreadMessage](8)
 	// Simulate streaming chunks.
-	sw.Send(&types.GptCliMessage{Role: types.GptCliMessageRoleAssistant, Content: "Hello "}, nil)
-	sw.Send(&types.GptCliMessage{Role: types.GptCliMessageRoleAssistant, Content: "world"}, nil)
+	sw.Send(&types.ThreadMessage{Role: types.LlmRoleAssistant, Content: "Hello "}, nil)
+	sw.Send(&types.ThreadMessage{Role: types.LlmRoleAssistant, Content: "world"}, nil)
 	sw.Close()
 
 	// Expect the stream call. Validate we at least get system+user messages.
 	mockClient.EXPECT().StreamChatCompletion(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, msgs []*types.GptCliMessage) (*types.StreamResult, error) {
+		func(_ context.Context, msgs []*types.ThreadMessage) (*types.StreamResult, error) {
 			if assert.Len(t, msgs, 2) {
-				assert.Equal(t, types.GptCliMessageRoleSystem, msgs[0].Role)
+				assert.Equal(t, types.LlmRoleSystem, msgs[0].Role)
 				assert.Equal(t, prompts.SystemMsg, msgs[0].Content)
-				assert.Equal(t, types.GptCliMessageRoleUser, msgs[1].Role)
+				assert.Equal(t, types.LlmRoleUser, msgs[1].Role)
 				assert.Equal(t, "hi", msgs[1].Content)
 			}
 			return &types.StreamResult{InvocationID: invocationID, Stream: sr}, nil
@@ -93,9 +93,9 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 	assert.Equal(t, ThreadStateIdle, thr.State())
 	d := thr.Dialogue()
 	if assert.Len(t, d, 3) {
-		assert.Equal(t, types.GptCliMessageRoleSystem, d[0].Role)
-		assert.Equal(t, types.GptCliMessageRoleUser, d[1].Role)
-		assert.Equal(t, types.GptCliMessageRoleAssistant, d[2].Role)
+		assert.Equal(t, types.LlmRoleSystem, d[0].Role)
+		assert.Equal(t, types.LlmRoleUser, d[1].Role)
+		assert.Equal(t, types.LlmRoleAssistant, d[2].Role)
 		assert.Equal(t, "Hello world", d[2].Content)
 	}
 }
@@ -118,8 +118,8 @@ func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 	mockClient.EXPECT().SubscribeProgress(invocationID).Return(progressCh).Times(1)
 	mockClient.EXPECT().UnsubscribeProgress(progressCh, invocationID).Times(1)
 
-	sr, sw := schema.Pipe[*types.GptCliMessage](8)
-	sw.Send(&types.GptCliMessage{Role: types.GptCliMessageRoleAssistant, Content: "partial"}, nil)
+	sr, sw := schema.Pipe[*types.ThreadMessage](8)
+	sw.Send(&types.ThreadMessage{Role: types.LlmRoleAssistant, Content: "partial"}, nil)
 	sw.Send(nil, io.ErrUnexpectedEOF)
 	sw.Close()
 

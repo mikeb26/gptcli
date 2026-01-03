@@ -20,7 +20,7 @@ import (
 // styling consistent (cyan background) across the menu and modal dialogs.
 const uiColorSelected int16 = 3
 
-// NcursesUI implements the GptCliUI interface using a goncurses Window.
+// NcursesUI implements the UI interface using a goncurses Window.
 //
 // It is designed to be used from code that has already initialized
 // ncurses via goncurses.Init() and obtained the root screen/window. The

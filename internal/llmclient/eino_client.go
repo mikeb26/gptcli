@@ -193,9 +193,9 @@ func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel
 }
 
 func defineTools(ctx context.Context, vendor string, approver am.Approver,
-	apiKey string, model string, depth int) []types.GptCliTool {
+	apiKey string, model string, depth int) []types.LlmTool {
 
-	tools := []types.GptCliTool{
+	tools := []types.LlmTool{
 		tools.NewRunCommandTool(approver),
 		tools.NewCreateFileTool(approver),
 		tools.NewAppendFileTool(approver),
@@ -223,7 +223,7 @@ func (client *GptCliEINOAIClient) SetReasoning(
 }
 
 func (client *GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
-	dialogueIn []*types.GptCliMessage) (*types.GptCliMessage, error) {
+	dialogueIn []*types.ThreadMessage) (*types.ThreadMessage, error) {
 
 	// Ensure this invocation has a correlation ID for audit/progress callbacks.
 	// If an ID is already present in the context (e.g. set by a higher-level
@@ -251,11 +251,11 @@ func (client *GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
 
 	msg, err := client.reactAgent.Generate(ctx, dialogue, agentOpt,
 		cbAgentOpt)
-	return (*types.GptCliMessage)(msg), err
+	return (*types.ThreadMessage)(msg), err
 }
 
 func (client *GptCliEINOAIClient) StreamChatCompletion(ctx context.Context,
-	dialogueIn []*types.GptCliMessage) (*types.StreamResult, error) {
+	dialogueIn []*types.ThreadMessage) (*types.StreamResult, error) {
 
 	// Ensure this invocation has a correlation ID for audit/progress callbacks.
 	// If the caller already attached an ID to ctx, we will reuse it.
@@ -285,11 +285,11 @@ func (client *GptCliEINOAIClient) StreamChatCompletion(ctx context.Context,
 		return nil, err
 	}
 
-	convert := func(m *schema.Message) (*types.GptCliMessage, error) {
+	convert := func(m *schema.Message) (*types.ThreadMessage, error) {
 		if m == nil {
 			return nil, fmt.Errorf("nil message in stream")
 		}
-		return (*types.GptCliMessage)(m), nil
+		return (*types.ThreadMessage)(m), nil
 	}
 
 	streamOut := schema.StreamReaderWithConvert(stream, convert)

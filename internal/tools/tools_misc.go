@@ -71,7 +71,7 @@ func (t PwdTool) GetOp() types.ToolCallOp {
 func (t PwdTool) RequiresUserApproval() bool {
 	return false
 }
-func NewPwdTool(approver am.Approver) types.GptCliTool {
+func NewPwdTool(approver am.Approver) types.LlmTool {
 	t := &PwdTool{
 		approver: approver,
 	}
@@ -79,7 +79,7 @@ func NewPwdTool(approver am.Approver) types.GptCliTool {
 	return t.Define()
 }
 
-func (t PwdTool) Define() types.GptCliTool {
+func (t PwdTool) Define() types.LlmTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "print the current working directory",
 		t.Invoke)
 	if err != nil {
@@ -130,7 +130,7 @@ func (t ChdirTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 
 	return commonFileBuildApprovalRequest(t, arg, newDir, false)
 }
-func NewChdirTool(approver am.Approver) types.GptCliTool {
+func NewChdirTool(approver am.Approver) types.LlmTool {
 	t := &ChdirTool{
 		approver: approver,
 	}
@@ -138,7 +138,7 @@ func NewChdirTool(approver am.Approver) types.GptCliTool {
 	return t.Define()
 }
 
-func (t ChdirTool) Define() types.GptCliTool {
+func (t ChdirTool) Define() types.LlmTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "change the current working directory",
 		t.Invoke)
 	if err != nil {
@@ -229,7 +229,7 @@ func (t EnvGetTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	}
 }
 
-func NewEnvGetTool(approver am.Approver) types.GptCliTool {
+func NewEnvGetTool(approver am.Approver) types.LlmTool {
 	t := &EnvGetTool{
 		approver: approver,
 	}
@@ -237,7 +237,7 @@ func NewEnvGetTool(approver am.Approver) types.GptCliTool {
 	return t.Define()
 }
 
-func (t EnvGetTool) Define() types.GptCliTool {
+func (t EnvGetTool) Define() types.LlmTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "get an environment variable",
 		t.Invoke)
 	if err != nil {
@@ -319,7 +319,7 @@ func (t EnvSetTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	}
 }
 
-func NewEnvSetTool(approver am.Approver) types.GptCliTool {
+func NewEnvSetTool(approver am.Approver) types.LlmTool {
 	t := &EnvSetTool{
 		approver: approver,
 	}
@@ -327,7 +327,7 @@ func NewEnvSetTool(approver am.Approver) types.GptCliTool {
 	return t.Define()
 }
 
-func (t EnvSetTool) Define() types.GptCliTool {
+func (t EnvSetTool) Define() types.LlmTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "set an environment variable",
 		t.Invoke)
 	if err != nil {

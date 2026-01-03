@@ -124,8 +124,8 @@ func setupConsumeInputBuffer(
 	// message.
 	_, maxX = scr.MaxYX()
 	displayThread = *(thread.Copy())
-	userMsg := &types.GptCliMessage{
-		Role:    types.GptCliMessageRoleUser,
+	userMsg := &types.ThreadMessage{
+		Role:    types.LlmRoleUser,
 		Content: prompt,
 	}
 	displayThread.AppendDialogue(userMsg)
@@ -322,8 +322,8 @@ func rebuildHistory(
 		// buildHistoryLines on a temporary thread to avoid duplicating
 		// wrapping logic.
 		tmpThread := *thread
-		tmpMsg := &types.GptCliMessage{
-			Role:    types.GptCliMessageRoleAssistant,
+		tmpMsg := &types.ThreadMessage{
+			Role:    types.LlmRoleAssistant,
 			Content: extraText,
 		}
 		tmpThread.AppendDialogue(tmpMsg)

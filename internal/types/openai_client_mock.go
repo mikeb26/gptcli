@@ -36,10 +36,10 @@ func (m *MockGptCliAIClient) EXPECT() *MockGptCliAIClientMockRecorder {
 }
 
 // CreateChatCompletion mocks base method.
-func (m *MockGptCliAIClient) CreateChatCompletion(ctx context.Context, msgs []*GptCliMessage) (*GptCliMessage, error) {
+func (m *MockGptCliAIClient) CreateChatCompletion(ctx context.Context, msgs []*ThreadMessage) (*ThreadMessage, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateChatCompletion", ctx, msgs)
-	ret0, _ := ret[0].(*GptCliMessage)
+	ret0, _ := ret[0].(*ThreadMessage)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -51,7 +51,7 @@ func (mr *MockGptCliAIClientMockRecorder) CreateChatCompletion(ctx, msgs interfa
 }
 
 // StreamChatCompletion mocks base method.
-func (m *MockGptCliAIClient) StreamChatCompletion(ctx context.Context, msgs []*GptCliMessage) (*StreamResult, error) {
+func (m *MockGptCliAIClient) StreamChatCompletion(ctx context.Context, msgs []*ThreadMessage) (*StreamResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StreamChatCompletion", ctx, msgs)
 	ret0, _ := ret[0].(*StreamResult)

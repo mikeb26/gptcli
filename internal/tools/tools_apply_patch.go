@@ -142,7 +142,7 @@ func (t FilePatchTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	}
 }
 
-func NewFilePatchTool(approver am.Approver) types.GptCliTool {
+func NewFilePatchTool(approver am.Approver) types.LlmTool {
 	t := &FilePatchTool{
 		approver: approver,
 	}
@@ -153,7 +153,7 @@ func NewFilePatchTool(approver am.Approver) types.GptCliTool {
 //go:embed apply_patch.txt
 var ApplyPatchDesc string
 
-func (t FilePatchTool) Define() types.GptCliTool {
+func (t FilePatchTool) Define() types.LlmTool {
 	ret, err := utils.InferTool(string(t.GetOp()), ApplyPatchDesc, t.Invoke)
 	if err != nil {
 		panic(err)

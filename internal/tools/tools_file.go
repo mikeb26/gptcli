@@ -250,7 +250,7 @@ func (t DeleteFileTool) BuildApprovalRequest(arg any) am.ApprovalRequest {
 	return commonFileBuildApprovalRequest(t, arg, req.Filename, true)
 }
 
-func NewDeleteFileTool(approver am.Approver) types.GptCliTool {
+func NewDeleteFileTool(approver am.Approver) types.LlmTool {
 	t := &DeleteFileTool{
 		approver: approver,
 	}
@@ -258,7 +258,7 @@ func NewDeleteFileTool(approver am.Approver) types.GptCliTool {
 	return t.Define()
 }
 
-func NewReadFileTool(approver am.Approver) types.GptCliTool {
+func NewReadFileTool(approver am.Approver) types.LlmTool {
 	t := &ReadFileTool{
 		approver: approver,
 	}
@@ -266,7 +266,7 @@ func NewReadFileTool(approver am.Approver) types.GptCliTool {
 	return t.Define()
 }
 
-func (t ReadFileTool) Define() types.GptCliTool {
+func (t ReadFileTool) Define() types.LlmTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "read a file on the local filesystem",
 		t.Invoke)
 	if err != nil {
@@ -276,7 +276,7 @@ func (t ReadFileTool) Define() types.GptCliTool {
 	return ret
 }
 
-func (t DeleteFileTool) Define() types.GptCliTool {
+func (t DeleteFileTool) Define() types.LlmTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "delete a file on the local filesystem",
 		t.Invoke)
 	if err != nil {
@@ -286,7 +286,7 @@ func (t DeleteFileTool) Define() types.GptCliTool {
 	return ret
 }
 
-func NewAppendFileTool(approver am.Approver) types.GptCliTool {
+func NewAppendFileTool(approver am.Approver) types.LlmTool {
 	t := &AppendFileTool{
 		approver: approver,
 	}
@@ -294,7 +294,7 @@ func NewAppendFileTool(approver am.Approver) types.GptCliTool {
 	return t.Define()
 }
 
-func (t AppendFileTool) Define() types.GptCliTool {
+func (t AppendFileTool) Define() types.LlmTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "append to an existing file on the local filesystem",
 		t.Invoke)
 	if err != nil {
@@ -304,7 +304,7 @@ func (t AppendFileTool) Define() types.GptCliTool {
 	return ret
 }
 
-func NewCreateFileTool(approver am.Approver) types.GptCliTool {
+func NewCreateFileTool(approver am.Approver) types.LlmTool {
 	t := &CreateFileTool{
 		approver: approver,
 	}
@@ -312,7 +312,7 @@ func NewCreateFileTool(approver am.Approver) types.GptCliTool {
 	return t.Define()
 }
 
-func (t CreateFileTool) Define() types.GptCliTool {
+func (t CreateFileTool) Define() types.LlmTool {
 	ret, err := utils.InferTool(string(t.GetOp()), "create or overwrite a file on the local filesystem",
 		t.Invoke)
 	if err != nil {
