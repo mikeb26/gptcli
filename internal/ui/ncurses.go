@@ -69,13 +69,13 @@ func TruncateRunes(s string, max int) string {
 // to choose the highlighted option. Pressing ESC cancels the dialog and
 // returns an error.
 func (n *NcursesUI) SelectOption(userPrompt string,
-	choices []types.GptCliUIOption) (types.GptCliUIOption, error) {
+	choices []types.UIOption) (types.UIOption, error) {
 
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	if len(choices) == 0 {
-		return types.GptCliUIOption{}, fmt.Errorf("no choices provided")
+		return types.UIOption{}, fmt.Errorf("no choices provided")
 	}
 
 	optionLines := make([]string, len(choices))
@@ -85,10 +85,10 @@ func (n *NcursesUI) SelectOption(userPrompt string,
 
 	idx, canceled, err := n.selectFromListModalFrame(userPrompt, optionLines, 0)
 	if err != nil {
-		return types.GptCliUIOption{}, err
+		return types.UIOption{}, err
 	}
 	if canceled {
-		return types.GptCliUIOption{}, fmt.Errorf("selection cancelled")
+		return types.UIOption{}, fmt.Errorf("selection cancelled")
 	}
 	return choices[idx], nil
 }
@@ -101,7 +101,7 @@ func (n *NcursesUI) SelectOption(userPrompt string,
 // ESC selects the default; without a default, ESC is treated as an
 // invalid selection and the user is re-prompted with an error prefix.
 func (n *NcursesUI) SelectBool(userPrompt string,
-	trueOption, falseOption types.GptCliUIOption,
+	trueOption, falseOption types.UIOption,
 	defaultOpt *bool) (bool, error) {
 
 	n.mu.Lock()

@@ -16,7 +16,7 @@ func TestStdioUISelectOptionValid(t *testing.T) {
 	var out bytes.Buffer
 	ui := NewStdioUI().WithReader(strings.NewReader("2\n")).WithWriter(&out)
 
-	opt, err := ui.SelectOption("Choose one:", []types.GptCliUIOption{{Key: "a", Label: "Option A"}, {Key: "b", Label: "Option B"}})
+	opt, err := ui.SelectOption("Choose one:", []types.UIOption{{Key: "a", Label: "Option A"}, {Key: "b", Label: "Option B"}})
 	if err != nil {
 		t.Fatalf("SelectOption returned error: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestStdioUISelectOptionInvalidThenValid(t *testing.T) {
 	var out bytes.Buffer
 	ui := NewStdioUI().WithReader(strings.NewReader("abc\n1\n")).WithWriter(&out)
 
-	opt, err := ui.SelectOption("Choose:", []types.GptCliUIOption{{Key: "x", Label: "X"}})
+	opt, err := ui.SelectOption("Choose:", []types.UIOption{{Key: "x", Label: "X"}})
 	if err != nil {
 		t.Fatalf("SelectOption returned error: %v", err)
 	}
@@ -97,8 +97,8 @@ func TestStdioUISelectBool(t *testing.T) {
 	// enter to use the default.
 	ui := NewStdioUI().WithReader(strings.NewReader("maybe\nYes\n\n")).WithWriter(&out)
 
-	trueOpt := types.GptCliUIOption{Key: "y", Label: "Yes"}
-	falseOpt := types.GptCliUIOption{Key: "n", Label: "No"}
+	trueOpt := types.UIOption{Key: "y", Label: "Yes"}
+	falseOpt := types.UIOption{Key: "n", Label: "No"}
 	defaultTrue := true
 
 	// First call: invalid -> true (no default used)

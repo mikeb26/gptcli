@@ -96,8 +96,8 @@ func showErrorRetryModal(nui *ui.NcursesUI, message string) (bool, error) {
 	// to retry. NcursesUI.SelectBool handles rendering the modal and
 	// collecting the response.
 	prompt := fmt.Sprintf("Error: %s\nRetry? (y/n)", message)
-	trueOpt := types.GptCliUIOption{Key: "y", Label: "y"}
-	falseOpt := types.GptCliUIOption{Key: "n", Label: "n"}
+	trueOpt := types.UIOption{Key: "y", Label: "y"}
+	falseOpt := types.UIOption{Key: "n", Label: "n"}
 	defaultNo := false
 
 	return nui.SelectBool(prompt, trueOpt, falseOpt, &defaultNo)

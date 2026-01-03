@@ -4,26 +4,26 @@
  */
 package types
 
-type GptCliUIOption struct {
+type UIOption struct {
 	Key   string
 	Label string
 }
 
-type GptCliUIOptionDialogue interface {
-	SelectOption(userPrompt string, choices []GptCliUIOption) (GptCliUIOption, error)
+type UIOptionDialogue interface {
+	SelectOption(userPrompt string, choices []UIOption) (UIOption, error)
 }
 
-type GptCliUIBoolDialogue interface {
-	SelectBool(userPrompt string, trueOption, falseOption GptCliUIOption,
+type UIBoolDialogue interface {
+	SelectBool(userPrompt string, trueOption, falseOption UIOption,
 		defaultOpt *bool) (bool, error)
 }
 
-type GptCliUIInputDialogue interface {
+type UIInputDialogue interface {
 	Get(userPrompt string) (string, error)
 }
 
-type GptCliUI interface {
-	GptCliUIOptionDialogue
-	GptCliUIBoolDialogue
-	GptCliUIInputDialogue
+type UI interface {
+	UIOptionDialogue
+	UIBoolDialogue
+	UIInputDialogue
 }

@@ -82,9 +82,9 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext) error {
 		vendorKeys = append(vendorKeys, v)
 	}
 	sort.Strings(vendorKeys)
-	choices := make([]types.GptCliUIOption, 0, len(vendorKeys))
+	choices := make([]types.UIOption, 0, len(vendorKeys))
 	for _, v := range vendorKeys {
-		choices = append(choices, types.GptCliUIOption{Key: v, Label: v})
+		choices = append(choices, types.UIOption{Key: v, Label: v})
 	}
 
 	selection, err := gptCliCtx.realUI.SelectOption("Choose an LLM vendor:", choices)
@@ -112,8 +112,8 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext) error {
 			vendor,
 		)
 		defaultKeep := true
-		trueOpt := types.GptCliUIOption{Key: "y", Label: "y"}
-		falseOpt := types.GptCliUIOption{Key: "n", Label: "n"}
+		trueOpt := types.UIOption{Key: "y", Label: "y"}
+		falseOpt := types.UIOption{Key: "n", Label: "n"}
 		keepKey, err = gptCliCtx.realUI.SelectBool(keepPrompt, trueOpt, falseOpt, &defaultKeep)
 		if err != nil {
 			return err
@@ -151,8 +151,8 @@ func configMain(ctx context.Context, gptCliCtx *GptCliContext) error {
 		vendor,
 	)
 	defaultSummarize := false
-	trueOpt := types.GptCliUIOption{Key: "y", Label: "y"}
-	falseOpt := types.GptCliUIOption{Key: "n", Label: "n"}
+	trueOpt := types.UIOption{Key: "y", Label: "y"}
+	falseOpt := types.UIOption{Key: "n", Label: "n"}
 
 	summarize, err := gptCliCtx.realUI.SelectBool(summarizePrompt, trueOpt, falseOpt, &defaultSummarize)
 	if err != nil {

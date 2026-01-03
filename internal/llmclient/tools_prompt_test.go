@@ -11,14 +11,14 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/golang/mock/gomock"
 	"github.com/mikeb26/gptcli/internal/am"
-	uipkg "github.com/mikeb26/gptcli/internal/ui"
 	"github.com/mikeb26/gptcli/internal/types"
+	uipkg "github.com/mikeb26/gptcli/internal/ui"
 	"github.com/stretchr/testify/assert"
 )
 
 type fakeUI struct{}
 
-func (f fakeUI) SelectOption(_ string, choices []types.GptCliUIOption) (types.GptCliUIOption, error) {
+func (f fakeUI) SelectOption(_ string, choices []types.UIOption) (types.UIOption, error) {
 	// default to "yes"
 	for _, ch := range choices {
 		if ch.Key == "y" {
@@ -28,7 +28,7 @@ func (f fakeUI) SelectOption(_ string, choices []types.GptCliUIOption) (types.Gp
 	return choices[0], nil
 }
 
-func (f fakeUI) SelectBool(_ string, trueOption, _ types.GptCliUIOption, _ *bool) (bool, error) {
+func (f fakeUI) SelectBool(_ string, trueOption, _ types.UIOption, _ *bool) (bool, error) {
 	return trueOption.Key == "y", nil
 }
 

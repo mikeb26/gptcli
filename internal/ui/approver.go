@@ -13,11 +13,11 @@ import (
 )
 
 type UIApprover struct {
-	ui types.GptCliUI
+	ui types.UI
 }
 
 func NewUIApprover(
-	uiIn types.GptCliUI,
+	uiIn types.UI,
 ) *UIApprover {
 
 	return &UIApprover{
@@ -28,9 +28,9 @@ func NewUIApprover(
 func (ta *UIApprover) AskApproval(ctx context.Context,
 	req am.ApprovalRequest) (am.ApprovalDecision, error) {
 
-	choices := make([]types.GptCliUIOption, len(req.Choices))
+	choices := make([]types.UIOption, len(req.Choices))
 	for i, ch := range req.Choices {
-		choices[i] = types.GptCliUIOption{Key: ch.Key, Label: ch.Label}
+		choices[i] = types.UIOption{Key: ch.Key, Label: ch.Label}
 	}
 
 	sel, err := ta.ui.SelectOption(req.Prompt+" ", choices)

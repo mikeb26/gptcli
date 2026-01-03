@@ -39,8 +39,8 @@ func upgradeIfNeeded(ctx context.Context, gptCliCtx *GptCliContext) error {
 
 	prompt := fmt.Sprintf("A new version of gptcli is available (%v). Upgrade?",
 		latestVer)
-	trueOpt := types.GptCliUIOption{Key: "y", Label: "y"}
-	falseOpt := types.GptCliUIOption{Key: "n", Label: "n"}
+	trueOpt := types.UIOption{Key: "y", Label: "y"}
+	falseOpt := types.UIOption{Key: "n", Label: "n"}
 	defaultYes := true
 	shouldUpgrade, err := gptCliCtx.realUI.SelectBool(prompt+" (y/n) [y]: ",
 		trueOpt, falseOpt, &defaultYes)

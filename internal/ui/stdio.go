@@ -62,13 +62,13 @@ func (s *StdioUI) getUnlocked(userPrompt string) (string, error) {
 // their selection from stdin. The user is prompted to enter the numeric index
 // of the desired option. It returns an error if the input is invalid.
 func (s *StdioUI) SelectOption(userPrompt string,
-	choices []types.GptCliUIOption) (types.GptCliUIOption, error) {
+	choices []types.UIOption) (types.UIOption, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if len(choices) == 0 {
-		return types.GptCliUIOption{}, fmt.Errorf("no choices provided")
+		return types.UIOption{}, fmt.Errorf("no choices provided")
 	}
 
 	fmt.Fprintln(s.output, userPrompt)
@@ -80,7 +80,7 @@ func (s *StdioUI) SelectOption(userPrompt string,
 	for {
 		line, err := s.input.ReadString('\n')
 		if err != nil {
-			return types.GptCliUIOption{}, err
+			return types.UIOption{}, err
 		}
 
 		var idx int
@@ -99,7 +99,7 @@ func (s *StdioUI) SelectOption(userPrompt string,
 // SelectBool presents a true and false option to the user on stdout and reads
 // their selection from stdin. It returns an error if the input is invalid.
 func (s *StdioUI) SelectBool(userPrompt string,
-	trueOption, falseOption types.GptCliUIOption,
+	trueOption, falseOption types.UIOption,
 	defaultOpt *bool) (bool, error) {
 
 	s.mu.Lock()
