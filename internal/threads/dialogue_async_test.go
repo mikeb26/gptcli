@@ -33,7 +33,7 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	mockClient := types.NewMockGptCliAIClient(ctrl)
+	mockClient := types.NewMockAIClient(ctrl)
 
 	progressCh := make(chan types.ProgressEvent, 1)
 	mockClient.EXPECT().SubscribeProgress(invocationID).Return(progressCh).Times(1)
@@ -112,7 +112,7 @@ func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	mockClient := types.NewMockGptCliAIClient(ctrl)
+	mockClient := types.NewMockAIClient(ctrl)
 
 	progressCh := make(chan types.ProgressEvent, 1)
 	mockClient.EXPECT().SubscribeProgress(invocationID).Return(progressCh).Times(1)

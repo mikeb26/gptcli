@@ -28,7 +28,7 @@ import (
 	"google.golang.org/genai"
 )
 
-type GptCliEINOAIClient struct {
+type EINOAIClient struct {
 	reactAgent      *react.Agent
 	reasoningEffort laclopenai.ReasoningEffortLevel
 	auditHandler    callbacks.Handler
@@ -75,7 +75,7 @@ func EnsureInvocationID(ctx context.Context) (context.Context, string) {
 
 func NewEINOClient(ctx context.Context, vendor string,
 	approver am.Approver, apiKey string, model string,
-	depth int, enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
+	depth int, enableAuditLog bool, auditLogPath string) types.AIClient {
 
 	if vendor == "openai" {
 		return newOpenAIEINOClient(ctx, vendor, approver, apiKey, model, depth,
@@ -95,7 +95,7 @@ func NewEINOClient(ctx context.Context, vendor string,
 func newOpenAIEINOClient(ctx context.Context, vendor string,
 	approver am.Approver, apiKey string, model string,
 	depth int,
-	enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
+	enableAuditLog bool, auditLogPath string) types.AIClient {
 
 	chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
 		Model:  model,
@@ -112,7 +112,7 @@ func newOpenAIEINOClient(ctx context.Context, vendor string,
 func newAnthropicEINOClient(ctx context.Context, vendor string,
 	approver am.Approver, apiKey string, model string,
 	depth int,
-	enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
+	enableAuditLog bool, auditLogPath string) types.AIClient {
 
 	chatModel, err := claude.NewChatModel(ctx, &claude.Config{
 		Model:  model,
@@ -129,7 +129,7 @@ func newAnthropicEINOClient(ctx context.Context, vendor string,
 func newGoogleEINOClient(ctx context.Context, vendor string,
 	approver am.Approver, apiKey string, model string,
 	depth int,
-	enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
+	enableAuditLog bool, auditLogPath string) types.AIClient {
 
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey: apiKey,
@@ -152,7 +152,7 @@ func newGoogleEINOClient(ctx context.Context, vendor string,
 
 func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel,
 	approver am.Approver, apiKey string, model string,
-	depth int, enableAuditLog bool, auditLogPath string) types.GptCliAIClient {
+	depth int, enableAuditLog bool, auditLogPath string) types.AIClient {
 
 	tools := defineTools(ctx, vendor, approver, apiKey, model, depth)
 	baseTools := make([]tool.BaseTool, len(tools))
@@ -180,7 +180,7 @@ func newEINOClient(ctx context.Context, vendor string, chatModel model.ChatModel
 		}
 	}
 
-	clientOut := &GptCliEINOAIClient{
+	clientOut := &EINOAIClient{
 		reactAgent:      client,
 		reasoningEffort: laclopenai.ReasoningEffortLevelMedium,
 		auditHandler:    auditHandler,
@@ -217,12 +217,12 @@ func defineTools(ctx context.Context, vendor string, approver am.Approver,
 	return tools
 }
 
-func (client *GptCliEINOAIClient) SetReasoning(
+func (client *EINOAIClient) SetReasoning(
 	reasoningEffort laclopenai.ReasoningEffortLevel) {
 	client.reasoningEffort = reasoningEffort
 }
 
-func (client *GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
+func (client *EINOAIClient) CreateChatCompletion(ctx context.Context,
 	dialogueIn []*types.ThreadMessage) (*types.ThreadMessage, error) {
 
 	// Ensure this invocation has a correlation ID for audit/progress callbacks.
@@ -254,7 +254,7 @@ func (client *GptCliEINOAIClient) CreateChatCompletion(ctx context.Context,
 	return (*types.ThreadMessage)(msg), err
 }
 
-func (client *GptCliEINOAIClient) StreamChatCompletion(ctx context.Context,
+func (client *EINOAIClient) StreamChatCompletion(ctx context.Context,
 	dialogueIn []*types.ThreadMessage) (*types.StreamResult, error) {
 
 	// Ensure this invocation has a correlation ID for audit/progress callbacks.
@@ -305,7 +305,7 @@ func (client *GptCliEINOAIClient) StreamChatCompletion(ctx context.Context,
 // The returned channel will receive events best-effort; if the receiver is too
 // slow, events may be dropped. It is the caller's responsibility to call
 // UnsubscribeProcess() when no longer required.
-func (client *GptCliEINOAIClient) SubscribeProgress(
+func (client *EINOAIClient) SubscribeProgress(
 	invocationID string) chan types.ProgressEvent {
 
 	ch := make(chan types.ProgressEvent, 64)
@@ -335,7 +335,7 @@ func (client *GptCliEINOAIClient) SubscribeProgress(
 
 // UnsubscribeProgress unregisters a subscriber from a previously subscribed
 // invocationID
-func (client *GptCliEINOAIClient) UnsubscribeProgress(ch chan types.ProgressEvent,
+func (client *EINOAIClient) UnsubscribeProgress(ch chan types.ProgressEvent,
 	invocationID string) {
 
 	client.subsMu.Lock()
@@ -356,7 +356,7 @@ func (client *GptCliEINOAIClient) UnsubscribeProgress(ch chan types.ProgressEven
 	}
 }
 
-func (client *GptCliEINOAIClient) publishProgress(invocationID string, ev types.ProgressEvent) {
+func (client *EINOAIClient) publishProgress(invocationID string, ev types.ProgressEvent) {
 	if invocationID == "" {
 		return
 	}

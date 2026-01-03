@@ -47,7 +47,7 @@ func TestPromptRunTool_Define_OpName(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockClient := types.NewMockGptCliAIClient(ctrl)
+	mockClient := types.NewMockAIClient(ctrl)
 	approver := am.NewPolicyStoreApprover(
 		uipkg.NewUIApprover(fakeUI{}),
 		am.NewMemoryApprovalPolicyStore(),
@@ -67,7 +67,7 @@ func TestPromptRunTool_Invoke_CallsClient(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockClient := types.NewMockGptCliAIClient(ctrl)
+	mockClient := types.NewMockAIClient(ctrl)
 	approver := am.NewPolicyStoreApprover(
 		uipkg.NewUIApprover(fakeUI{}),
 		am.NewMemoryApprovalPolicyStore(),

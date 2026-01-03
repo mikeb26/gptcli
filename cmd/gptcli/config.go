@@ -18,7 +18,7 @@ import (
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
-func (gptCliCtx *GptCliContext) loadPrefs() error {
+func (gptCliCtx *CliContext) loadPrefs() error {
 	// Establish defaults so newly added prefs fields take the intended defaults
 	// even when loading older prefs.json files that don't include them.
 	gptCliCtx.prefs = Prefs{
@@ -47,7 +47,7 @@ func (gptCliCtx *GptCliContext) loadPrefs() error {
 	return nil
 }
 
-func (gptCliCtx *GptCliContext) savePrefs() error {
+func (gptCliCtx *CliContext) savePrefs() error {
 	prefsFileContent, err := json.Marshal(gptCliCtx.prefs)
 	if err != nil {
 		return fmt.Errorf("Failed to marshal prefs: %w", err)
@@ -65,7 +65,7 @@ func (gptCliCtx *GptCliContext) savePrefs() error {
 	return nil
 }
 
-func configMain(ctx context.Context, gptCliCtx *GptCliContext) error {
+func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 	configDir, err := getConfigDir()
 	if err != nil {
 		return err

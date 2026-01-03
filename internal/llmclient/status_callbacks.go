@@ -19,7 +19,7 @@ import (
 )
 
 type statusModelCallbacks struct {
-	client *GptCliEINOAIClient
+	client *EINOAIClient
 }
 
 func (h *statusModelCallbacks) OnStart(
@@ -83,7 +83,7 @@ func (h *statusModelCallbacks) OnEndWithStreamOutput(
 }
 
 type statusToolCallbacks struct {
-	client *GptCliEINOAIClient
+	client *EINOAIClient
 }
 
 func (h *statusToolCallbacks) OnStart(
@@ -159,7 +159,7 @@ func (h *statusToolCallbacks) OnEndWithStreamOutput(
 	return ctx
 }
 
-func newStatusModelHandler(client *GptCliEINOAIClient) *ub.ModelCallbackHandler {
+func newStatusModelHandler(client *EINOAIClient) *ub.ModelCallbackHandler {
 	cb := &statusModelCallbacks{client: client}
 	return &ub.ModelCallbackHandler{
 		OnStart:               cb.OnStart,
@@ -168,7 +168,7 @@ func newStatusModelHandler(client *GptCliEINOAIClient) *ub.ModelCallbackHandler 
 	}
 }
 
-func newStatusToolHandler(client *GptCliEINOAIClient) *ub.ToolCallbackHandler {
+func newStatusToolHandler(client *EINOAIClient) *ub.ToolCallbackHandler {
 	cb := &statusToolCallbacks{client: client}
 	return &ub.ToolCallbackHandler{
 		OnStart:               cb.OnStart,
@@ -177,7 +177,7 @@ func newStatusToolHandler(client *GptCliEINOAIClient) *ub.ToolCallbackHandler {
 	}
 }
 
-func newStatusCallbackHandlers(client *GptCliEINOAIClient) callbacks.Handler {
+func newStatusCallbackHandlers(client *EINOAIClient) callbacks.Handler {
 	helper := ub.NewHandlerHelper().
 		ChatModel(newStatusModelHandler(client)).
 		Tool(newStatusToolHandler(client))

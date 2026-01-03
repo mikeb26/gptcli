@@ -15,7 +15,7 @@ import (
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
-// StdioUI implements the GptCliUI interface using standard input/output.
+// StdioUI implements the UI interface using standard input/output.
 type StdioUI struct {
 	mu     sync.Mutex
 	input  *bufio.Reader

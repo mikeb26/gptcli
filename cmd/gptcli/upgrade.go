@@ -25,7 +25,7 @@ var versionText string
 
 const DevVersionText = "v0.devbuild"
 
-func upgradeIfNeeded(ctx context.Context, gptCliCtx *GptCliContext) error {
+func upgradeIfNeeded(ctx context.Context, gptCliCtx *CliContext) error {
 	if versionText == DevVersionText {
 		return nil
 	}

@@ -20,7 +20,7 @@ import (
 
 type PromptRunTool struct {
 	ctx      context.Context
-	client   types.GptCliAIClient
+	client   types.AIClient
 	approver am.Approver
 	depth    int
 }

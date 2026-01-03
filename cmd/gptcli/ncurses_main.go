@@ -76,7 +76,7 @@ func initUI(scr *gc.Window, menuText string) (*threadMenuUI, error) {
 	return ui, nil
 }
 
-func menuMain(ctx context.Context, gptCliCtx *GptCliContext,
+func menuMain(ctx context.Context, gptCliCtx *CliContext,
 	args []string) error {
 
 	f := flag.NewFlagSet("ls", flag.ContinueOnError)

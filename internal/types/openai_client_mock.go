@@ -12,31 +12,31 @@ import (
 	"github.com/golang/mock/gomock"
 )
 
-// MockGptCliAIClient is a mock of GptCliAIClient interface.
-type MockGptCliAIClient struct {
+// MockAIClient is a mock of AIClient interface.
+type MockAIClient struct {
 	ctrl     *gomock.Controller
-	recorder *MockGptCliAIClientMockRecorder
+	recorder *MockAIClientMockRecorder
 }
 
-// MockGptCliAIClientMockRecorder is the mock recorder for MockGptCliAIClient.
-type MockGptCliAIClientMockRecorder struct {
-	mock *MockGptCliAIClient
+// MockAIClientMockRecorder is the mock recorder for MockAIClient.
+type MockAIClientMockRecorder struct {
+	mock *MockAIClient
 }
 
-// NewMockGptCliAIClient creates a new mock instance.
-func NewMockGptCliAIClient(ctrl *gomock.Controller) *MockGptCliAIClient {
-	mock := &MockGptCliAIClient{ctrl: ctrl}
-	mock.recorder = &MockGptCliAIClientMockRecorder{mock}
+// NewMockAIClient creates a new mock instance.
+func NewMockAIClient(ctrl *gomock.Controller) *MockAIClient {
+	mock := &MockAIClient{ctrl: ctrl}
+	mock.recorder = &MockAIClientMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockGptCliAIClient) EXPECT() *MockGptCliAIClientMockRecorder {
+func (m *MockAIClient) EXPECT() *MockAIClientMockRecorder {
 	return m.recorder
 }
 
 // CreateChatCompletion mocks base method.
-func (m *MockGptCliAIClient) CreateChatCompletion(ctx context.Context, msgs []*ThreadMessage) (*ThreadMessage, error) {
+func (m *MockAIClient) CreateChatCompletion(ctx context.Context, msgs []*ThreadMessage) (*ThreadMessage, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateChatCompletion", ctx, msgs)
 	ret0, _ := ret[0].(*ThreadMessage)
@@ -45,13 +45,13 @@ func (m *MockGptCliAIClient) CreateChatCompletion(ctx context.Context, msgs []*T
 }
 
 // CreateChatCompletion indicates an expected call of CreateChatCompletion.
-func (mr *MockGptCliAIClientMockRecorder) CreateChatCompletion(ctx, msgs interface{}) *gomock.Call {
+func (mr *MockAIClientMockRecorder) CreateChatCompletion(ctx, msgs interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateChatCompletion", reflect.TypeOf((*MockGptCliAIClient)(nil).CreateChatCompletion), ctx, msgs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateChatCompletion", reflect.TypeOf((*MockAIClient)(nil).CreateChatCompletion), ctx, msgs)
 }
 
 // StreamChatCompletion mocks base method.
-func (m *MockGptCliAIClient) StreamChatCompletion(ctx context.Context, msgs []*ThreadMessage) (*StreamResult, error) {
+func (m *MockAIClient) StreamChatCompletion(ctx context.Context, msgs []*ThreadMessage) (*StreamResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StreamChatCompletion", ctx, msgs)
 	ret0, _ := ret[0].(*StreamResult)
@@ -60,25 +60,25 @@ func (m *MockGptCliAIClient) StreamChatCompletion(ctx context.Context, msgs []*T
 }
 
 // StreamChatCompletion indicates an expected call of StreamChatCompletion.
-func (mr *MockGptCliAIClientMockRecorder) StreamChatCompletion(ctx, msgs interface{}) *gomock.Call {
+func (mr *MockAIClientMockRecorder) StreamChatCompletion(ctx, msgs interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamChatCompletion", reflect.TypeOf((*MockGptCliAIClient)(nil).StreamChatCompletion), ctx, msgs)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamChatCompletion", reflect.TypeOf((*MockAIClient)(nil).StreamChatCompletion), ctx, msgs)
 }
 
 // SetReasoning mocks base method.
-func (m *MockGptCliAIClient) SetReasoning(level laclopenai.ReasoningEffortLevel) {
+func (m *MockAIClient) SetReasoning(level laclopenai.ReasoningEffortLevel) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetReasoning", level)
 }
 
 // SetReasoning indicates an expected call of SetReasoning.
-func (mr *MockGptCliAIClientMockRecorder) SetReasoning(level interface{}) *gomock.Call {
+func (mr *MockAIClientMockRecorder) SetReasoning(level interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetReasoning", reflect.TypeOf((*MockGptCliAIClient)(nil).SetReasoning), level)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetReasoning", reflect.TypeOf((*MockAIClient)(nil).SetReasoning), level)
 }
 
 // SubscribeProgress mocks base method.
-func (m *MockGptCliAIClient) SubscribeProgress(invocationID string) chan ProgressEvent {
+func (m *MockAIClient) SubscribeProgress(invocationID string) chan ProgressEvent {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SubscribeProgress", invocationID)
 	ret0, _ := ret[0].(chan ProgressEvent)
@@ -86,19 +86,19 @@ func (m *MockGptCliAIClient) SubscribeProgress(invocationID string) chan Progres
 }
 
 // SubscribeProgress indicates an expected call of SubscribeProgress.
-func (mr *MockGptCliAIClientMockRecorder) SubscribeProgress(invocationID interface{}) *gomock.Call {
+func (mr *MockAIClientMockRecorder) SubscribeProgress(invocationID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscribeProgress", reflect.TypeOf((*MockGptCliAIClient)(nil).SubscribeProgress), invocationID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscribeProgress", reflect.TypeOf((*MockAIClient)(nil).SubscribeProgress), invocationID)
 }
 
 // UnsubscribeProgress mocks base method.
-func (m *MockGptCliAIClient) UnsubscribeProgress(ch chan ProgressEvent, invocationID string) {
+func (m *MockAIClient) UnsubscribeProgress(ch chan ProgressEvent, invocationID string) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "UnsubscribeProgress", ch, invocationID)
 }
 
 // UnsubscribeProgress indicates an expected call of UnsubscribeProgress.
-func (mr *MockGptCliAIClientMockRecorder) UnsubscribeProgress(ch, invocationID interface{}) *gomock.Call {
+func (mr *MockAIClientMockRecorder) UnsubscribeProgress(ch, invocationID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnsubscribeProgress", reflect.TypeOf((*MockGptCliAIClient)(nil).UnsubscribeProgress), ch, invocationID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnsubscribeProgress", reflect.TypeOf((*MockAIClient)(nil).UnsubscribeProgress), ch, invocationID)
 }

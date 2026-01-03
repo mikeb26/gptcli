@@ -19,7 +19,7 @@ func TestSummarizeDialogue(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	mockClient := types.NewMockGptCliAIClient(ctrl)
+	mockClient := types.NewMockAIClient(ctrl)
 
 	initialDialogue := []*types.ThreadMessage{
 		{Role: types.LlmRoleUser, Content: "Hello!"},

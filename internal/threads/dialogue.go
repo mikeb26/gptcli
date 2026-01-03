@@ -67,7 +67,7 @@ func (thrGrp *ThreadGroup) setCurrentThreadRunning() (*Thread, error) {
 // thread" so that callers can safely record a thread pointer once and reuse it
 // for the lifetime of a run.
 func (thrGrp *ThreadGroup) prepareChatOnceInThread(
-	ctx context.Context, llmClient types.GptCliAIClient, thread *Thread,
+	ctx context.Context, llmClient types.AIClient, thread *Thread,
 	prompt string, summarizePrior bool) (*PreparedChat, error) {
 
 	reqMsg := &types.ThreadMessage{
@@ -146,7 +146,7 @@ func (thrGrp *ThreadGroup) finalizeChatOnce(
 // consuming the stream, assembling the final reply message, and then
 // invoking FinalizeChatOnce.
 func (thrGrp *ThreadGroup) chatOnceStreamInThread(
-	ctx context.Context, llmClient types.GptCliAIClient, thread *Thread, prompt string,
+	ctx context.Context, llmClient types.AIClient, thread *Thread, prompt string,
 	summarizePrior bool,
 ) (*PreparedChat, *schema.StreamReader[*types.ThreadMessage], error) {
 
@@ -176,7 +176,7 @@ func (thrGrp *ThreadGroup) chatOnceStreamInThread(
 
 // summarizeDialogue summarizes the entire chat history in order to reduce
 // llm token costs and refocus the context window
-func summarizeDialogue(ctx context.Context, llmClient types.GptCliAIClient,
+func summarizeDialogue(ctx context.Context, llmClient types.AIClient,
 	dialogue []*types.ThreadMessage) ([]*types.ThreadMessage, error) {
 
 	summaryDialogue := []*types.ThreadMessage{

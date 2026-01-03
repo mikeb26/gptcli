@@ -204,7 +204,7 @@ func gcExit() {
 	gc.End()
 }
 
-func showMenu(ctx context.Context, gptCliCtx *GptCliContext, menuText string) error {
+func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error {
 
 	//scr, err := gcInit()
 	//if err != nil {

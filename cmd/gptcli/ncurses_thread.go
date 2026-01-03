@@ -186,7 +186,7 @@ func updateThreadStatusFromProgress(statusText string, toolCalls *int,
 func consumeInputBuffer(
 	ctx context.Context,
 	scr *gc.Window,
-	gptCliCtx *GptCliContext,
+	gptCliCtx *CliContext,
 	thread *threads.Thread,
 	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
@@ -349,7 +349,7 @@ func rebuildHistory(
 // standard navigation keys. Pressing 'q' or ESC in the history focus
 // returns to the menu.
 func runThreadView(ctx context.Context, scr *gc.Window,
-	gptCliCtx *GptCliContext, thread *threads.Thread) error {
+	gptCliCtx *CliContext, thread *threads.Thread) error {
 	// Listen for SIGWINCH so we can adjust layout on resize while inside
 	// the thread view. This mirrors the behavior of showMenu but keeps
 	// all ncurses calls confined to this goroutine.

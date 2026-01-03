@@ -43,8 +43,8 @@ type Prefs struct {
 	EnableAuditLog bool   `json:"enable_audit_log"`
 }
 
-type GptCliContext struct {
-	client types.GptCliAIClient
+type CliContext struct {
+	client types.AIClient
 	// For ncurses, the underlying approver must only be invoked
 	// from the ncurses goroutine; AsyncApprover forwards approval requests
 	// over a channel so the ncurses goroutine can serve them.
@@ -65,7 +65,7 @@ type GptCliContext struct {
 	curThreadGroup     *threads.ThreadGroup
 }
 
-func NewGptCliContext(ctx context.Context) *GptCliContext {
+func NewCliContext(ctx context.Context) *CliContext {
 
 	//	inputLocal := bufio.NewReader(os.Stdin)
 
@@ -78,7 +78,7 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 	// real ncurses UI (must only be used from the ncurses goroutine)
 	realUILocal := ui.NewNcursesUI(scrLocal)
 
-	gptCliCtx := &GptCliContext{
+	gptCliCtx := &CliContext{
 		client: nil,
 		//		input:            inputLocal,
 		realUI:           realUILocal,
@@ -121,7 +121,7 @@ func NewGptCliContext(ctx context.Context) *GptCliContext {
 	return gptCliCtx
 }
 
-func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
+func (gptCliCtx *CliContext) load(ctx context.Context) error {
 
 	gptCliCtx.needConfig = true
 	err := gptCliCtx.loadPrefs()
@@ -187,7 +187,7 @@ func (gptCliCtx *GptCliContext) load(ctx context.Context) error {
 	return nil
 }
 
-func summaryToggleMain(ctx context.Context, gptCliCtx *GptCliContext,
+func summaryToggleMain(ctx context.Context, gptCliCtx *CliContext,
 	args []string) error {
 
 	// @todo convert to dialogue
@@ -230,7 +230,7 @@ func threadContainsSearchStr(t *threads.Thread, searchStr string) bool {
 	return false
 }
 
-func searchMain(ctx context.Context, gptCliCtx *GptCliContext,
+func searchMain(ctx context.Context, gptCliCtx *CliContext,
 	args []string) error {
 
 	// @todo convert to dialogue. also need search results submenu
@@ -267,7 +267,7 @@ func searchMain(ctx context.Context, gptCliCtx *GptCliContext,
 	return nil
 }
 
-func reasoningMain(ctx context.Context, gptCliCtx *GptCliContext,
+func reasoningMain(ctx context.Context, gptCliCtx *CliContext,
 	args []string) error {
 
 	// @todo convert to options dialogue
@@ -294,7 +294,7 @@ func reasoningMain(ctx context.Context, gptCliCtx *GptCliContext,
 
 func main() {
 	ctx := context.Background()
-	gptCliCtx := NewGptCliContext(ctx)
+	gptCliCtx := NewCliContext(ctx)
 	defer gcExit()
 
 	// @todo needConfig?

@@ -37,8 +37,8 @@ type StreamResult struct {
 // mock via go:generate. The mock implementation in openai_client_mock.go is
 // maintained by hand.
 //
-//go:generate echo "skipping gomock generation for GptCliAIClient; using hand-maintained mock in openai_client_mock.go"
-type GptCliAIClient interface {
+//go:generate echo "skipping gomock generation for AIClient; using hand-maintained mock in openai_client_mock.go"
+type AIClient interface {
 	CreateChatCompletion(context.Context, []*ThreadMessage) (*ThreadMessage, error)
 	StreamChatCompletion(context.Context, []*ThreadMessage) (*StreamResult, error)
 	SetReasoning(laclopenai.ReasoningEffortLevel)
