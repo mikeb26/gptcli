@@ -68,6 +68,27 @@ type RunningThreadState struct {
 	Cancel context.CancelFunc
 }
 
+// Close releases this run's association with the underlying thread.
+//
+// It is safe to call multiple times.
+//
+// NOTE: Close does not cancel the in-flight request; callers that want to
+// abort should call Stop().
+func (s *RunningThreadState) Close() {
+	thread := s.Thread
+	thread.mu.Lock()
+	defer thread.mu.Unlock()
+
+	// Only clear state if we're still the currently-associated run to avoid
+	// clobbering a subsequent invocation that started after this run finalized.
+	if thread.runState != s {
+		panic("BUG: running thread was modified before completion")
+	}
+
+	thread.runState = nil
+	thread.state = ThreadStateIdle
+}
+
 // Stop cancels the in-flight request (best-effort).
 func (s *RunningThreadState) Stop() {
 	if s == nil || s.Cancel == nil {
@@ -127,6 +148,10 @@ func (thrGrp *ThreadGroup) ChatOnceAsync(
 		Cancel:           cancel,
 	}
 
+	thread.mu.Lock()
+	thread.runState = state
+	thread.mu.Unlock()
+
 	go runChatOnceAsync(
 		thrGrp, ctx, thread, prompt, summarizePrior,
 		invocationID, progressCh,
@@ -160,7 +185,6 @@ func runChatOnceAsync(
 		startCh <- RunningThreadStart{Prepared: nil, Err: err}
 		close(startCh)
 		resultCh <- RunningThreadResult{Prepared: nil, Reply: nil, Err: err}
-		thread.SetState(ThreadStateIdle)
 		return
 	}
 	if prep == nil || stream == nil {
@@ -168,7 +192,6 @@ func runChatOnceAsync(
 		startCh <- RunningThreadStart{Prepared: nil, Err: err}
 		close(startCh)
 		resultCh <- RunningThreadResult{Prepared: nil, Reply: nil, Err: err}
-		thread.SetState(ThreadStateIdle)
 		return
 	}
 	state.Prepared = prep
@@ -188,7 +211,6 @@ func runChatOnceAsync(
 			}
 			trySendChunk(ctx, chunkCh, RunningThreadChunk{Msg: nil, Err: recvErr})
 			resultCh <- RunningThreadResult{Prepared: prep, Reply: nil, Err: recvErr}
-			thread.SetState(ThreadStateIdle)
 			return
 		}
 		if msg == nil {

@@ -60,13 +60,14 @@ type Thread struct {
 
 	fileName string
 	state    ThreadState
+	runState *RunningThreadState
 
 	// llmClient is created per-thread (and may be recreated as needed).
 	llmClient types.AIClient
 	// asyncApprover is per-thread and is used to route approvals back to the UI
 	// goroutine servicing this thread.
 	asyncApprover *AsyncApprover
-	mu       sync.RWMutex
+	mu            sync.RWMutex
 }
 
 // State returns the current thread state. It is primarily intended for UI
@@ -76,6 +77,18 @@ func (thread *Thread) State() ThreadState {
 	defer thread.mu.RUnlock()
 
 	return thread.state
+}
+
+// GetRunState returns the current thread's running state
+// Note that RunningThreadState lifetime exists for the duration of a
+// single ChatOnceAsync() invocation and its backgrounded activity. It is the
+// caller's responsibility to ensure the returned RunningThreadState cannot
+// be dereferenced subsequent to invoking RunningThreadState.Close()
+func (thread *Thread) GetRunState() *RunningThreadState {
+	thread.mu.RLock()
+	defer thread.mu.RUnlock()
+
+	return thread.runState
 }
 
 // SetState sets the current thread state.

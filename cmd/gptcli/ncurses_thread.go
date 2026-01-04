@@ -103,21 +103,13 @@ func drawThreadHeader(scr *gc.Window, thread *threads.Thread) {
 	_ = scr.AttrSet(gc.A_NORMAL)
 }
 
-func setupConsumeInputBuffer(
+func applySubmittedPromptToUI(
 	scr *gc.Window,
 	thread *threads.Thread,
 	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
-) (prompt string, displayThread threads.Thread, historyLines []ui.FrameLine, maxX int, ok bool) {
-	// Capture the raw multi-line input and trim it in the same way as the
-	// non-UI helpers so that what we display matches what is actually sent
-	// to the LLM and eventually persisted in the thread dialogue.
-	rawInput := inputFrame.InputString()
-	prompt = strings.TrimSpace(rawInput)
-	if prompt == "" {
-		return "", threads.Thread{}, nil, 0, false
-	}
-
+	prompt string,
+) (displayThread threads.Thread, historyLines []ui.FrameLine, maxX int) {
 	// Immediately reflect the user's input at the end of the history
 	// window without mutating the underlying thread yet. We do this by
 	// rendering against a temporary thread that includes the pending user
@@ -134,8 +126,8 @@ func setupConsumeInputBuffer(
 	historyFrame.MoveEnd()
 	historyFrame.Render(false)
 
-	// Clear the input buffer immediately so the user sees that their
-	// message has been "sent".
+	// Clear the input buffer now that we know the async chat has actually
+	// started.
 	inputFrame.ResetInput()
 	inputFrame.Render(true)
 
@@ -143,7 +135,7 @@ func setupConsumeInputBuffer(
 	drawThreadStatus(scr, focusInput, "Processing...")
 	scr.Refresh()
 
-	return prompt, displayThread, historyLines, maxX, true
+	return displayThread, historyLines, maxX
 }
 
 func updateThreadStatusFromProgress(statusText string, toolCalls *int,
@@ -178,27 +170,25 @@ func updateThreadStatusFromProgress(statusText string, toolCalls *int,
 		*requestCount, *toolCalls)
 }
 
-// consumeInputBuffer handles Ctrl-D in the input pane. It reads the
-// current prompt from the input frame and either executes a
-// non-streaming request (the existing behavior) or, when streaming is
-// enabled, consumes a streaming response while incrementally updating
-// the history frame and thread status.
-func consumeInputBuffer(
+func beginAsyncChatFromInputBuffer(
 	ctx context.Context,
 	scr *gc.Window,
 	gptCliCtx *CliContext,
-	thread *threads.Thread,
-	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
 	ncui *ui.NcursesUI,
-) {
-	prompt, displayThread, historyLines, maxX, ok := setupConsumeInputBuffer(scr, thread, historyFrame, inputFrame)
-	if !ok {
-		return
+) (prompt string, state *threads.RunningThreadState, ok bool) {
+	// Capture the raw multi-line input and trim it in the same way as the
+	// non-UI helpers so that what we display matches what is actually sent
+	// to the LLM and eventually persisted in the thread dialogue.
+	rawInput := inputFrame.InputString()
+	prompt = strings.TrimSpace(rawInput)
+	if prompt == "" {
+		return "", nil, false
 	}
+
 	if gptCliCtx.curThreadGroup == gptCliCtx.archiveThreadGroup {
 		_, _ = showErrorRetryModal(ncui, "Cannot edit archived thread; use unarchive first")
-		return
+		return "", nil, false
 	}
 
 	state, err := gptCliCtx.curThreadGroup.ChatOnceAsync(
@@ -209,8 +199,36 @@ func consumeInputBuffer(
 	)
 	if err != nil {
 		_, _ = showErrorRetryModal(ncui, err.Error())
-		return
+		return "", nil, false
 	}
+
+	// We intentionally do not clear the input buffer or mutate the history
+	// view until we know that the async chat has actually started (i.e. the
+	// Start event returns successfully). That is handled in
+	// processAsyncChatState.
+	drawThreadStatus(scr, focusInput, "Processing...")
+	scr.Refresh()
+
+	return prompt, state, true
+}
+
+func processAsyncChatState(
+	scr *gc.Window,
+	thread *threads.Thread,
+	historyFrame *ui.Frame,
+	inputFrame *ui.Frame,
+	ncui *ui.NcursesUI,
+	prompt string,
+	state *threads.RunningThreadState,
+) (promptApplied bool) {
+	if state == nil {
+		return false
+	}
+	defer state.Close()
+
+	var displayThread threads.Thread
+	var historyLines []ui.FrameLine
+	maxX := 0
 
 	statusText := "LLM: thinking"
 	startCh := state.Start
@@ -253,29 +271,41 @@ func consumeInputBuffer(
 			if start.Err != nil {
 				state.Stop()
 				_, _ = showErrorRetryModal(ncui, start.Err.Error())
-				return
+				return false
 			}
 			if start.Prepared == nil {
 				state.Stop()
 				_, _ = showErrorRetryModal(ncui, "nil prepared chat")
-				return
+				return false
 			}
+
+			// The async chat has successfully started; now reflect the user's
+			// prompt in the UI and clear the input buffer.
+			displayThread, historyLines, maxX = applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
+			promptApplied = true
 		case ce, ok := <-chunkCh:
 			if !ok {
 				// Stream completed.
 				chunkCh = nil
 				if gotResult {
-					return
+					return promptApplied
 				}
 				continue
 			}
 			if ce.Err != nil {
 				state.Stop()
 				_, _ = showErrorRetryModal(ncui, ce.Err.Error())
-				return
+				return promptApplied
 			}
 			if ce.Msg == nil {
 				continue
+			}
+
+			// In case we see chunks before the Start event is observed (it
+			// should not happen, but avoid a broken UI if it does).
+			if !promptApplied {
+				displayThread, historyLines, maxX = applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
+				promptApplied = true
 			}
 
 			// As soon as we start receiving assistant chunks, we're
@@ -293,10 +323,12 @@ func consumeInputBuffer(
 			if res.Err != nil {
 				state.Stop()
 				_, _ = showErrorRetryModal(ncui, res.Err.Error())
-				return
+				return promptApplied
 			}
 		}
 	}
+
+	return promptApplied
 }
 
 // rebuildHistory reconstructs the history frame lines while a streaming
@@ -558,13 +590,16 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 				inputFrame.EnsureCursorVisible()
 				needRedraw = true
 			case 'd' - 'a' + 1: // Ctrl-D sends the input buffer
-				consumeInputBuffer(ctx, scr, gptCliCtx, thread, historyFrame, inputFrame, ncui)
-				// Rebuild history and reset input handled inside helper.
-				maxY, maxX = scr.MaxYX()
-				historyLines = buildHistoryLines(thread, maxX)
-				historyFrame.SetLines(historyLines)
-				historyFrame.MoveEnd()
-				inputFrame.ResetInput()
+				prompt, state, ok := beginAsyncChatFromInputBuffer(ctx, scr, gptCliCtx, inputFrame, ncui)
+				if ok {
+					_ = processAsyncChatState(scr, thread, historyFrame, inputFrame, ncui, prompt, state)
+					// Rebuild the history from the persisted thread now that
+					// the async chat is complete.
+					maxY, maxX = scr.MaxYX()
+					historyLines = buildHistoryLines(thread, maxX)
+					historyFrame.SetLines(historyLines)
+					historyFrame.MoveEnd()
+				}
 				needRedraw = true
 			default:
 				// Treat any printable byte (including high‑bit bytes from
