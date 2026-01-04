@@ -38,9 +38,9 @@ const (
 	focusInput
 )
 
-// drawThreadStatus renders a simple status line at the bottom of the
+// drawNavbar renders a simple status line at the bottom of the
 // screen, including mode information and key hints.
-func drawThreadStatus(scr *gc.Window, focus threadViewFocus, msg string) {
+func drawNavbar(scr *gc.Window, focus threadViewFocus) {
 	maxY, maxX := scr.MaxYX()
 	statusY := maxY - 1
 	if statusY < 0 {
@@ -71,12 +71,6 @@ func drawThreadStatus(scr *gc.Window, focus threadViewFocus, msg string) {
 		{text: " Back:", bold: false},
 		{text: "ESC", bold: true},
 	}
-	if msg != "" {
-		segments = []statusSegment{
-			{text: msg, bold: false},
-		}
-	}
-
 	drawStatusSegments(scr, statusY, maxX, segments, globalUseColors)
 
 }
@@ -132,7 +126,7 @@ func applySubmittedPromptToUI(
 	inputFrame.Render(true)
 
 	// Show processing status.
-	drawThreadStatus(scr, focusInput, "Processing...")
+	drawThreadInputLabel(scr, "Processing...")
 	scr.Refresh()
 
 	return displayThread, historyLines, maxX
@@ -206,7 +200,7 @@ func beginAsyncChatFromInputBuffer(
 	// view until we know that the async chat has actually started (i.e. the
 	// Start event returns successfully). That is handled in
 	// processAsyncChatState.
-	drawThreadStatus(scr, focusInput, "Processing...")
+	drawThreadInputLabel(scr, "Processing...")
 	scr.Refresh()
 
 	return prompt, state, true
@@ -242,7 +236,7 @@ func processAsyncChatState(
 	requestCount := 0
 
 	for startCh != nil || chunkCh != nil || !gotResult {
-		drawThreadStatus(scr, focusInput, statusText)
+		drawThreadInputLabel(scr, statusText)
 		scr.Refresh()
 
 		select {
@@ -454,8 +448,8 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 			// scr.Refresh() call.
 			scr.Erase()
 			drawThreadHeader(scr, thread)
-			drawThreadInputLabel(scr, focus)
-			drawThreadStatus(scr, focus, "")
+			drawThreadInputLabel(scr, "")
+			drawNavbar(scr, focus)
 			scr.Refresh()
 			// Render history and input frames after the root screen so
 			// their contents are not overwritten.
