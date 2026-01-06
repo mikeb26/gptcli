@@ -15,6 +15,8 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/google/uuid"
+
 	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
 )
@@ -93,6 +95,9 @@ func (thrGrp *ThreadGroup) LoadThreads() error {
 		err = json.Unmarshal(threadFileText, &thread.persisted)
 		if err != nil {
 			return fmt.Errorf("Failed to parse %v: %w", fullpath, err)
+		}
+		if thread.persisted.Id == "" {
+			thread.persisted.Id = uuid.NewString()
 		}
 		thread.state = ThreadStateIdle
 		thread.fileName = genUniqFileName(thread.persisted.Name,
@@ -203,6 +208,7 @@ func (thrGrp *ThreadGroup) NewThread(name string) error {
 			AccessTime: cTime,
 			ModTime:    cTime,
 			Dialogue:   dialogue,
+			Id:         uuid.NewString(),
 		},
 		fileName: fileName,
 		state:    ThreadStateIdle,

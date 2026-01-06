@@ -53,6 +53,7 @@ type persistedThread struct {
 	AccessTime time.Time              `json:"atime"`
 	ModTime    time.Time              `json:"mtime"`
 	Dialogue   []*types.ThreadMessage `json:"dialogue"`
+	Id         string
 }
 
 type Thread struct {
@@ -97,6 +98,14 @@ func (thread *Thread) SetState(state ThreadState) {
 	defer thread.mu.Unlock()
 
 	thread.state = state
+}
+
+// Id returns the current thread id
+func (thread *Thread) Id() string {
+	thread.mu.RLock()
+	defer thread.mu.RUnlock()
+
+	return thread.persisted.Id
 }
 
 // Dialogue returns a deep copy of the thread's dialogue
