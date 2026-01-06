@@ -616,6 +616,7 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 						maxX:          submittedMaxX,
 						promptApplied: true,
 					}
+					gptCliCtx.asyncChatUIStates[thread.Id()] = uiState
 					_ = processAsyncChatState(scr, thread, historyFrame, inputFrame, ncui, prompt, state, uiState)
 					// Rebuild the history from the persisted thread now that
 					// the async chat is complete.

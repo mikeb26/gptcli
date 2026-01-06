@@ -57,6 +57,10 @@ type CliContext struct {
 	archiveThreadGroup *threads.ThreadGroup
 	mainThreadGroup    *threads.ThreadGroup
 	curThreadGroup     *threads.ThreadGroup
+
+	// asyncChatUIStates tracks per-thread ncurses UI state for in-flight
+	// async chats.
+	asyncChatUIStates map[string]*asyncChatUIState
 }
 
 func NewCliContext(ctx context.Context) *CliContext {
@@ -86,6 +90,7 @@ func NewCliContext(ctx context.Context) *CliContext {
 		mainThreadGroup:    nil,
 		curThreadGroup:     nil,
 		threadGroups:       make([]*threads.ThreadGroup, 0),
+		asyncChatUIStates:  make(map[string]*asyncChatUIState),
 	}
 
 	threadsDirLocal, err := getThreadsDir()

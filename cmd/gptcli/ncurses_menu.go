@@ -351,11 +351,13 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 				continue
 			}
 
+			threadId := gptCliCtx.mainThreadGroup.ThreadId(threadIndex)
 			// @todo should cleanup thread.{asyncApprover, llmClient}
 			if err := gptCliCtx.mainThreadGroup.MoveThread(threadIndex, gptCliCtx.archiveThreadGroup); err != nil {
 				return fmt.Errorf("gptcli: failed to archive thread from menu: %w", err)
 			}
 
+			delete(gptCliCtx.asyncChatUIStates, threadId)
 			// Refresh the menu items from the updated main thread group.
 			menuUI.resetItems(gptCliCtx.mainThreadGroup.String(false, false))
 			if menuUI.selected >= len(menuUI.items) {

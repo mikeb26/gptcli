@@ -278,3 +278,16 @@ func (srcThrGrp *ThreadGroup) MoveThread(threadNum int,
 
 	return nil
 }
+
+// ThreadId returns the thread id of the specified thread number in the group
+func (thrGrp *ThreadGroup) ThreadId(threadNum int) string {
+	thrGrp.mu.RLock()
+	defer thrGrp.mu.RUnlock()
+
+	if threadNum > thrGrp.totThreads || threadNum == 0 {
+		return ""
+	}
+	thread := thrGrp.threads[threadNum-1]
+
+	return thread.Id()
+}
