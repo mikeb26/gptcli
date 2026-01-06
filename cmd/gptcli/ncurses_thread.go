@@ -214,15 +214,13 @@ func processAsyncChatState(
 	ncui *ui.NcursesUI,
 	prompt string,
 	state *threads.RunningThreadState,
+	uiState *asyncChatUIState,
 ) (promptApplied bool) {
-	if state == nil {
-		return false
-	}
-	defer state.Close()
 
-	var displayThread threads.Thread
-	var historyLines []ui.FrameLine
-	maxX := 0
+	displayThread := uiState.displayThread
+	historyLines := uiState.historyLines
+	maxX := uiState.maxX
+	promptApplied = uiState.promptApplied
 
 	statusText := "LLM: thinking"
 	startCh := state.Start
@@ -273,10 +271,16 @@ func processAsyncChatState(
 				return false
 			}
 
-			// The async chat has successfully started; now reflect the user's
-			// prompt in the UI and clear the input buffer.
-			displayThread, historyLines, maxX = applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
-			promptApplied = true
+			if !promptApplied {
+				// The async chat has successfully started; now reflect the user's
+				// prompt in the UI and clear the input buffer.
+				displayThread, historyLines, maxX = applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
+				promptApplied = true
+				uiState.displayThread = displayThread
+				uiState.historyLines = historyLines
+				uiState.maxX = maxX
+				uiState.promptApplied = true
+			}
 		case ce, ok := <-chunkCh:
 			if !ok {
 				// Stream completed.
@@ -300,6 +304,10 @@ func processAsyncChatState(
 			if !promptApplied {
 				displayThread, historyLines, maxX = applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
 				promptApplied = true
+				uiState.displayThread = displayThread
+				uiState.historyLines = historyLines
+				uiState.maxX = maxX
+				uiState.promptApplied = true
 			}
 
 			// As soon as we start receiving assistant chunks, we're
@@ -322,7 +330,19 @@ func processAsyncChatState(
 		}
 	}
 
+	uiState.displayThread = displayThread
+	uiState.historyLines = historyLines
+	uiState.maxX = maxX
+	uiState.promptApplied = promptApplied
+
 	return promptApplied
+}
+
+type asyncChatUIState struct {
+	displayThread threads.Thread
+	historyLines  []ui.FrameLine
+	maxX          int
+	promptApplied bool
 }
 
 // rebuildHistory reconstructs the history frame lines while a streaming
@@ -586,7 +606,17 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 			case 'd' - 'a' + 1: // Ctrl-D sends the input buffer
 				prompt, state, ok := beginAsyncChatFromInputBuffer(ctx, scr, gptCliCtx, inputFrame, ncui)
 				if ok {
-					_ = processAsyncChatState(scr, thread, historyFrame, inputFrame, ncui, prompt, state)
+					// Immediately reflect the user's submitted prompt in the history
+					// pane and clear the input buffer. This restores the pre-async
+					// behavior where Ctrl-D visually "sends" the buffer right away.
+					displayThread, submittedHistoryLines, submittedMaxX := applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
+					uiState := &asyncChatUIState{
+						displayThread: displayThread,
+						historyLines:  submittedHistoryLines,
+						maxX:          submittedMaxX,
+						promptApplied: true,
+					}
+					_ = processAsyncChatState(scr, thread, historyFrame, inputFrame, ncui, prompt, state, uiState)
 					// Rebuild the history from the persisted thread now that
 					// the async chat is complete.
 					maxY, maxX = scr.MaxYX()
