@@ -9,7 +9,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"strings"
+	"sync"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/mikeb26/gptcli/internal/llmclient"
@@ -66,6 +66,26 @@ type RunningThreadState struct {
 	Done   <-chan struct{}
 
 	Cancel context.CancelFunc
+
+	mu sync.RWMutex
+	// contentSoFarBuf accumulates the streamed content so far so that background
+	// runs can continue even when no UI is consuming Chunk events.
+	contentSoFarBuf []byte
+}
+
+// ContentSoFar returns the accumulated content so far.
+//
+// This is safe to call concurrently with the background streaming goroutine.
+func (s *RunningThreadState) ContentSoFar() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return string(s.contentSoFarBuf)
+}
+
+func (s *RunningThreadState) appendContentSoFar(delta string) {
+	s.mu.Lock()
+	s.contentSoFarBuf = append(s.contentSoFarBuf, delta...)
+	s.mu.Unlock()
 }
 
 // Close releases this run's association with the underlying thread.
@@ -202,7 +222,6 @@ func runChatOnceAsync(
 	defer stream.Close()
 	go closeStreamOnCancel(ctx, stream)
 
-	var buffer strings.Builder
 	for {
 		msg, recvErr := stream.Recv()
 		if recvErr != nil {
@@ -216,13 +235,15 @@ func runChatOnceAsync(
 		if msg == nil {
 			continue
 		}
-		buffer.WriteString(msg.Content)
+		state.appendContentSoFar(msg.Content)
+		// Chunk delivery is best-effort; the authoritative content lives in
+		// RunningThreadState.contentSoFarBuf.
 		trySendChunk(ctx, chunkCh, RunningThreadChunk{Msg: msg, Err: nil})
 	}
 
 	replyMsg := &types.ThreadMessage{
 		Role:    types.LlmRoleAssistant,
-		Content: buffer.String(),
+		Content: state.ContentSoFar(),
 	}
 	if err := thrGrp.finalizeChatOnce(prep, replyMsg); err != nil {
 		resultCh <- RunningThreadResult{Prepared: prep, Reply: nil, Err: err}
@@ -241,11 +262,14 @@ func closeStreamOnCancel(ctx context.Context, stream *schema.StreamReader[*types
 }
 
 func trySendChunk(ctx context.Context, ch chan<- RunningThreadChunk, ev RunningThreadChunk) {
+	// Best-effort send. If the channel is full, drop it. Callers can utilize
+	// ContentSoFar() to get the full history of prior RunningThreadChunk
 	select {
 	case <-ctx.Done():
 		return
 	case ch <- ev:
-		return
+	default:
+		// full
 	}
 }
 
