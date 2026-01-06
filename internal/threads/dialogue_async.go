@@ -88,27 +88,6 @@ func (s *RunningThreadState) appendContentSoFar(delta string) {
 	s.mu.Unlock()
 }
 
-// Close releases this run's association with the underlying thread.
-//
-// It is safe to call multiple times.
-//
-// NOTE: Close does not cancel the in-flight request; callers that want to
-// abort should call Stop().
-func (s *RunningThreadState) Close() {
-	thread := s.Thread
-	thread.mu.Lock()
-	defer thread.mu.Unlock()
-
-	// Only clear state if we're still the currently-associated run to avoid
-	// clobbering a subsequent invocation that started after this run finalized.
-	if thread.runState != s {
-		panic("BUG: running thread was modified before completion")
-	}
-
-	thread.runState = nil
-	thread.state = ThreadStateIdle
-}
-
 // Stop cancels the in-flight request (best-effort).
 func (s *RunningThreadState) Stop() {
 	if s == nil || s.Cancel == nil {

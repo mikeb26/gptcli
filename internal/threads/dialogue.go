@@ -120,7 +120,7 @@ func (thrGrp *ThreadGroup) prepareChatOnceInThread(
 	return prep, err
 }
 
-// FinalizeChatOnce appends the assistant reply to the
+// finalizeChatOnce appends the assistant reply to the
 // thread's dialogue, updates timestamps, and persists the thread to
 // disk.
 func (thrGrp *ThreadGroup) finalizeChatOnce(
@@ -140,6 +140,7 @@ func (thrGrp *ThreadGroup) finalizeChatOnce(
 	thread.persisted.ModTime = time.Now()
 	thread.persisted.AccessTime = time.Now()
 	thread.state = ThreadStateIdle
+	thread.runState = nil
 
 	if err := thread.save(thrGrp.dir); err != nil {
 		return err
