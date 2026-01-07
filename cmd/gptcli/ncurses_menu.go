@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/famz/SetLocale"
 	gc "github.com/gbin/goncurses"
@@ -228,13 +229,25 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 		return err
 	}
 	needErase := true
+	needRefresh := false
 	upgradeChecked := false
 	ncui := gptCliCtx.realUI
+	lastRefresh := time.Now()
 
 	for {
 		if needErase {
 			scr.Erase()
 			needErase = false
+		}
+		if needRefresh {
+			if err := menuUI.resetItems(gptCliCtx.mainThreadGroup.String(false, false)); err != nil {
+				return err
+			}
+			if menuUI.selected >= len(menuUI.items) {
+				menuUI.selected = len(menuUI.items) - 1
+			}
+			needRefresh = false
+			lastRefresh = time.Now()
 		}
 
 		menuUI.draw()
@@ -252,6 +265,9 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 		default:
 			ch = scr.GetChar()
 			if ch == 0 {
+				if time.Now().Sub(lastRefresh) > 1*time.Second {
+					needRefresh = true
+				}
 				continue
 			}
 		}
@@ -322,14 +338,7 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 			if err := gptCliCtx.mainThreadGroup.NewThread(name); err != nil {
 				return fmt.Errorf("gptcli: failed to create new thread from menu: %w", err)
 			}
-
-			// Refresh the menu items from the updated main thread group.
-			if err := menuUI.resetItems(gptCliCtx.mainThreadGroup.String(false, false)); err != nil {
-				return err
-			}
-			if menuUI.selected >= len(menuUI.items) {
-				menuUI.selected = len(menuUI.items) - 1
-			}
+			needRefresh = true
 		case 'c':
 			configMain(ctx, gptCliCtx)
 		case 'a':
@@ -358,11 +367,7 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 			}
 
 			delete(gptCliCtx.asyncChatUIStates, threadId)
-			// Refresh the menu items from the updated main thread group.
-			menuUI.resetItems(gptCliCtx.mainThreadGroup.String(false, false))
-			if menuUI.selected >= len(menuUI.items) {
-				menuUI.selected = len(menuUI.items) - 1
-			}
+			needRefresh = true
 		case gc.KEY_RESIZE:
 			resizeScreen(scr)
 			needErase = true
