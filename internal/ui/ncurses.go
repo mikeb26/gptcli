@@ -13,13 +13,6 @@ import (
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
-// uiColorSelected mirrors the menuColorSelected color pair used by the
-// main ncurses thread menu (see cmd/gptcli/ncurses_menu.go). We rely on
-// that code having initialized this color pair via gc.InitPair before our
-// dialogs are shown. Using the same numeric pair keeps the selection
-// styling consistent (cyan background) across the menu and modal dialogs.
-const uiColorSelected int16 = 3
-
 // NcursesUI implements the UI interface using a goncurses Window.
 //
 // It is designed to be used from code that has already initialized
@@ -33,6 +26,8 @@ const uiColorSelected int16 = 3
 type NcursesUI struct {
 	mu  sync.Mutex
 	scr *gc.Window
+
+	theme Theme
 }
 
 // NewNcursesUI wraps an existing ncurses screen/window. The caller is
@@ -45,7 +40,21 @@ func NewNcursesUI(scrIn *gc.Window) *NcursesUI {
 
 	_ = scrIn.Keypad(true)
 
-	return &NcursesUI{scr: scrIn}
+	return &NcursesUI{
+		scr:   scrIn,
+		theme: Theme{},
+	}
+}
+
+// SetTheme sets styling preferences for NcursesUI widgets (such as list
+// selection modals).
+//
+// Callers should set this after initializing ncurses color pairs.
+func (n *NcursesUI) SetTheme(theme Theme) {
+	if n == nil {
+		return
+	}
+	n.theme = theme
 }
 
 // TruncateRunes returns a prefix of s that fits in max runes. It is

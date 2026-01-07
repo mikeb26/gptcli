@@ -99,4 +99,3 @@ func TestGenUniqFileNameDeterministicAndVariesWithInputs(t *testing.T) {
 	file4 := genUniqFileName(name, base.Add(time.Second))
 	assert.NotEqual(t, file1, file4)
 }
-

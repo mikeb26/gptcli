@@ -1,13 +1,10 @@
-/* Copyright © 2025 Mike Brown. All Rights Reserved.
+/* Copyright © 2025-2026 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
+package ui
 
-package main
-
-import (
-	gc "github.com/gbin/goncurses"
-)
+import gc "github.com/gbin/goncurses"
 
 const (
 	scrollPointChar  rune = '█'
@@ -16,26 +13,31 @@ const (
 	scrollBottomChar rune = '▼'
 )
 
-// scrollbar describes the visual layout of a vertical scrollbar for a
+// Scrollbar describes the visual layout of a vertical scrollbar for a
 // given logical content height and scroll offset.
-type scrollbar struct {
+//
+// Callers should treat this as an opaque value and use DrawScrollbarCell
+// to render individual rows.
+type Scrollbar struct {
 	hasScrollbar bool
 	useArrows    bool
 	barStart     int
 	barEnd       int
 }
 
-// computeScrollbar calculates how a scrollbar should be rendered for a
+func (s Scrollbar) HasScrollbar() bool { return s.hasScrollbar }
+
+// ComputeScrollbar calculates how a scrollbar should be rendered for a
 // region with the given visible height, total number of logical rows,
 // and current scroll offset. The thumb is always one row tall and, when
 // there is enough vertical space, arrow glyphs are assumed to occupy the
 // first and last rows of the track.
-func computeScrollbar(total, height, offset int) scrollbar {
+func ComputeScrollbar(total, height, offset int) Scrollbar {
 	if height <= 0 || total <= height {
-		return scrollbar{hasScrollbar: false}
+		return Scrollbar{hasScrollbar: false}
 	}
 
-	sb := scrollbar{hasScrollbar: true}
+	sb := Scrollbar{hasScrollbar: true}
 	sb.useArrows = height >= 3
 	scrollRange := total - height
 	if scrollRange < 1 {
@@ -76,7 +78,7 @@ func computeScrollbar(total, height, offset int) scrollbar {
 	return sb
 }
 
-// drawScrollbarCell renders a single cell of a vertical scrollbar in the
+// DrawScrollbarCell renders a single cell of a vertical scrollbar in the
 // given window. The logical scrollbar geometry (including whether arrows
 // are used and where the thumb is) is provided via sb, and rowIdx is the
 // zero-based index of the current row within the scrollbar track
@@ -84,10 +86,10 @@ func computeScrollbar(total, height, offset int) scrollbar {
 // which the cell should be drawn, and col is the X coordinate for the
 // scrollbar column.
 //
-// Callers typically compute sb once via computeScrollbar and then invoke
+// Callers typically compute sb once via ComputeScrollbar and then invoke
 // this helper from inside their row-rendering loops.
-func drawScrollbarCell(scr *gc.Window, screenY, rowIdx, height, col int, sb scrollbar) {
-	if !sb.hasScrollbar || col < 0 {
+func DrawScrollbarCell(scr *gc.Window, screenY, rowIdx, height, col int, sb Scrollbar) {
+	if scr == nil || !sb.hasScrollbar || col < 0 {
 		return
 	}
 

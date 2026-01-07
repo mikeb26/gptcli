@@ -42,42 +42,7 @@ func (ui *threadMenuUI) viewHeight() int {
 func (ui *threadMenuUI) adjustOffset() {
 	vh := ui.viewHeight()
 	total := len(ui.items)
-	if vh <= 0 || total == 0 {
-		ui.offset = 0
-		if total == 0 {
-			ui.selected = 0
-		} else if ui.selected >= total {
-			ui.selected = total - 1
-		} else if ui.selected < 0 {
-			ui.selected = 0
-		}
-		return
-	}
-
-	if ui.selected < 0 {
-		ui.selected = 0
-	}
-	if ui.selected >= total {
-		ui.selected = total - 1
-	}
-
-	if ui.offset > ui.selected {
-		ui.offset = ui.selected
-	}
-	if ui.selected >= ui.offset+vh {
-		ui.offset = ui.selected - vh + 1
-	}
-
-	maxOffset := total - vh
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if ui.offset > maxOffset {
-		ui.offset = maxOffset
-	}
-	if ui.offset < 0 {
-		ui.offset = 0
-	}
+	iui.AdjustListViewport(total, vh, &ui.selected, &ui.offset)
 }
 
 func (ui *threadMenuUI) draw() {
@@ -232,6 +197,10 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 	needRefresh := false
 	upgradeChecked := false
 	ncui := gptCliCtx.realUI
+
+	// Keep internal/ui modal selection styling consistent with the menu's
+	// colors (or fall back to reverse-video in monochrome mode).
+	ncui.SetTheme(iui.Theme{UseColors: menuUI.useColors, SelectedPair: menuColorSelected})
 	lastRefresh := time.Now()
 
 	for {

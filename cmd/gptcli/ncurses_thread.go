@@ -413,7 +413,6 @@ func newAsyncChatUIState(
 	return uiState
 }
 
-
 // rebuildHistory reconstructs the history frame lines while a streaming
 // response is in flight. It keeps existing history intact and appends a
 // temporary assistant message rendered with the same wrapping logic used

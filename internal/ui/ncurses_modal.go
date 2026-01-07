@@ -377,51 +377,12 @@ func (n *NcursesUI) selectFromListModalFrame(userPrompt string, items []string, 
 	}
 	offset := 0
 
-	adjust := func(viewHeight int) {
-		if viewHeight <= 0 || total == 0 {
-			offset = 0
-			if total == 0 {
-				selected = 0
-			} else if selected >= total {
-				selected = total - 1
-			} else if selected < 0 {
-				selected = 0
-			}
-			return
-		}
-
-		if selected < 0 {
-			selected = 0
-		}
-		if selected >= total {
-			selected = total - 1
-		}
-
-		if offset > selected {
-			offset = selected
-		}
-		if selected >= offset+viewHeight {
-			offset = selected - viewHeight + 1
-		}
-
-		maxOffset := total - viewHeight
-		if maxOffset < 0 {
-			maxOffset = 0
-		}
-		if offset > maxOffset {
-			offset = maxOffset
-		}
-		if offset < 0 {
-			offset = 0
-		}
-	}
-
 	for {
 		viewHeight := ch - (promptHeight + 1)
 		if viewHeight < 1 {
 			viewHeight = 1
 		}
-		adjust(viewHeight)
+		AdjustListViewport(total, viewHeight, &selected, &offset)
 
 		// Clear content area.
 		_ = win.AttrSet(gc.A_NORMAL)
@@ -441,7 +402,12 @@ func (n *NcursesUI) selectFromListModalFrame(userPrompt string, items []string, 
 		}
 
 		// Render list items within the remaining rows.
-		selectedAttr := gc.A_NORMAL | gc.ColorPair(uiColorSelected)
+		var selectedAttr gc.Char
+		if n.theme.UseColors && n.theme.SelectedPair != 0 {
+			selectedAttr = gc.A_NORMAL | gc.ColorPair(n.theme.SelectedPair)
+		} else {
+			selectedAttr = gc.A_REVERSE | gc.A_NORMAL
+		}
 		normalAttr := gc.A_NORMAL
 		listStartY := cy + promptHeight + 1 // one blank row after prompt
 		for row := 0; row < viewHeight; row++ {
