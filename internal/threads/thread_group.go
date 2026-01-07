@@ -179,8 +179,15 @@ func (thrGrp *ThreadGroup) ActivateThread(threadNum int) (*Thread, error) {
 	defer thread.mu.Unlock()
 
 	thread.persisted.AccessTime = time.Now()
-	if err := thread.save(thrGrp.dir); err != nil {
-		return nil, err
+	// Persisting a running/blocked thread would fail (and is generally not
+	// desirable) because the thread may be actively mutating in the background.
+	//
+	// Allow UIs to "activate" (focus) a non-idle thread so they can
+	// detach/reattach to a running thread without failing here.
+	if thread.state == ThreadStateIdle {
+		if err := thread.save(thrGrp.dir); err != nil {
+			return nil, err
+		}
 	}
 
 	return thread, nil

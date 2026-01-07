@@ -26,6 +26,11 @@ const (
 	threadColorUser      int16 = 5
 	threadColorAssistant int16 = 6
 	threadColorCode      int16 = 7
+
+	// maxAsyncEventsPerTick caps the number of async events we process per UI
+	// tick so we don't starve keyboard input when a thread is very chatty
+	// (progress updates, streaming chunks, etc.).
+	maxAsyncEventsPerTick = 128
 )
 
 // threadViewFocus tracks which pane is currently active inside the
@@ -206,136 +211,105 @@ func beginAsyncChatFromInputBuffer(
 	return prompt, state, true
 }
 
+// processAsyncChatState drains any currently-available async events
+// without blocking the UI.
 func processAsyncChatState(
 	scr *gc.Window,
+	gptCliCtx *CliContext,
 	thread *threads.Thread,
 	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
 	ncui *ui.NcursesUI,
-	prompt string,
 	state *threads.RunningThreadState,
 	uiState *asyncChatUIState,
-) (promptApplied bool) {
+) (done bool, needRedraw bool) {
+	if state == nil || uiState == nil {
+		return true, false
+	}
+	// Always prefer the most recent RunningThreadState pointer on reattach.
+	uiState.runState = state
 
-	displayThread := uiState.displayThread
-	historyLines := uiState.historyLines
-	maxX := uiState.maxX
-	promptApplied = uiState.promptApplied
-
-	statusText := "LLM: thinking"
-	startCh := state.Start
-	chunkCh := state.Chunk
-	resultCh := state.Result
-	progressCh := state.Progress
-	approvalCh := state.ApprovalRequests
-	var buffer strings.Builder
-	gotResult := false
-	toolCalls := 0
-	requestCount := 0
-
-	for startCh != nil || chunkCh != nil || !gotResult {
-		drawThreadInputLabel(scr, statusText)
-		scr.Refresh()
+	for i := 0; i < maxAsyncEventsPerTick; i++ {
+		startCh := uiState.runState.Start
+		progressCh := uiState.runState.Progress
+		resultCh := uiState.runState.Result
+		approvalCh := uiState.runState.ApprovalRequests
+		if uiState.startClosed {
+			startCh = nil
+		}
+		if uiState.progressClosed {
+			progressCh = nil
+		}
+		if uiState.resultClosed {
+			resultCh = nil
+		}
+		if uiState.approvalClosed {
+			approvalCh = nil
+		}
 
 		select {
-		case req := <-approvalCh:
-			// Tools and other background workers can request user interaction
-			// via the async approver. Serve those requests here so that all
-			// ncurses rendering stays confined to this goroutine.
+		case startEv, ok := <-startCh:
+			if !ok {
+				uiState.startClosed = true
+				continue
+			}
+			// Start is a single-shot channel; treat any receive as terminal.
+			uiState.startClosed = true
+			if startEv.Err != nil {
+				state.Stop()
+				_, _ = showErrorRetryModal(ncui, startEv.Err.Error())
+				_, maxX := scr.MaxYX()
+				persistedLines := buildHistoryLines(thread, maxX)
+				historyFrame.SetLines(persistedLines)
+				historyFrame.MoveEnd()
+				needRedraw = true
+				delete(gptCliCtx.asyncChatUIStates, thread.Id())
+				return true, true
+			}
+			needRedraw = true
+		case req, ok := <-approvalCh:
+			if !ok {
+				uiState.approvalClosed = true
+				continue
+			}
 			state.AsyncApprover.ServeRequest(req)
-			// Redraw the underlying frames after the modal closes.
 			historyFrame.Render(false)
 			inputFrame.Render(true)
-			scr.Refresh()
+			needRedraw = true
 		case ev, ok := <-progressCh:
 			if !ok {
-				progressCh = nil
+				uiState.progressClosed = true
 				continue
 			}
-			statusText = updateThreadStatusFromProgress(statusText, &toolCalls,
-				&requestCount, ev)
-		case start, ok := <-startCh:
-			if !ok {
-				startCh = nil
-				continue
-			}
-			startCh = nil
-			if start.Err != nil {
-				state.Stop()
-				_, _ = showErrorRetryModal(ncui, start.Err.Error())
-				return false
-			}
-			if start.Prepared == nil {
-				state.Stop()
-				_, _ = showErrorRetryModal(ncui, "nil prepared chat")
-				return false
-			}
-
-			if !promptApplied {
-				// The async chat has successfully started; now reflect the user's
-				// prompt in the UI and clear the input buffer.
-				displayThread, historyLines, maxX = applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
-				promptApplied = true
-				uiState.displayThread = displayThread
-				uiState.historyLines = historyLines
-				uiState.maxX = maxX
-				uiState.promptApplied = true
-			}
-		case ce, ok := <-chunkCh:
-			if !ok {
-				// Stream completed.
-				chunkCh = nil
-				if gotResult {
-					return promptApplied
-				}
-				continue
-			}
-			if ce.Err != nil {
-				state.Stop()
-				_, _ = showErrorRetryModal(ncui, ce.Err.Error())
-				return promptApplied
-			}
-			if ce.Msg == nil {
-				continue
-			}
-
-			// In case we see chunks before the Start event is observed (it
-			// should not happen, but avoid a broken UI if it does).
-			if !promptApplied {
-				displayThread, historyLines, maxX = applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
-				promptApplied = true
-				uiState.displayThread = displayThread
-				uiState.historyLines = historyLines
-				uiState.maxX = maxX
-				uiState.promptApplied = true
-			}
-
-			// As soon as we start receiving assistant chunks, we're
-			// in the "answering" phase.
-			statusText = "LLM: answering"
-			buffer.WriteString(ce.Msg.Content)
-			rebuildHistory(scr, historyFrame, &displayThread, historyLines, maxX, buffer.String())
+			uiState.statusText = updateThreadStatusFromProgress(uiState.statusText, &uiState.toolCalls, &uiState.requestCount, ev)
+			needRedraw = true
 		case res, ok := <-resultCh:
 			if !ok {
-				resultCh = nil
+				uiState.resultClosed = true
 				continue
 			}
-			resultCh = nil
-			gotResult = true
+			uiState.gotResult = true
+			uiState.resultClosed = true
 			if res.Err != nil {
 				state.Stop()
 				_, _ = showErrorRetryModal(ncui, res.Err.Error())
-				return promptApplied
 			}
+
+			// Whether success or error, the thread is now persisted (or failed),
+			// so rebuild from the thread's current dialogue.
+			_, maxX := scr.MaxYX()
+			persistedLines := buildHistoryLines(thread, maxX)
+			historyFrame.SetLines(persistedLines)
+			historyFrame.MoveEnd()
+			needRedraw = true
+			delete(gptCliCtx.asyncChatUIStates, thread.Id())
+			return true, true
+		default:
+			return false, needRedraw
 		}
 	}
 
-	uiState.displayThread = displayThread
-	uiState.historyLines = historyLines
-	uiState.maxX = maxX
-	uiState.promptApplied = promptApplied
-
-	return promptApplied
+	return false, needRedraw
 }
 
 type asyncChatUIState struct {
@@ -343,7 +317,102 @@ type asyncChatUIState struct {
 	historyLines  []ui.FrameLine
 	maxX          int
 	promptApplied bool
+
+	statusText   string
+	toolCalls    int
+	requestCount int
+
+	runState *threads.RunningThreadState
+
+	startClosed    bool
+	progressClosed bool
+	resultClosed   bool
+	approvalClosed bool
+
+	gotResult bool
+
+	lastContentLen int
 }
+
+func newAsyncChatUIStateAndRender(
+	scr *gc.Window,
+	gptCliCtx *CliContext,
+	thread *threads.Thread,
+	historyFrame *ui.Frame,
+	inputFrame *ui.Frame,
+	state *threads.RunningThreadState,
+) *asyncChatUIState {
+	if state == nil {
+		return nil
+	}
+
+	_, maxX := scr.MaxYX()
+	displayThread := *(thread.Copy())
+	displayThread.AppendDialogue(&types.ThreadMessage{Role: types.LlmRoleUser, Content: state.Prompt})
+	historyLines := buildHistoryLines(&displayThread, maxX)
+
+	uiState := newAsyncChatUIState(gptCliCtx, thread, state, displayThread, historyLines, maxX)
+	if uiState == nil {
+		return nil
+	}
+
+	// Render immediately with whatever content is available.
+	historyFrame.SetLines(uiState.historyLines)
+	historyFrame.MoveEnd()
+	rebuildHistory(scr, historyFrame, &uiState.displayThread, uiState.historyLines, uiState.maxX, state.ContentSoFar())
+	inputFrame.Render(true)
+
+	return uiState
+}
+
+func newAsyncChatUIState(
+	gptCliCtx *CliContext,
+	thread *threads.Thread,
+	state *threads.RunningThreadState,
+	displayThread threads.Thread,
+	historyLines []ui.FrameLine,
+	maxX int,
+) *asyncChatUIState {
+	if state == nil {
+		return nil
+	}
+
+	tid := thread.Id()
+	if existing, ok := gptCliCtx.asyncChatUIStates[tid]; ok && existing != nil {
+		// If we already have a UI state for this thread, prefer to reuse it;
+		// it may be holding channels or counters.
+		//
+		// Refresh the presentation state (thread copy + wrapped history) so the
+		// view can detach/reattach and resize cleanly.
+		existing.displayThread = displayThread
+		existing.historyLines = historyLines
+		existing.maxX = maxX
+		existing.promptApplied = true
+		existing.runState = state
+		if existing.statusText == "" {
+			existing.statusText = "LLM: thinking"
+		}
+		return existing
+	}
+
+	uiState := &asyncChatUIState{
+		displayThread:  displayThread,
+		historyLines:   historyLines,
+		maxX:           maxX,
+		promptApplied:  true,
+		statusText:     "LLM: thinking",
+		runState:       state,
+		startClosed:    false,
+		progressClosed: false,
+		resultClosed:   false,
+		approvalClosed: false,
+		gotResult:      false,
+		lastContentLen: 0,
+	}
+	gptCliCtx.asyncChatUIStates[tid] = uiState
+	return uiState
+}
+
 
 // rebuildHistory reconstructs the history frame lines while a streaming
 // response is in flight. It keeps existing history intact and appends a
@@ -460,6 +529,28 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 	const blinkTicks = 6 // ~300ms at the menu's 50ms timeout
 
 	for {
+		// If this thread has an in-flight run, attach and update the view from the
+		// RunningThreadState's buffered content. This allows the user to detach
+		// (ESC) and later reattach via the menu.
+		if state := thread.GetRunState(); state != nil {
+			uiState := newAsyncChatUIStateAndRender(scr, gptCliCtx, thread, historyFrame, inputFrame, state)
+			if uiState != nil {
+				content := state.ContentSoFar()
+				if len(content) != uiState.lastContentLen {
+					rebuildHistory(scr, historyFrame, &uiState.displayThread, uiState.historyLines, uiState.maxX, content)
+					uiState.lastContentLen = len(content)
+					needRedraw = true
+				}
+				_, stepRedraw := processAsyncChatState(scr, gptCliCtx, thread, historyFrame, inputFrame, ncui, state, uiState)
+				if stepRedraw {
+					needRedraw = true
+				}
+			}
+		} else {
+			// If the run completed while detached, remove stale UI state.
+			delete(gptCliCtx.asyncChatUIStates, thread.Id())
+		}
+
 		if needRedraw {
 			// First redraw everything that lives directly on the root
 			// screen (stdscr). We intentionally refresh this parent
@@ -468,7 +559,16 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 			// scr.Refresh() call.
 			scr.Erase()
 			drawThreadHeader(scr, thread)
-			drawThreadInputLabel(scr, "")
+			statusText := ""
+			if thread.GetRunState() != nil {
+				if uiState, ok := gptCliCtx.asyncChatUIStates[thread.Id()]; ok && uiState != nil {
+					statusText = uiState.statusText
+				}
+				if statusText == "" {
+					statusText = "Processing..."
+				}
+			}
+			drawThreadInputLabel(scr, statusText)
 			drawNavbar(scr, focus)
 			scr.Refresh()
 			// Render history and input frames after the root screen so
@@ -483,8 +583,19 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 		case <-sigCh:
 			resizeScreen(scr)
 			maxY, maxX = scr.MaxYX()
-			historyLines = buildHistoryLines(thread, maxX)
-			historyFrame.SetLines(historyLines)
+			if state := thread.GetRunState(); state != nil {
+				uiState := newAsyncChatUIStateAndRender(scr, gptCliCtx, thread, historyFrame, inputFrame, state)
+				if uiState != nil {
+					uiState.maxX = maxX
+					uiState.historyLines = buildHistoryLines(&uiState.displayThread, maxX)
+					historyFrame.SetLines(uiState.historyLines)
+					rebuildHistory(scr, historyFrame, &uiState.displayThread, uiState.historyLines, maxX, state.ContentSoFar())
+					uiState.lastContentLen = len(state.ContentSoFar())
+				}
+			} else {
+				historyLines = buildHistoryLines(thread, maxX)
+				historyFrame.SetLines(historyLines)
+			}
 			needRedraw = true
 			continue
 		default:
@@ -610,20 +721,9 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 					// pane and clear the input buffer. This restores the pre-async
 					// behavior where Ctrl-D visually "sends" the buffer right away.
 					displayThread, submittedHistoryLines, submittedMaxX := applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
-					uiState := &asyncChatUIState{
-						displayThread: displayThread,
-						historyLines:  submittedHistoryLines,
-						maxX:          submittedMaxX,
-						promptApplied: true,
-					}
-					gptCliCtx.asyncChatUIStates[thread.Id()] = uiState
-					_ = processAsyncChatState(scr, thread, historyFrame, inputFrame, ncui, prompt, state, uiState)
-					// Rebuild the history from the persisted thread now that
-					// the async chat is complete.
-					maxY, maxX = scr.MaxYX()
-					historyLines = buildHistoryLines(thread, maxX)
-					historyFrame.SetLines(historyLines)
-					historyFrame.MoveEnd()
+					_ = newAsyncChatUIState(gptCliCtx, thread, state, displayThread, submittedHistoryLines, submittedMaxX)
+					// Do not block waiting for completion; the UI loop will
+					// continue processing async events and the user can detach.
 				}
 				needRedraw = true
 			default:
