@@ -63,7 +63,7 @@ type CliContext struct {
 	asyncChatUIStates map[string]*asyncChatUIState
 }
 
-func NewCliContext(ctx context.Context) *CliContext {
+func NewCliContext(ctx context.Context) (*CliContext, error) {
 
 	//	inputLocal := bufio.NewReader(os.Stdin)
 
@@ -71,7 +71,7 @@ func NewCliContext(ctx context.Context) *CliContext {
 	var scrLocal *gc.Window
 	scrLocal, err = gcInit()
 	if err != nil {
-		panic("fix me")
+		return nil, err
 	}
 	// real ncurses UI (must only be used from the ncurses goroutine)
 	realUILocal := ui.NewNcursesUI(scrLocal)
@@ -115,7 +115,7 @@ func NewCliContext(ctx context.Context) *CliContext {
 		gptCliCtx.needConfig = false
 	}
 
-	return gptCliCtx
+	return gptCliCtx, nil
 }
 
 func (gptCliCtx *CliContext) load(ctx context.Context) error {
@@ -137,7 +137,7 @@ func (gptCliCtx *CliContext) load(ctx context.Context) error {
 		}
 		err = os.MkdirAll(auditLogsDir, 0700)
 		if err != nil {
-			return fmt.Errorf("Could not create logs directory %v: %w", auditLogsDir, err)
+			return fmt.Errorf("%w %v: %w", ErrCouldNotCreateLogsDir, auditLogsDir, err)
 		}
 	}
 
@@ -176,35 +176,6 @@ func (gptCliCtx *CliContext) load(ctx context.Context) error {
 	return nil
 }
 
-func summaryToggleMain(ctx context.Context, gptCliCtx *CliContext,
-	args []string) error {
-
-	// @todo convert to dialogue
-	usageErr := fmt.Errorf("Syntax is 'summary [<on|off>]' e.g. 'summary on'\n")
-
-	if len(args) == 1 {
-		gptCliCtx.curSummaryToggle = !gptCliCtx.curSummaryToggle
-	} else if len(args) != 2 {
-		return usageErr
-	} else {
-		if strings.ToLower(args[1]) == "on" {
-			gptCliCtx.curSummaryToggle = true
-		} else if strings.ToLower(args[1]) == "off" {
-			gptCliCtx.curSummaryToggle = false
-		} else {
-			return usageErr
-		}
-	}
-
-	if gptCliCtx.curSummaryToggle {
-		fmt.Printf("summaries enabled; summaries of the thread history are sent for followups in order to reduce costs.\n")
-	} else {
-		fmt.Printf("summaries disabled; the full thread history is sent for	followups in order to get more precise responses.\n")
-	}
-
-	return nil
-}
-
 func threadContainsSearchStr(t *threads.Thread, searchStr string) bool {
 	for _, msg := range t.Dialogue() {
 		if msg.Role == types.LlmRoleSystem {
@@ -219,77 +190,17 @@ func threadContainsSearchStr(t *threads.Thread, searchStr string) bool {
 	return false
 }
 
-func searchMain(ctx context.Context, gptCliCtx *CliContext,
-	args []string) error {
-
-	// @todo convert to dialogue. also need search results submenu
-	usageErr := fmt.Errorf("Syntax is 'search <search_string>[,<search_string>...] e.g. 'search foo'\n")
-
-	if len(args) < 2 {
-		return usageErr
-	}
-	searchStrs := args[1:]
-
-	var sb strings.Builder
-
-	sb.WriteString(threads.ThreadGroupHeaderString(true))
-
-	for _, thrGrp := range gptCliCtx.threadGroups {
-		for tidx, t := range thrGrp.Threads() {
-			count := 0
-			for _, searchStr := range searchStrs {
-				if threadContainsSearchStr(t, searchStr) {
-					count++
-				}
-			}
-			if count == len(searchStrs) {
-				threadNum := fmt.Sprintf("%v%v", thrGrp.Prefix, tidx+1)
-				sb.WriteString(t.HeaderString(threadNum))
-			}
-		}
-	}
-
-	sb.WriteString(threads.ThreadGroupFooterString())
-
-	fmt.Printf("%v", sb.String())
-
-	return nil
-}
-
-func reasoningMain(ctx context.Context, gptCliCtx *CliContext,
-	args []string) error {
-
-	// @todo convert to options dialogue
-	usageErr := fmt.Errorf("Syntax is 'reasoning <low|medium|high>'\n")
-
-	if len(args) != 2 {
-		return usageErr
-	}
-	reasoningLvl := laclopenai.ReasoningEffortLevel(strings.ToLower(args[1]))
-	switch reasoningLvl {
-	case laclopenai.ReasoningEffortLevelHigh:
-		fallthrough
-	case laclopenai.ReasoningEffortLevelMedium:
-		fallthrough
-	case laclopenai.ReasoningEffortLevelLow:
-		break
-	default:
-		return fmt.Errorf("Unknown reasoning effort: %v", args[1])
-	}
-
-	// Reasoning effort is carried in InternalContext so that per-thread client
-	// creation can apply it.
-	gptCliCtx.ictx.LlmReasoningEffort = reasoningLvl
-	return nil
-}
-
 func main() {
 	ctx := context.Background()
-	gptCliCtx := NewCliContext(ctx)
+	gptCliCtx, err := NewCliContext(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gptcli: Failed to initialize UI: %v\n", err)
+		os.Exit(1)
+	}
 	defer gcExit()
 
 	// @todo needConfig?
-	err := gptCliCtx.load(ctx)
+	err = gptCliCtx.load(ctx)
 	if err != nil && !gptCliCtx.needConfig {
 		fmt.Fprintf(os.Stderr, "gptcli: Failed to load: %v\n", err)
 		os.Exit(1)

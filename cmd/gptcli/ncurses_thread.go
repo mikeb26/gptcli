@@ -186,7 +186,7 @@ func beginAsyncChatFromInputBuffer(
 	}
 
 	if gptCliCtx.curThreadGroup == gptCliCtx.archiveThreadGroup {
-		_, _ = showErrorRetryModal(ncui, "Cannot edit archived thread; use unarchive first")
+		_, _ = showErrorRetryModal(ncui, ErrCannotEditArchivedThread.Error())
 		return "", nil, false
 	}
 
@@ -488,7 +488,7 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 	historyW := maxX
 	historyFrame, err := ui.NewFrame(scr, historyH, historyW, historyStartY, 0, false, true, false)
 	if err != nil {
-		return fmt.Errorf("creating history frame: %w", err)
+		return fmt.Errorf("%w: %w", ErrCreatingHistoryFrame, err)
 	}
 	defer historyFrame.Close()
 	historyFrame.SetLines(historyLines)
@@ -512,7 +512,7 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 	frameW := maxX
 	inputFrame, err := ui.NewFrame(scr, frameH, frameW, frameY, 0, false, true, true)
 	if err != nil {
-		return fmt.Errorf("creating input frame: %w", err)
+		return fmt.Errorf("%w: %w", ErrCreatingInputFrame, err)
 	}
 	defer inputFrame.Close()
 	inputFrame.ResetInput()

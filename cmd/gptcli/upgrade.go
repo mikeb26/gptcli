@@ -42,8 +42,8 @@ func upgradeIfNeeded(ctx context.Context, gptCliCtx *CliContext) error {
 	trueOpt := types.UIOption{Key: "y", Label: "y"}
 	falseOpt := types.UIOption{Key: "n", Label: "n"}
 	defaultYes := true
-	shouldUpgrade, err := gptCliCtx.realUI.SelectBool(prompt+" (y/n) [y]: ",
-		trueOpt, falseOpt, &defaultYes)
+	shouldUpgrade, err := gptCliCtx.realUI.SelectBool(prompt, trueOpt, falseOpt,
+		&defaultYes)
 	if err != nil {
 		return err
 	}
@@ -83,7 +83,7 @@ func getLatestVersion() (string, error) {
 
 	latestRelease, ok := releaseDoc["tag_name"].(string)
 	if !ok {
-		return "", fmt.Errorf("Could not parse %v", LatestReleaseUrl)
+		return "", fmt.Errorf("%w: %v", ErrCouldNotParseLatestRelease, LatestReleaseUrl)
 	}
 
 	return latestRelease, nil
@@ -98,44 +98,43 @@ func upgradeViaGithub(latestVer string) error {
 
 	resp, err := client.Get(fmt.Sprintf(LatestDownloadFmt, latestVer))
 	if err != nil {
-		return fmt.Errorf("Failed to download version %v: %w", versionText, err)
+		return fmt.Errorf("%w %v: %w", ErrFailedToDownloadVersion, versionText, err)
 
 	}
 
 	tmpFile, err := os.CreateTemp("", "gptcli-*")
 	if err != nil {
-		return fmt.Errorf("Failed to create temp file: %w", err)
+		return fmt.Errorf("%w: %w", ErrFailedToCreateTempFile, err)
 	}
 	binaryContent, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("Failed to download version %v: %w", versionText, err)
+		return fmt.Errorf("%w %v: %w", ErrFailedToDownloadVersion, versionText, err)
 	}
 	_, err = tmpFile.Write(binaryContent)
 	if err != nil {
-		return fmt.Errorf("Failed to download version %v: %w", versionText, err)
+		return fmt.Errorf("%w %v: %w", ErrFailedToDownloadVersion, versionText, err)
 	}
 	err = tmpFile.Chmod(0755)
 	if err != nil {
-		return fmt.Errorf("Failed to download version %v: %w", versionText, err)
+		return fmt.Errorf("%w %v: %w", ErrFailedToDownloadVersion, versionText, err)
 	}
 	err = tmpFile.Close()
 	if err != nil {
-		return fmt.Errorf("Failed to download version %v: %w", versionText, err)
+		return fmt.Errorf("%w %v: %w", ErrFailedToDownloadVersion, versionText, err)
 	}
 	myBinaryPath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("Could not determine path to gptcli: %w", err)
+		return fmt.Errorf("%w: %w", ErrCouldNotDetermineBinaryPath, err)
 	}
 	myBinaryPath, err = filepath.EvalSymlinks(myBinaryPath)
 	if err != nil {
-		return fmt.Errorf("Could not determine path to gptcli: %w", err)
+		return fmt.Errorf("%w: %w", ErrCouldNotDetermineBinaryPath, err)
 	}
 
 	myBinaryPathBak := myBinaryPath + ".bak"
 	err = os.Rename(myBinaryPath, myBinaryPathBak)
 	if err != nil {
-		return fmt.Errorf("Could not replace existing %v; do you need to be root?: %w",
-			myBinaryPath, err)
+		return fmt.Errorf("%w %v: %w", ErrCouldNotReplaceBinary, myBinaryPath, err)
 	}
 	err = os.Rename(tmpFile.Name(), myBinaryPath)
 	if errors.Is(err, syscall.EXDEV) {
@@ -145,8 +144,7 @@ func upgradeViaGithub(latestVer string) error {
 		_ = os.Remove(tmpFile.Name())
 	}
 	if err != nil {
-		err := fmt.Errorf("Could not replace existing %v; do you need to be root?: %w",
-			myBinaryPath, err)
+		err := fmt.Errorf("%w %v: %w", ErrCouldNotReplaceBinary, myBinaryPath, err)
 		_ = os.Rename(myBinaryPathBak, myBinaryPath)
 		return err
 	}

@@ -1,4 +1,4 @@
-/* Copyright © 2023-2025 Mike Brown. All Rights Reserved.
+/* Copyright © 2023-2026 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -29,11 +29,11 @@ func (gptCliCtx *CliContext) loadPrefs() error {
 
 	filePath, err := getPrefsPath()
 	if err != nil {
-		return fmt.Errorf("Failed to get prefs path: %w", err)
+		return fmt.Errorf("%w: %w", ErrFailedToGetPrefsPath, err)
 	}
 	prefsFileContent, err := os.ReadFile(filePath)
 	if err != nil {
-		return fmt.Errorf("Failed to read prefs: %w", err)
+		return fmt.Errorf("%w: %w", ErrFailedToReadPrefs, err)
 	}
 	err = json.Unmarshal(prefsFileContent, &gptCliCtx.prefs)
 	if err != nil {
@@ -50,16 +50,16 @@ func (gptCliCtx *CliContext) loadPrefs() error {
 func (gptCliCtx *CliContext) savePrefs() error {
 	prefsFileContent, err := json.Marshal(gptCliCtx.prefs)
 	if err != nil {
-		return fmt.Errorf("Failed to marshal prefs: %w", err)
+		return fmt.Errorf("%w: %w", ErrFailedToMarshalPrefs, err)
 	}
 
 	filePath, err := getPrefsPath()
 	if err != nil {
-		return fmt.Errorf("Failed to get prefs path: %w", err)
+		return fmt.Errorf("%w: %w", ErrFailedToGetPrefsPath, err)
 	}
 	err = os.WriteFile(filePath, prefsFileContent, 0600)
 	if err != nil {
-		return fmt.Errorf("Failed to save prefs: %w", err)
+		return fmt.Errorf("%w: %w", ErrFailedToSavePrefs, err)
 	}
 
 	return nil
@@ -72,8 +72,7 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 	}
 	err = os.MkdirAll(configDir, 0700)
 	if err != nil {
-		return fmt.Errorf("Could not create config directory %v: %w",
-			configDir, err)
+		return fmt.Errorf("%w %v: %w", ErrCouldNotCreateConfigDir, configDir, err)
 	}
 
 	// Build vendor options from internal.DefaultModels so the list stays in sync
@@ -93,22 +92,21 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 	}
 	vendor := strings.ToLower(strings.TrimSpace(selection.Key))
 	if _, ok := internal.DefaultModels[vendor]; !ok {
-		return fmt.Errorf("Vendor %v is not currently supported", vendor)
+		return fmt.Errorf("%w: %v", ErrUnsupportedVendor, vendor)
 	}
 	gptCliCtx.prefs.Vendor = vendor
 
 	keyPath := path.Join(configDir, fmt.Sprintf(KeyFileFmt, vendor))
 	keyBytes, err := os.ReadFile(keyPath)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("Could not open %v API key file %v: %w", vendor,
-			keyPath, err)
+		return fmt.Errorf("%w (%v) %v: %w", ErrCouldNotOpenAPIKeyFile, vendor, keyPath, err)
 	}
 
 	existingKey := strings.TrimSpace(string(keyBytes))
 	keepKey := false
 	if existingKey != "" {
 		keepPrompt := fmt.Sprintf(
-			"An existing %v API key is already configured. Keep using it? (y/n) [y]: ",
+			"An existing %v API key is already configured. Keep using it?",
 			vendor,
 		)
 		defaultKeep := true
@@ -129,25 +127,22 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 		key = strings.TrimSpace(key)
 		err = os.WriteFile(keyPath, []byte(key), 0600)
 		if err != nil {
-			return fmt.Errorf("Could not write %v API key file %v: %w", vendor,
-				keyPath, err)
+			return fmt.Errorf("%w (%v) %v: %w", ErrCouldNotWriteAPIKeyFile, vendor, keyPath, err)
 		}
 	}
 	threadsPath := path.Join(configDir, ThreadsDir)
 	err = os.MkdirAll(threadsPath, 0700)
 	if err != nil {
-		return fmt.Errorf("Could not create threads directory %v: %w",
-			threadsPath, err)
+		return fmt.Errorf("%w %v: %w", ErrCouldNotCreateThreadsDir, threadsPath, err)
 	}
 	archivePath := path.Join(configDir, ArchiveDir)
 	err = os.MkdirAll(archivePath, 0700)
 	if err != nil {
-		return fmt.Errorf("Could not create archive directory %v: %w",
-			archivePath, err)
+		return fmt.Errorf("%w %v: %w", ErrCouldNotCreateArchiveDir, archivePath, err)
 	}
 
 	summarizePrompt := fmt.Sprintf(
-		"Summarize dialogue when continuing threads? (reduces costs for less precise replies from %v) (y/n) [n]: ",
+		"Summarize dialogue when continuing threads? (reduces costs for less precise replies from %v)",
 		vendor,
 	)
 	defaultSummarize := false
@@ -167,7 +162,7 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 		return err
 	}
 	auditPrompt := fmt.Sprintf(
-		"Enable audit logging (logs prompts/tool use) to %v? (y/n) [y]: ",
+		"Enable audit logging (logs prompts/tool use) to %v?",
 		auditLogPath,
 	)
 	defaultAudit := true
@@ -183,7 +178,7 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 		}
 		err = os.MkdirAll(logsDir, 0700)
 		if err != nil {
-			return fmt.Errorf("Could not create logs directory %v: %w", logsDir, err)
+			return fmt.Errorf("%w %v: %w", ErrCouldNotCreateLogsDir, logsDir, err)
 		}
 	}
 
@@ -198,7 +193,7 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 func getConfigDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("Could not find user home directory: %w", err)
+		return "", fmt.Errorf("%w: %w", ErrCouldNotFindHomeDir, err)
 	}
 
 	return filepath.Join(homeDir, ".config", CommandName), nil
@@ -263,15 +258,14 @@ func getAuditLogPath() (string, error) {
 func loadKey(vendor string) (string, error) {
 	keyPath, err := getKeyPath(vendor)
 	if err != nil {
-		return "", fmt.Errorf("Could not load %v API key: %w", vendor, err)
+		return "", fmt.Errorf("%w (%v): %w", ErrCouldNotLoadAPIKey, vendor, err)
 	}
 	data, err := os.ReadFile(keyPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("Could not load %v API key: "+
-				"run `%v config` to configure", vendor, CommandName)
+			return "", fmt.Errorf("%w (%v): run `%v config` to configure", ErrAPIKeyNotConfigured, vendor, CommandName)
 		}
-		return "", fmt.Errorf("Could not load %v API key: %w", vendor, err)
+		return "", fmt.Errorf("%w (%v): %w", ErrCouldNotLoadAPIKey, vendor, err)
 	}
 	return string(data), nil
 }

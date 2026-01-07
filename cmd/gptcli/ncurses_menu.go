@@ -132,7 +132,7 @@ func (ui *threadMenuUI) draw() {
 func (ui *threadMenuUI) resetItems(menuText string) error {
 	trimmed := strings.TrimRight(menuText, "\n")
 	if trimmed == "" {
-		return fmt.Errorf("empty menu text")
+		return ErrEmptyMenuText
 	}
 
 	ui.items = strings.Split(trimmed, "\n")
@@ -143,7 +143,7 @@ func (ui *threadMenuUI) resetItems(menuText string) error {
 func gcInit() (*gc.Window, error) {
 	// Require a real TTY; ncurses UI is not supported otherwise
 	if !term.IsTerminal(int(os.Stdout.Fd())) {
-		return nil, fmt.Errorf("menu: requires a terminal (TTY)")
+		return nil, ErrTTYRequired
 	}
 
 	SetLocale.SetLocale(SetLocale.LC_ALL, "en_US.UTF-8")
@@ -160,7 +160,7 @@ func gcInit() (*gc.Window, error) {
 	_ = os.Setenv("LC_ALL", "en_US.UTF-8")
 	scr, err := gc.Init()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to initialize screen: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrFailedToInitScreen, err)
 	}
 
 	return scr, nil
@@ -179,7 +179,7 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 	//defer gcExit()
 	scr := gptCliCtx.scr
 	if scr == nil {
-		panic("nil scr")
+		return ErrNilScreen
 	}
 
 	// Listen for SIGWINCH (terminal resize). We handle the signal in this
@@ -299,13 +299,13 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 			// stdio with the UI.
 			name, err := promptForThreadNameNCurses(ncui)
 			if err != nil {
-				return fmt.Errorf("gptcli: failed to prompt for new thread name: %w", err)
+				return fmt.Errorf("%w: %w", ErrFailedToPromptThreadName, err)
 			}
 			if name == "" { // user cancelled
 				continue
 			}
 			if err := gptCliCtx.mainThreadGroup.NewThread(name); err != nil {
-				return fmt.Errorf("gptcli: failed to create new thread from menu: %w", err)
+				return fmt.Errorf("%w: %w", ErrFailedToCreateThread, err)
 			}
 			needRefresh = true
 		case 'c':
@@ -332,7 +332,7 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 			threadId := gptCliCtx.mainThreadGroup.ThreadId(threadIndex)
 			// @todo should cleanup thread.{asyncApprover, llmClient}
 			if err := gptCliCtx.mainThreadGroup.MoveThread(threadIndex, gptCliCtx.archiveThreadGroup); err != nil {
-				return fmt.Errorf("gptcli: failed to archive thread from menu: %w", err)
+				return fmt.Errorf("%w: %w", ErrFailedToArchiveThread, err)
 			}
 
 			delete(gptCliCtx.asyncChatUIStates, threadId)
@@ -343,8 +343,4 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 			continue
 		}
 	}
-
-	// Unreachable
-	// nolint
-	return fmt.Errorf("BUG: unreachable")
 }
