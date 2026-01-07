@@ -154,10 +154,8 @@ func (gptCliCtx *CliContext) load(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var approver am.Approver
-	approver = ui.NewUIApprover(gptCliCtx.realUI)
-	approver = am.NewPolicyStoreApprover(approver, policyStore)
 
+	gptCliCtx.ictx.LlmPolicyStore = policyStore
 	gptCliCtx.ictx.LlmVendor = gptCliCtx.prefs.Vendor
 	gptCliCtx.ictx.LlmModel = internal.DefaultModels[gptCliCtx.prefs.Vendor]
 	gptCliCtx.ictx.LlmApiKey = keyText
@@ -165,7 +163,7 @@ func (gptCliCtx *CliContext) load(ctx context.Context) error {
 	if gptCliCtx.prefs.EnableAuditLog {
 		gptCliCtx.ictx.LlmAuditLogPath = auditLogPath
 	}
-	gptCliCtx.ictx.LlmBaseApprover = approver
+	gptCliCtx.ictx.LlmBaseApprover = ui.NewUIApprover(gptCliCtx.realUI)
 
 	for _, thrGrp := range gptCliCtx.threadGroups {
 		err := thrGrp.LoadThreads()

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/schema"
+	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/llmclient"
 	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
@@ -59,7 +60,9 @@ func (thrGrp *ThreadGroup) setCurrentThreadRunning(ctx context.Context,
 		thr.asyncApprover = NewAsyncApprover(ictx.LlmBaseApprover)
 	}
 	if thr.llmClient == nil {
-		thr.llmClient = llmclient.NewEINOClient(ctx, ictx, thr.asyncApprover, 0)
+		approver := am.NewPolicyStoreApprover(thr.asyncApprover,
+			ictx.LlmPolicyStore)
+		thr.llmClient = llmclient.NewEINOClient(ctx, ictx, approver, 0)
 	}
 
 	return thr, nil

@@ -21,4 +21,5 @@ type InternalContext struct {
 	// vendors/models.
 	LlmReasoningEffort laclopenai.ReasoningEffortLevel
 	LlmBaseApprover    am.Approver
+	LlmPolicyStore     am.ApprovalPolicyStore
 }
