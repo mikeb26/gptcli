@@ -234,7 +234,7 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 		default:
 			ch = scr.GetChar()
 			if ch == 0 {
-				if time.Now().Sub(lastRefresh) > 1*time.Second {
+				if time.Now().Sub(lastRefresh) > 200*time.Millisecond {
 					needRefresh = true
 				}
 				continue
