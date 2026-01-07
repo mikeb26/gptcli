@@ -454,25 +454,25 @@ func rebuildHistory(
 	scr.Refresh()
 }
 
-// runThreadView provides an ncurses-based view for interacting with a
-// single thread. It renders the existing dialogue and allows the user
-// to enter a multi-line prompt in a 3-line input box. Ctrl-D sends the
-// current input buffer via ChatOnce. History and input
-// areas are independently scrollable via focus switching (Tab) and
-// standard navigation keys. Pressing 'q' or ESC in the history focus
-// returns to the menu.
-func runThreadView(ctx context.Context, scr *gc.Window,
-	gptCliCtx *CliContext, thread *threads.Thread) error {
-	// Listen for SIGWINCH so we can adjust layout on resize while inside
-	// the thread view. This mirrors the behavior of showMenu but keeps
-	// all ncurses calls confined to this goroutine.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGWINCH)
-	defer signal.Stop(sigCh)
+func threadViewFocusFromFocusedFrame(focusedFrame, historyFrame, inputFrame *ui.Frame) threadViewFocus {
+	if focusedFrame == historyFrame {
+		return focusHistory
+	}
+	return focusInput
+}
 
+type threadViewFrames struct {
+	historyFrame *ui.Frame
+	inputFrame   *ui.Frame
+
+	historyLines []ui.FrameLine
+}
+
+func createThreadViewFrames(scr *gc.Window, thread *threads.Thread) (*threadViewFrames, error) {
 	maxY, maxX := scr.MaxYX()
-	ncui := gptCliCtx.realUI
-	historyLines := buildHistoryLines(thread, maxX)
+	frames := &threadViewFrames{}
+
+	frames.historyLines = buildHistoryLines(thread, maxX)
 	// History frame occupies the region between the header and the input
 	// label. It is read-only but uses the Frame's cursor/scroll helpers
 	// for navigation.
@@ -486,14 +486,15 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 		historyH = 1
 	}
 	historyW := maxX
+
 	historyFrame, err := ui.NewFrame(scr, historyH, historyW, historyStartY, 0, false, true, false)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrCreatingHistoryFrame, err)
+		return nil, fmt.Errorf("%w: %w", ErrCreatingHistoryFrame, err)
 	}
-	defer historyFrame.Close()
-	historyFrame.SetLines(historyLines)
+	frames.historyFrame = historyFrame
+	frames.historyFrame.SetLines(frames.historyLines)
 	// Start with cursor at end of history.
-	historyFrame.MoveEnd()
+	frames.historyFrame.MoveEnd()
 
 	// Create a Frame to manage the editable multi-line input buffer and
 	// its cursor/scroll state. The frame's content area starts on the
@@ -510,14 +511,248 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 		frameH = 1
 	}
 	frameW := maxX
+
 	inputFrame, err := ui.NewFrame(scr, frameH, frameW, frameY, 0, false, true, true)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrCreatingInputFrame, err)
+		frames.historyFrame.Close()
+		frames.historyFrame = nil
+		return nil, fmt.Errorf("%w: %w", ErrCreatingInputFrame, err)
 	}
-	defer inputFrame.Close()
-	inputFrame.ResetInput()
+	frames.inputFrame = inputFrame
+	frames.inputFrame.ResetInput()
 
-	focus := focusInput
+	return frames, nil
+}
+
+func closeThreadViewFrames(frames *threadViewFrames) {
+	if frames == nil {
+		return
+	}
+	if frames.historyFrame != nil {
+		frames.historyFrame.Close()
+		frames.historyFrame = nil
+	}
+	if frames.inputFrame != nil {
+		frames.inputFrame.Close()
+		frames.inputFrame = nil
+	}
+}
+
+func attachToRunningThreadAndUpdateUIState(
+	scr *gc.Window,
+	gptCliCtx *CliContext,
+	thread *threads.Thread,
+	historyFrame *ui.Frame,
+	inputFrame *ui.Frame,
+	ncui *ui.NcursesUI,
+) (needRedraw bool) {
+	// If this thread has an in-flight run, attach and update the view from the
+	// RunningThreadState's buffered content. This allows the user to detach
+	// (ESC) and later reattach via the menu.
+	if state := thread.GetRunState(); state != nil {
+		uiState := newAsyncChatUIStateAndRender(scr, gptCliCtx, thread, historyFrame, inputFrame, state)
+		if uiState != nil {
+			content := state.ContentSoFar()
+			if len(content) != uiState.lastContentLen {
+				rebuildHistory(scr, historyFrame, &uiState.displayThread, uiState.historyLines, uiState.maxX, content)
+				uiState.lastContentLen = len(content)
+				needRedraw = true
+			}
+			_, stepRedraw := processAsyncChatState(scr, gptCliCtx, thread, historyFrame, inputFrame, ncui, state, uiState)
+			if stepRedraw {
+				needRedraw = true
+			}
+		}
+		return needRedraw
+	}
+
+	// If the run completed while detached, remove stale UI state.
+	delete(gptCliCtx.asyncChatUIStates, thread.Id())
+	return false
+}
+
+func redrawThreadView(
+	scr *gc.Window,
+	thread *threads.Thread,
+	gptCliCtx *CliContext,
+	historyFrame *ui.Frame,
+	inputFrame *ui.Frame,
+	focusedFrame *ui.Frame,
+	blinkOn bool,
+) {
+	// First redraw everything that lives directly on the root
+	// screen (stdscr). We intentionally refresh this parent
+	// window *before* rendering the input frame's sub-window so
+	// that the frame's contents are not overwritten by a later
+	// scr.Refresh() call.
+	scr.Erase()
+	drawThreadHeader(scr, thread)
+	statusText := ""
+	if thread.GetRunState() != nil {
+		if uiState, ok := gptCliCtx.asyncChatUIStates[thread.Id()]; ok && uiState != nil {
+			statusText = uiState.statusText
+		}
+		if statusText == "" {
+			statusText = "Processing..."
+		}
+	}
+	drawThreadInputLabel(scr, statusText)
+	drawNavbar(scr, threadViewFocusFromFocusedFrame(focusedFrame, historyFrame, inputFrame))
+	scr.Refresh()
+
+	// Render history and input frames after the root screen so
+	// their contents are not overwritten.
+	historyFrame.Render(blinkOn && focusedFrame == historyFrame)
+	inputFrame.Render(blinkOn && focusedFrame == inputFrame)
+}
+
+func processThreadViewKey(
+	ctx context.Context,
+	scr *gc.Window,
+	gptCliCtx *CliContext,
+	thread *threads.Thread,
+	historyFrame *ui.Frame,
+	inputFrame *ui.Frame,
+	focusedFrame **ui.Frame,
+	ncui *ui.NcursesUI,
+	ch gc.Key,
+) (exit bool, needRedraw bool) {
+	if focusedFrame == nil {
+		return false, false
+	}
+	if *focusedFrame == nil {
+		*focusedFrame = inputFrame
+	}
+
+	if ch == gc.KEY_TAB {
+		if *focusedFrame == inputFrame {
+			*focusedFrame = historyFrame
+		} else {
+			*focusedFrame = inputFrame
+		}
+		return false, true
+	}
+
+	isHistory := *focusedFrame == historyFrame
+	isInput := *focusedFrame == inputFrame
+
+	// Exit keys.
+	if ch == gc.Key(27) { // ESC
+		return true, false
+	}
+	if isHistory {
+		if ch == 'q' || ch == 'Q' || ch == 'd'-'a'+1 { // q/Q, ctrl-d
+			return true, false
+		}
+	}
+
+	// Navigation keys (shared by both history and input frames).
+	switch ch {
+	case gc.KEY_LEFT:
+		(*focusedFrame).MoveCursorLeft()
+		return false, true
+	case gc.KEY_RIGHT:
+		(*focusedFrame).MoveCursorRight()
+		return false, true
+	case gc.KEY_UP:
+		(*focusedFrame).MoveCursorUp()
+		(*focusedFrame).EnsureCursorVisible()
+		return false, true
+	case gc.KEY_DOWN:
+		(*focusedFrame).MoveCursorDown()
+		(*focusedFrame).EnsureCursorVisible()
+		return false, true
+	case gc.KEY_PAGEUP:
+		(*focusedFrame).ScrollPageUp()
+		if isHistory {
+			(*focusedFrame).EnsureCursorVisible()
+		}
+		return false, true
+	case gc.KEY_PAGEDOWN:
+		(*focusedFrame).ScrollPageDown()
+		if isHistory {
+			(*focusedFrame).EnsureCursorVisible()
+		}
+		return false, true
+	case gc.KEY_HOME:
+		(*focusedFrame).MoveHome()
+		return false, true
+	case gc.KEY_END:
+		(*focusedFrame).MoveEnd()
+		return false, true
+	}
+
+	if !isInput {
+		return false, false
+	}
+
+	// Input-only keys.
+	switch ch {
+	case gc.KEY_BACKSPACE, 127, 8:
+		inputFrame.Backspace()
+		inputFrame.EnsureCursorVisible()
+		return false, true
+	case gc.KEY_ENTER, gc.KEY_RETURN:
+		inputFrame.InsertNewline()
+		inputFrame.EnsureCursorVisible()
+		return false, true
+	case 'd' - 'a' + 1: // Ctrl-D sends the input buffer
+		prompt, state, ok := beginAsyncChatFromInputBuffer(ctx, scr, gptCliCtx, inputFrame, ncui)
+		if ok {
+			// Immediately reflect the user's submitted prompt in the history
+			// pane and clear the input buffer. This restores the pre-async
+			// behavior where Ctrl-D visually "sends" the buffer right away.
+			displayThread, submittedHistoryLines, submittedMaxX := applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
+			_ = newAsyncChatUIState(gptCliCtx, thread, state, displayThread, submittedHistoryLines, submittedMaxX)
+			// Do not block waiting for completion; the UI loop will
+			// continue processing async events and the user can detach.
+		}
+		return false, true
+	default:
+		// Treat any printable byte (including high‑bit bytes from
+		// UTF‑8 sequences) as input. When running in a UTF-8
+		// locale, ncurses/GetChar returns each byte of the sequence
+		// separately; group those bytes into a single rune so that
+		// characters like emoji render correctly.
+		if ch >= 32 && ch < 256 {
+			r := ui.ReadUTF8KeyRune(scr, ch)
+			inputFrame.InsertRune(r)
+			inputFrame.EnsureCursorVisible()
+			return false, true
+		}
+	}
+
+	return false, false
+}
+
+// runThreadView provides an ncurses-based view for interacting with a
+// single thread. It renders the existing dialogue and allows the user
+// to enter a multi-line prompt in a 3-line input box. Ctrl-D sends the
+// current input buffer via ChatOnce. History and input
+// areas are independently scrollable via focus switching (Tab) and
+// standard navigation keys. Pressing 'q' or ESC in the history focus
+// returns to the menu.
+func runThreadView(ctx context.Context, scr *gc.Window,
+	gptCliCtx *CliContext, thread *threads.Thread) error {
+	// Listen for SIGWINCH so we can adjust layout on resize while inside
+	// the thread view. This mirrors the behavior of showMenu but keeps
+	// all ncurses calls confined to this goroutine.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGWINCH)
+	defer signal.Stop(sigCh)
+
+	_, maxX := scr.MaxYX()
+	ncui := gptCliCtx.realUI
+	frames, err := createThreadViewFrames(scr, thread)
+	if err != nil {
+		return err
+	}
+	defer closeThreadViewFrames(frames)
+	historyFrame := frames.historyFrame
+	inputFrame := frames.inputFrame
+	historyLines := frames.historyLines
+
+	focusedFrame := inputFrame
 	needRedraw := true
 
 	// Simple blink state for the software cursor in the input area. We
@@ -528,52 +763,12 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 	const blinkTicks = 6 // ~300ms at the menu's 50ms timeout
 
 	for {
-		// If this thread has an in-flight run, attach and update the view from the
-		// RunningThreadState's buffered content. This allows the user to detach
-		// (ESC) and later reattach via the menu.
-		if state := thread.GetRunState(); state != nil {
-			uiState := newAsyncChatUIStateAndRender(scr, gptCliCtx, thread, historyFrame, inputFrame, state)
-			if uiState != nil {
-				content := state.ContentSoFar()
-				if len(content) != uiState.lastContentLen {
-					rebuildHistory(scr, historyFrame, &uiState.displayThread, uiState.historyLines, uiState.maxX, content)
-					uiState.lastContentLen = len(content)
-					needRedraw = true
-				}
-				_, stepRedraw := processAsyncChatState(scr, gptCliCtx, thread, historyFrame, inputFrame, ncui, state, uiState)
-				if stepRedraw {
-					needRedraw = true
-				}
-			}
-		} else {
-			// If the run completed while detached, remove stale UI state.
-			delete(gptCliCtx.asyncChatUIStates, thread.Id())
+		if attachNeedRedraw := attachToRunningThreadAndUpdateUIState(scr, gptCliCtx, thread, historyFrame, inputFrame, ncui); attachNeedRedraw {
+			needRedraw = true
 		}
 
 		if needRedraw {
-			// First redraw everything that lives directly on the root
-			// screen (stdscr). We intentionally refresh this parent
-			// window *before* rendering the input frame's sub-window so
-			// that the frame's contents are not overwritten by a later
-			// scr.Refresh() call.
-			scr.Erase()
-			drawThreadHeader(scr, thread)
-			statusText := ""
-			if thread.GetRunState() != nil {
-				if uiState, ok := gptCliCtx.asyncChatUIStates[thread.Id()]; ok && uiState != nil {
-					statusText = uiState.statusText
-				}
-				if statusText == "" {
-					statusText = "Processing..."
-				}
-			}
-			drawThreadInputLabel(scr, statusText)
-			drawNavbar(scr, focus)
-			scr.Refresh()
-			// Render history and input frames after the root screen so
-			// their contents are not overwritten.
-			historyFrame.Render(blinkOn && focus == focusHistory)
-			inputFrame.Render(blinkOn && focus == focusInput)
+			redrawThreadView(scr, thread, gptCliCtx, historyFrame, inputFrame, focusedFrame, blinkOn)
 			needRedraw = false
 		}
 
@@ -581,7 +776,7 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 		select {
 		case <-sigCh:
 			resizeScreen(scr)
-			maxY, maxX = scr.MaxYX()
+			_, maxX = scr.MaxYX()
 			if state := thread.GetRunState(); state != nil {
 				uiState := newAsyncChatUIStateAndRender(scr, gptCliCtx, thread, historyFrame, inputFrame, state)
 				if uiState != nil {
@@ -612,132 +807,21 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 			}
 		}
 
-		switch focus {
-		case focusHistory:
-			switch ch {
-			case 'q', 'Q', 'd' - 'a' + 1, gc.Key(27): // q/Q, ctrl-d, ESC
-				return nil
-			case gc.KEY_LEFT:
-				historyFrame.MoveCursorLeft()
-				needRedraw = true
-			case gc.KEY_RIGHT:
-				historyFrame.MoveCursorRight()
-				needRedraw = true
-			case gc.KEY_UP:
-				historyFrame.MoveCursorUp()
-				historyFrame.EnsureCursorVisible()
-				needRedraw = true
-			case gc.KEY_DOWN:
-				historyFrame.MoveCursorDown()
-				historyFrame.EnsureCursorVisible()
-				needRedraw = true
-			case gc.KEY_PAGEUP:
-				historyFrame.ScrollPageUp()
-				historyFrame.EnsureCursorVisible()
-				needRedraw = true
-			case gc.KEY_PAGEDOWN:
-				historyFrame.ScrollPageDown()
-				historyFrame.EnsureCursorVisible()
-				needRedraw = true
-			case gc.KEY_HOME:
-				historyFrame.MoveHome()
-				needRedraw = true
-			case gc.KEY_END:
-				historyFrame.MoveEnd()
-				needRedraw = true
-			case gc.KEY_RESIZE:
-				resizeScreen(scr)
-				maxY, maxX = scr.MaxYX()
-				historyLines = buildHistoryLines(thread, maxX)
-				historyFrame.SetLines(historyLines)
-				needRedraw = true
-			case gc.KEY_TAB:
-				focus = focusInput
-				needRedraw = true
-			}
-		case focusInput:
-			switch ch {
-			case gc.KEY_RESIZE:
-				resizeScreen(scr)
-				maxY, maxX = scr.MaxYX()
-				historyLines = buildHistoryLines(thread, maxX)
-				historyFrame.SetLines(historyLines)
-				needRedraw = true
-			case gc.KEY_TAB:
-				focus = focusHistory
-				needRedraw = true
-			case gc.Key(27): // ESC
-				return nil
-			case gc.KEY_HOME:
-				// Move to the very beginning of the input buffer (first
-				// character of the first line), mirroring HOME behavior in
-				// the history view.
-				inputFrame.MoveHome()
-				needRedraw = true
-			case gc.KEY_END:
-				// Move to the very end of the input buffer (last character
-				// of the last line), mirroring END behavior in the history
-				// view.
-				// Move to the very end of the input buffer (last character
-				// of the last line), mirroring END behavior in the history
-				// view.
-				inputFrame.MoveEnd()
-				needRedraw = true
-			case gc.KEY_PAGEUP:
-				// Scroll and move the cursor up by one visible page.
-				inputFrame.ScrollPageUp()
-				needRedraw = true
-			case gc.KEY_PAGEDOWN:
-				// Scroll and move the cursor down by one visible page.
-				inputFrame.ScrollPageDown()
-				needRedraw = true
-			case gc.KEY_LEFT:
-				inputFrame.MoveCursorLeft()
-				needRedraw = true
-			case gc.KEY_RIGHT:
-				inputFrame.MoveCursorRight()
-				needRedraw = true
-			case gc.KEY_UP:
-				inputFrame.MoveCursorUp()
-				inputFrame.EnsureCursorVisible()
-				needRedraw = true
-			case gc.KEY_DOWN:
-				inputFrame.MoveCursorDown()
-				inputFrame.EnsureCursorVisible()
-				needRedraw = true
-			case gc.KEY_BACKSPACE, 127, 8:
-				inputFrame.Backspace()
-				inputFrame.EnsureCursorVisible()
-				needRedraw = true
-			case gc.KEY_ENTER, gc.KEY_RETURN:
-				inputFrame.InsertNewline()
-				inputFrame.EnsureCursorVisible()
-				needRedraw = true
-			case 'd' - 'a' + 1: // Ctrl-D sends the input buffer
-				prompt, state, ok := beginAsyncChatFromInputBuffer(ctx, scr, gptCliCtx, inputFrame, ncui)
-				if ok {
-					// Immediately reflect the user's submitted prompt in the history
-					// pane and clear the input buffer. This restores the pre-async
-					// behavior where Ctrl-D visually "sends" the buffer right away.
-					displayThread, submittedHistoryLines, submittedMaxX := applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
-					_ = newAsyncChatUIState(gptCliCtx, thread, state, displayThread, submittedHistoryLines, submittedMaxX)
-					// Do not block waiting for completion; the UI loop will
-					// continue processing async events and the user can detach.
-				}
-				needRedraw = true
-			default:
-				// Treat any printable byte (including high‑bit bytes from
-				// UTF‑8 sequences) as input. When running in a UTF-8
-				// locale, ncurses/GetChar returns each byte of the sequence
-				// separately; group those bytes into a single rune so that
-				// characters like emoji render correctly.
-				if ch >= 32 && ch < 256 {
-					r := ui.ReadUTF8KeyRune(scr, ch)
-					inputFrame.InsertRune(r)
-					inputFrame.EnsureCursorVisible()
-					needRedraw = true
-				}
-			}
+		if ch == gc.KEY_RESIZE {
+			resizeScreen(scr)
+			_, maxX = scr.MaxYX()
+			historyLines = buildHistoryLines(thread, maxX)
+			historyFrame.SetLines(historyLines)
+			needRedraw = true
+			continue
+		}
+
+		exit, keyRedraw := processThreadViewKey(ctx, scr, gptCliCtx, thread, historyFrame, inputFrame, &focusedFrame, ncui, ch)
+		if exit {
+			return nil
+		}
+		if keyRedraw {
+			needRedraw = true
 		}
 	}
 }
