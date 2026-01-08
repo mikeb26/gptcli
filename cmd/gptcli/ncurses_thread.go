@@ -102,67 +102,68 @@ func drawThreadHeader(scr *gc.Window, thread threads.Thread) {
 	_ = scr.AttrSet(gc.A_NORMAL)
 }
 
-func applySubmittedPromptToUI(
-	scr *gc.Window,
-	thread threads.Thread,
-	historyFrame *ui.Frame,
-	inputFrame *ui.Frame,
-	prompt string,
-) (displayBlocks []threads.RenderBlock, historyLines []ui.FrameLine, maxX int) {
-	// Immediately reflect the user's input at the end of the history
-	// window without mutating the underlying thread yet. We do this by
-	// rendering against a temporary thread that includes the pending user
-	// message.
-	_, maxX = scr.MaxYX()
-	displayBlocks = append([]threads.RenderBlock(nil), thread.RenderBlocks()...)
-	displayBlocks = append(displayBlocks, threads.RenderBlock{Kind: threads.RenderBlockUserPrompt, Text: prompt})
-	historyLines = buildHistoryLines(displayBlocks, maxX)
-	historyFrame.SetLines(historyLines)
-	historyFrame.MoveEnd()
-	historyFrame.Render(false)
-
-	// Clear the input buffer now that we know the async chat has actually
-	// started.
-	inputFrame.ResetInput()
-	inputFrame.Render(true)
-
-	// Show processing status.
-	drawThreadInputLabel(scr, "Processing...")
-	scr.Refresh()
-
-	return displayBlocks, historyLines, maxX
+func threadViewDisplayBlocks(thread threads.Thread, pendingPrompt string) []threads.RenderBlock {
+	blocks := append([]threads.RenderBlock(nil), thread.RenderBlocks()...)
+	if pendingPrompt != "" {
+		blocks = append(blocks, threads.RenderBlock{Kind: threads.RenderBlockUserPrompt, Text: pendingPrompt})
+	}
+	return blocks
 }
 
-func updateThreadStatusFromProgress(statusText string, toolCalls *int,
-	requestCount *int, ev types.ProgressEvent) string {
+func setHistoryFrameFromBlocks(
+	scr *gc.Window,
+	historyFrame *ui.Frame,
+	blocks []threads.RenderBlock,
+	extraAssistantText string,
+) {
+	if scr == nil || historyFrame == nil {
+		return
+	}
+	fullBlocks := append([]threads.RenderBlock(nil), blocks...)
+	if extraAssistantText != "" {
+		extraBlocks := threads.RenderBlocksFromDialogue([]*types.ThreadMessage{{
+			Role:    types.LlmRoleAssistant,
+			Content: extraAssistantText,
+		}})
+		fullBlocks = append(fullBlocks, extraBlocks...)
+	}
+	_, maxX := scr.MaxYX()
+	lines := buildHistoryLines(fullBlocks, maxX)
+	historyFrame.SetLines(lines)
+	historyFrame.MoveEnd()
+}
 
-	var statusPrefix string
-	addSuffix := true
+func setHistoryFrameForThread(scr *gc.Window, historyFrame *ui.Frame, thread threads.Thread) {
+	if scr == nil || historyFrame == nil {
+		return
+	}
+	_, maxX := scr.MaxYX()
+	historyFrame.SetLines(buildHistoryLinesForThread(thread, maxX))
+	historyFrame.MoveEnd()
+}
 
-	switch ev.Component {
-	case types.ProgressComponentModel:
-		statusPrefix = "LLM: thinking"
-		if ev.Phase == types.ProgressPhaseStart {
-			(*requestCount)++
+func restoreInputFrameContent(inputFrame *ui.Frame, content string, cursorLine, cursorCol int) {
+	if inputFrame == nil {
+		return
+	}
+	inputFrame.ResetInput()
+	for _, r := range []rune(content) {
+		if r == '\n' {
+			inputFrame.InsertNewline()
+			continue
 		}
-	case types.ProgressComponentTool:
-		if ev.Phase == types.ProgressPhaseStart {
-			(*toolCalls)++
-			statusPrefix = "Tool: running " + ev.DisplayText
-			addSuffix = false
-		} else {
-			statusPrefix = "LLM: thinking"
-		}
-	default:
-		statusPrefix = statusText
+		inputFrame.InsertRune(r)
 	}
 
-	if !addSuffix {
-		return statusPrefix
+	// Restore cursor position best-effort.
+	inputFrame.MoveHome()
+	for i := 0; i < cursorLine; i++ {
+		inputFrame.MoveCursorDown()
 	}
-
-	return fmt.Sprintf("%v (requests:%v toolcalls:%v)...", statusPrefix,
-		*requestCount, *toolCalls)
+	for i := 0; i < cursorCol; i++ {
+		inputFrame.MoveCursorRight()
+	}
+	inputFrame.EnsureCursorVisible()
 }
 
 func beginAsyncChatFromInputBuffer(
@@ -223,69 +224,48 @@ func processAsyncChatState(
 		return true, false
 	}
 	// Always prefer the most recent RunningThreadState pointer on reattach.
-	uiState.runState = state
+	uiState.Attach(state)
 
 	for i := 0; i < maxAsyncEventsPerTick; i++ {
-		startCh := uiState.runState.Start
-		progressCh := uiState.runState.Progress
-		resultCh := uiState.runState.Result
-		approvalCh := uiState.runState.ApprovalRequests
-		if uiState.startClosed {
-			startCh = nil
-		}
-		if uiState.progressClosed {
-			progressCh = nil
-		}
-		if uiState.resultClosed {
-			resultCh = nil
-		}
-		if uiState.approvalClosed {
-			approvalCh = nil
-		}
-
 		select {
-		case startEv, ok := <-startCh:
+		case startEv, ok := <-uiState.startCh:
 			if !ok {
-				uiState.startClosed = true
+				uiState.startCh = nil
 				continue
 			}
 			// Start is a single-shot channel; treat any receive as terminal.
-			uiState.startClosed = true
+			uiState.startCh = nil
 			if startEv.Err != nil {
 				state.Stop()
 				_, _ = showErrorRetryModal(ncui, startEv.Err.Error())
-				_, maxX := scr.MaxYX()
-				persistedLines := buildHistoryLinesForThread(thread, maxX)
-				historyFrame.SetLines(persistedLines)
-				historyFrame.MoveEnd()
+				setHistoryFrameForThread(scr, historyFrame, thread)
 				needRedraw = true
 				delete(gptCliCtx.asyncChatUIStates, thread.Id())
 				return true, true
 			}
 			needRedraw = true
-		case req, ok := <-approvalCh:
+		case req, ok := <-uiState.approvalCh:
 			if !ok {
-				uiState.approvalClosed = true
+				uiState.approvalCh = nil
 				continue
 			}
 			state.AsyncApprover.ServeRequest(req)
 			historyFrame.Render(false)
 			inputFrame.Render(true)
 			needRedraw = true
-		case ev, ok := <-progressCh:
+		case ev, ok := <-uiState.progressCh:
 			if !ok {
-				uiState.progressClosed = true
+				uiState.progressCh = nil
 				continue
 			}
-			uiState.statusText = updateThreadStatusFromProgress(uiState.statusText, &uiState.toolCalls, &uiState.requestCount, ev)
+			uiState.statusText = uiState.statusFromProgress(ev)
 			needRedraw = true
-		case res, ok := <-resultCh:
+		case res, ok := <-uiState.resultCh:
 			if !ok {
-				uiState.resultClosed = true
+				uiState.resultCh = nil
 				continue
 			}
-			uiState.gotResult = true
-			uiState.resultClosed = true
+			uiState.resultCh = nil
 			if res.Err != nil {
 				state.Stop()
 				_, _ = showErrorRetryModal(ncui, res.Err.Error())
@@ -293,10 +273,7 @@ func processAsyncChatState(
 
 			// Whether success or error, the thread is now persisted (or failed),
 			// so rebuild from the thread's current dialogue.
-			_, maxX := scr.MaxYX()
-			persistedLines := buildHistoryLinesForThread(thread, maxX)
-			historyFrame.SetLines(persistedLines)
-			historyFrame.MoveEnd()
+			setHistoryFrameForThread(scr, historyFrame, thread)
 			needRedraw = true
 			delete(gptCliCtx.asyncChatUIStates, thread.Id())
 			return true, true
@@ -309,82 +286,79 @@ func processAsyncChatState(
 }
 
 type asyncChatUIState struct {
-	displayBlocks []threads.RenderBlock
-	historyLines  []ui.FrameLine
-	maxX          int
-	promptApplied bool
-
 	statusText   string
 	toolCalls    int
 	requestCount int
 
 	runState *threads.RunningThreadState
 
-	startClosed    bool
-	progressClosed bool
-	resultClosed   bool
-	approvalClosed bool
-
-	gotResult bool
+	startCh    <-chan threads.RunningThreadStart
+	progressCh <-chan types.ProgressEvent
+	resultCh   <-chan threads.RunningThreadResult
+	approvalCh <-chan threads.AsyncApprovalRequest
 
 	lastContentLen int
 }
 
-func newAsyncChatUIStateAndRender(
-	scr *gc.Window,
-	gptCliCtx *CliContext,
-	thread threads.Thread,
-	historyFrame *ui.Frame,
-	inputFrame *ui.Frame,
-	state *threads.RunningThreadState,
-) *asyncChatUIState {
-	if state == nil {
-		return nil
+func (s *asyncChatUIState) Attach(state *threads.RunningThreadState) {
+	if s == nil || state == nil {
+		return
 	}
-
-	_, maxX := scr.MaxYX()
-	displayBlocks := append([]threads.RenderBlock(nil), thread.RenderBlocks()...)
-	displayBlocks = append(displayBlocks, threads.RenderBlock{Kind: threads.RenderBlockUserPrompt, Text: state.Prompt})
-	historyLines := buildHistoryLines(displayBlocks, maxX)
-
-	uiState := newAsyncChatUIState(gptCliCtx, thread, state, displayBlocks, historyLines, maxX)
-	if uiState == nil {
-		return nil
+	s.runState = state
+	// Preserve "closed" state by keeping a channel nil once it has been closed.
+	if s.startCh != nil {
+		s.startCh = state.Start
 	}
-
-	// Render immediately with whatever content is available.
-	historyFrame.SetLines(uiState.historyLines)
-	historyFrame.MoveEnd()
-	rebuildHistory(scr, historyFrame, uiState.displayBlocks, uiState.maxX, state.ContentSoFar())
-	inputFrame.Render(true)
-
-	return uiState
+	if s.progressCh != nil {
+		s.progressCh = state.Progress
+	}
+	if s.resultCh != nil {
+		s.resultCh = state.Result
+	}
+	if s.approvalCh != nil {
+		s.approvalCh = state.ApprovalRequests
+	}
 }
 
-func newAsyncChatUIState(
-	gptCliCtx *CliContext,
-	thread threads.Thread,
-	state *threads.RunningThreadState,
-	displayBlocks []threads.RenderBlock,
-	historyLines []ui.FrameLine,
-	maxX int,
-) *asyncChatUIState {
-	if state == nil {
+func (s *asyncChatUIState) statusFromProgress(ev types.ProgressEvent) string {
+	statusText := s.statusText
+
+	var statusPrefix string
+	addSuffix := true
+
+	switch ev.Component {
+	case types.ProgressComponentModel:
+		statusPrefix = "LLM: thinking"
+		if ev.Phase == types.ProgressPhaseStart {
+			s.requestCount++
+		}
+	case types.ProgressComponentTool:
+		if ev.Phase == types.ProgressPhaseStart {
+			s.toolCalls++
+			statusPrefix = "Tool: running " + ev.DisplayText
+			addSuffix = false
+		} else {
+			statusPrefix = "LLM: thinking"
+		}
+	default:
+		statusPrefix = statusText
+	}
+
+	if !addSuffix {
+		return statusPrefix
+	}
+
+	return fmt.Sprintf("%v (requests:%v toolcalls:%v)...", statusPrefix, s.requestCount, s.toolCalls)
+}
+
+func ensureAsyncChatUIState(gptCliCtx *CliContext, thread threads.Thread, state *threads.RunningThreadState) *asyncChatUIState {
+	if gptCliCtx == nil || state == nil {
 		return nil
 	}
 
 	tid := thread.Id()
 	if existing, ok := gptCliCtx.asyncChatUIStates[tid]; ok && existing != nil {
-		// If we already have a UI state for this thread, prefer to reuse it;
-		// it may be holding channels or counters.
-		//
-		// Refresh the presentation state (render blocks + wrapped history) so the
-		// view can detach/reattach and resize cleanly.
-		existing.displayBlocks = displayBlocks
-		existing.historyLines = historyLines
-		existing.maxX = maxX
-		existing.promptApplied = true
-		existing.runState = state
+		existing.Attach(state)
 		if existing.statusText == "" {
 			existing.statusText = "LLM: thinking"
 		}
@@ -392,48 +366,16 @@ func newAsyncChatUIState(
 	}
 
 	uiState := &asyncChatUIState{
-		displayBlocks:  displayBlocks,
-		historyLines:   historyLines,
-		maxX:           maxX,
-		promptApplied:  true,
 		statusText:     "LLM: thinking",
 		runState:       state,
-		startClosed:    false,
-		progressClosed: false,
-		resultClosed:   false,
-		approvalClosed: false,
-		gotResult:      false,
-		lastContentLen: 0,
+		startCh:        state.Start,
+		progressCh:     state.Progress,
+		resultCh:       state.Result,
+		approvalCh:     state.ApprovalRequests,
+		lastContentLen: -1,
 	}
 	gptCliCtx.asyncChatUIStates[tid] = uiState
 	return uiState
-}
-
-// rebuildHistory reconstructs the history frame lines while a streaming
-// response is in flight. It keeps existing history intact and appends a
-// temporary assistant message rendered with the same wrapping logic used
-// elsewhere.
-func rebuildHistory(
-	scr *gc.Window,
-	historyFrame *ui.Frame,
-	baseBlocks []threads.RenderBlock,
-	maxX int,
-	extraText string,
-) {
-	blocks := append([]threads.RenderBlock(nil), baseBlocks...)
-	if extraText != "" {
-		extraBlocks := threads.RenderBlocksFromDialogue([]*types.ThreadMessage{{
-			Role:    types.LlmRoleAssistant,
-			Content: extraText,
-		}})
-		blocks = append(blocks, extraBlocks...)
-	}
-
-	allLines := buildHistoryLines(blocks, maxX)
-	historyFrame.SetLines(allLines)
-	historyFrame.MoveEnd()
-	historyFrame.Render(false)
-	scr.Refresh()
 }
 
 func threadViewFocusFromFocusedFrame(focusedFrame, historyFrame, inputFrame *ui.Frame) threadViewFocus {
@@ -446,15 +388,12 @@ func threadViewFocusFromFocusedFrame(focusedFrame, historyFrame, inputFrame *ui.
 type threadViewFrames struct {
 	historyFrame *ui.Frame
 	inputFrame   *ui.Frame
-
-	historyLines []ui.FrameLine
 }
 
 func createThreadViewFrames(scr *gc.Window, thread threads.Thread) (*threadViewFrames, error) {
 	maxY, maxX := scr.MaxYX()
 	frames := &threadViewFrames{}
-
-	frames.historyLines = buildHistoryLinesForThread(thread, maxX)
+	historyLines := buildHistoryLinesForThread(thread, maxX)
 	// History frame occupies the region between the header and the input
 	// label. It is read-only but uses the Frame's cursor/scroll helpers
 	// for navigation.
@@ -474,7 +413,7 @@ func createThreadViewFrames(scr *gc.Window, thread threads.Thread) (*threadViewF
 		return nil, fmt.Errorf("%w: %w", ErrCreatingHistoryFrame, err)
 	}
 	frames.historyFrame = historyFrame
-	frames.historyFrame.SetLines(frames.historyLines)
+	frames.historyFrame.SetLines(historyLines)
 	// Start with cursor at end of history.
 	frames.historyFrame.MoveEnd()
 
@@ -506,6 +445,65 @@ func createThreadViewFrames(scr *gc.Window, thread threads.Thread) (*threadViewF
 	return frames, nil
 }
 
+func handleThreadViewResize(
+	scr *gc.Window,
+	gptCliCtx *CliContext,
+	thread threads.Thread,
+	frames **threadViewFrames,
+	focusedFrame **ui.Frame,
+) (needRedraw bool, err error) {
+	if scr == nil || frames == nil || *frames == nil {
+		return false, nil
+	}
+
+	oldFrames := *frames
+	wasHistoryFocused := false
+	if focusedFrame != nil && *focusedFrame == oldFrames.historyFrame {
+		wasHistoryFocused = true
+	}
+
+	inputContent := ""
+	inputLine, inputCol := 0, 0
+	if oldFrames.inputFrame != nil {
+		inputContent = oldFrames.inputFrame.InputString()
+		inputLine, inputCol = oldFrames.inputFrame.Cursor()
+	}
+
+	resizeScreen(scr)
+	closeThreadViewFrames(oldFrames)
+
+	newFrames, err := createThreadViewFrames(scr, thread)
+	if err != nil {
+		return false, err
+	}
+	*frames = newFrames
+	if focusedFrame != nil {
+		if wasHistoryFocused {
+			*focusedFrame = newFrames.historyFrame
+		} else {
+			*focusedFrame = newFrames.inputFrame
+		}
+	}
+
+	restoreInputFrameContent(newFrames.inputFrame, inputContent, inputLine, inputCol)
+
+	if state := thread.GetRunState(); state != nil {
+		uiState := ensureAsyncChatUIState(gptCliCtx, thread, state)
+		blocks := threadViewDisplayBlocks(thread, state.Prompt)
+		setHistoryFrameFromBlocks(scr, newFrames.historyFrame, blocks, state.ContentSoFar())
+		if uiState != nil {
+			uiState.lastContentLen = len(state.ContentSoFar())
+		}
+	} else {
+		setHistoryFrameForThread(scr, newFrames.historyFrame, thread)
+		if gptCliCtx != nil {
+			delete(gptCliCtx.asyncChatUIStates, thread.Id())
+		}
+	}
+
+	return true, nil
+}
+
 func closeThreadViewFrames(frames *threadViewFrames) {
 	if frames == nil {
 		return
@@ -532,11 +530,12 @@ func attachToRunningThreadAndUpdateUIState(
 	// RunningThreadState's buffered content. This allows the user to detach
 	// (ESC) and later reattach via the menu.
 	if state := thread.GetRunState(); state != nil {
-		uiState := newAsyncChatUIStateAndRender(scr, gptCliCtx, thread, historyFrame, inputFrame, state)
+		uiState := ensureAsyncChatUIState(gptCliCtx, thread, state)
 		if uiState != nil {
 			content := state.ContentSoFar()
 			if len(content) != uiState.lastContentLen {
-				rebuildHistory(scr, historyFrame, uiState.displayBlocks, uiState.maxX, content)
+				blocks := threadViewDisplayBlocks(thread, state.Prompt)
+				setHistoryFrameFromBlocks(scr, historyFrame, blocks, content)
 				uiState.lastContentLen = len(content)
 				needRedraw = true
 			}
@@ -680,11 +679,11 @@ func processThreadViewKey(
 	case 'd' - 'a' + 1: // Ctrl-D sends the input buffer
 		prompt, state, ok := beginAsyncChatFromInputBuffer(ctx, scr, gptCliCtx, inputFrame, ncui)
 		if ok {
-			// Immediately reflect the user's submitted prompt in the history
-			// pane and clear the input buffer. This restores the pre-async
-			// behavior where Ctrl-D visually "sends" the buffer right away.
-			displayBlocks, submittedHistoryLines, submittedMaxX := applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
-			_ = newAsyncChatUIState(gptCliCtx, thread, state, displayBlocks, submittedHistoryLines, submittedMaxX)
+			_ = ensureAsyncChatUIState(gptCliCtx, thread, state)
+			blocks := threadViewDisplayBlocks(thread, prompt)
+			setHistoryFrameFromBlocks(scr, historyFrame, blocks, state.ContentSoFar())
+			inputFrame.ResetInput()
+			inputFrame.EnsureCursorVisible()
 			// Do not block waiting for completion; the UI loop will
 			// continue processing async events and the user can detach.
 		}
@@ -726,7 +725,6 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 	signal.Notify(sigCh, syscall.SIGWINCH)
 	defer signal.Stop(sigCh)
 
-	_, maxX := scr.MaxYX()
 	ncui := gptCliCtx.realUI
 	frames, err := createThreadViewFrames(scr, thread)
 	if err != nil {
@@ -735,7 +733,6 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 	defer closeThreadViewFrames(frames)
 	historyFrame := frames.historyFrame
 	inputFrame := frames.inputFrame
-	historyLines := frames.historyLines
 
 	focusedFrame := inputFrame
 	needRedraw := true
@@ -753,22 +750,13 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 		var ch gc.Key
 		select {
 		case <-sigCh:
-			resizeScreen(scr)
-			_, maxX = scr.MaxYX()
-			if state := thread.GetRunState(); state != nil {
-				uiState := newAsyncChatUIStateAndRender(scr, gptCliCtx, thread, historyFrame, inputFrame, state)
-				if uiState != nil {
-					uiState.maxX = maxX
-					uiState.historyLines = buildHistoryLines(uiState.displayBlocks, maxX)
-					historyFrame.SetLines(uiState.historyLines)
-					rebuildHistory(scr, historyFrame, uiState.displayBlocks, maxX, state.ContentSoFar())
-					uiState.lastContentLen = len(state.ContentSoFar())
-				}
-			} else {
-				historyLines = buildHistoryLinesForThread(thread, maxX)
-				historyFrame.SetLines(historyLines)
+			if resized, err := handleThreadViewResize(scr, gptCliCtx, thread, &frames, &focusedFrame); err != nil {
+				return err
+			} else if resized {
+				historyFrame = frames.historyFrame
+				inputFrame = frames.inputFrame
+				needRedraw = true
 			}
-			needRedraw = true
 			continue
 		default:
 			ch = scr.GetChar()
@@ -778,11 +766,13 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 		}
 
 		if ch == gc.KEY_RESIZE {
-			resizeScreen(scr)
-			_, maxX = scr.MaxYX()
-			historyLines = buildHistoryLinesForThread(thread, maxX)
-			historyFrame.SetLines(historyLines)
-			needRedraw = true
+			if resized, err := handleThreadViewResize(scr, gptCliCtx, thread, &frames, &focusedFrame); err != nil {
+				return err
+			} else if resized {
+				historyFrame = frames.historyFrame
+				inputFrame = frames.inputFrame
+				needRedraw = true
+			}
 			continue
 		}
 
