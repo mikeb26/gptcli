@@ -184,12 +184,11 @@ func (n *NcursesUI) readLineModalFrame(userPrompt string) (string, error) {
 		ch = 1
 	}
 
-	// Use a short timeout so we can blink the software cursor even when the
-	// user is idle (consistent with the rest of the ncurses UI).
+	// Use a short timeout so we can remain responsive to input while
+	// rendering the modal.
 	win.Timeout(50)
-	blinkOn := true
-	blinkCounter := 0
-	const blinkTicks = 6 // ~300ms at 50ms timeout
+	_ = gc.Cursor(1)
+	defer gc.Cursor(0)
 
 	// Draw the border once; subsequent updates only modify the inner
 	// content area.
@@ -227,9 +226,8 @@ func (n *NcursesUI) readLineModalFrame(userPrompt string) (string, error) {
 		text := TruncateRunes(string(buf), inputWidth)
 		win.MovePrint(inputY, cx, text)
 
-		// Draw a visible software cursor by inverting the cell at the
-		// logical cursor position. We reuse the Frame cursor rendering code
-		// so we don't depend on the terminal's hardware cursor visibility.
+		// Place the terminal cursor at the end of the currently rendered
+		// input buffer.
 		cursorCol := len([]rune(text))
 		if cursorCol < 0 {
 			cursorCol = 0
@@ -237,31 +235,16 @@ func (n *NcursesUI) readLineModalFrame(userPrompt string) (string, error) {
 		if cursorCol >= cw {
 			cursorCol = cw - 1
 		}
-		cursorX := cx + cursorCol
-
-		underCh := ' '
-		if cursorCol >= 0 && cursorCol < len([]rune(text)) {
-			underCh = []rune(text)[cursorCol]
-		}
-		if blinkOn {
-			modal.Frame.drawSoftCursor(inputY, cursorX, underCh)
-		}
+		// Move relative to stdscr so the terminal cursor shows in the right
+		// spot.
+		wy, wx := win.YX()
+		gc.StdScr().Move(wy+inputY, wx+cx+cursorCol)
 		win.Refresh()
 
 		chKey := win.GetChar()
 		if chKey == 0 {
-			// Timeout/no key pressed: advance the blink timer.
-			blinkCounter++
-			if blinkCounter >= blinkTicks {
-				blinkCounter = 0
-				blinkOn = !blinkOn
-			}
 			continue
 		}
-
-		// Any keypress resets the blink so the cursor is visible while typing.
-		blinkOn = true
-		blinkCounter = 0
 
 		switch chKey {
 		case gc.Key(27): // ESC -> empty string

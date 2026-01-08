@@ -34,9 +34,9 @@ type FrameLine struct {
 //   - use the input methods (InsertRune, Backspace, etc.) if HasInput is
 //     true.
 //
-// Cursor blinking/timing is left to higher-level code; callers can
-// choose whether to show the cursor for a given Render call via the
-// blinkOn parameter.
+// Cursor visibility is left to higher-level code; callers can choose
+// whether to place the terminal cursor for a given Render call via the
+// showCursor parameter.
 type Frame struct {
 	Win *gc.Window
 	// pan is an optional panel that tracks this frame's window in the
@@ -102,8 +102,9 @@ func (f *Frame) Cursor() (line, col int) {
 // the frame draws a simple box border and reduces the inner content
 // area accordingly.
 //
-// The hasCursor flag enables the software cursor overlay; hasInput
-// enables the internal multi-line text buffer and editing helpers.
+// The hasCursor flag enables placing the terminal cursor within the
+// frame during Render calls; hasInput enables the internal multi-line
+// text buffer and editing helpers.
 func NewFrame(parent *gc.Window, height, width, startY, startX int, hasBorder, hasCursor, hasInput bool) (*Frame, error) {
 	if parent == nil {
 		return nil, fmt.Errorf("parent window is nil")
@@ -181,12 +182,13 @@ func (f *Frame) contentBounds() (y, x, h, w int) {
 
 // Render draws the frame border (if any), the current content lines
 // held in the frame's buffer, the vertical scrollbar (when needed),
-// and the software cursor when HasCursor is true and blinkOn is true.
+// and places the terminal cursor when HasCursor is true and showCursor
+// is true.
 //
 // Callers are expected to populate the frame's content via SetLines for
 // read-only views (such as history panes) or via the input helpers
 // (ResetInput, InsertRune, etc.) for editable views.
-func (f *Frame) Render(blinkOn bool) {
+func (f *Frame) Render(showCursor bool) {
 	if f == nil || f.Win == nil {
 		return
 	}
@@ -297,12 +299,15 @@ func (f *Frame) Render(blinkOn bool) {
 	// Draw scrollbar in the last column of the content area.
 	f.renderScrollbar(contentY, contentX+contentW-1, visibleHeight, len(display), offset)
 
-	// Software cursor overlay.
-	if f.HasCursor && blinkOn {
+	// Terminal cursor placement.
+	//
+	// Because this Frame is backed by its own ncurses Window (newwin), we
+	// need to move the cursor relative to the root screen so that the
+	// terminal cursor appears in the correct place.
+	if f.HasCursor && showCursor {
 		// Map logical cursor position to display coordinates.
 		cursorY := -1
 		cursorX := 0
-		cursorCh := ' '
 
 		// Identify which display line contains the logical cursor.
 		for di := 0; di < len(display); di++ {
@@ -322,13 +327,6 @@ func (f *Frame) Render(blinkOn bool) {
 			if col < segEnd || (isLastSeg && col == segEnd) {
 				cursorY = di
 				cursorX = col - dl.startCol
-				// Determine underlying rune for cursor cell.
-				if f.cursorLine >= 0 && f.cursorLine < len(source) {
-					lineRunes := source[f.cursorLine].Runes
-					if col >= 0 && col < len(lineRunes) {
-						cursorCh = lineRunes[col]
-					}
-				}
 				break
 			}
 		}
@@ -347,7 +345,12 @@ func (f *Frame) Render(blinkOn bool) {
 		}
 		cx := f.clampCursorX(cursorX, contentW)
 		cx += contentX
-		f.drawSoftCursor(cy, cx, cursorCh)
+
+		// Convert window-relative coordinates into screen-relative.
+		wy, wx := f.Win.YX()
+		yAbs := wy + cy
+		xAbs := wx + cx
+		gc.StdScr().Move(yAbs, xAbs)
 	}
 
 	f.Win.Refresh()

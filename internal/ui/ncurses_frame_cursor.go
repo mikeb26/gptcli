@@ -10,13 +10,25 @@ package ui
 // area for this frame, always reserving the last content column for the
 // scrollbar.
 func (f *Frame) clampCursorX(x, contentWidth int) int {
-	return ClampCursorX(x, contentWidth, true)
-}
+	if x < 0 {
+		x = 0
+	}
+	if contentWidth <= 0 {
+		return 0
+	}
 
-// drawSoftCursor inverts the cell at (y, x) within the frame window
-// using the provided rune as the underlying character.
-func (f *Frame) drawSoftCursor(y, x int, ch rune) {
-	DrawSoftCursor(f.Win, y, x, ch)
+	// Reserve the last column for the scrollbar.
+	maxCol := contentWidth - 1
+	if maxCol > 0 {
+		maxCol--
+	}
+	if maxCol < 0 {
+		maxCol = 0
+	}
+	if x > maxCol {
+		x = maxCol
+	}
+	return x
 }
 
 // MoveCursorLeft moves the cursor one position to the left, possibly

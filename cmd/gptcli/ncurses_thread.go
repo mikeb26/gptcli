@@ -578,7 +578,6 @@ func redrawThreadView(
 	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
 	focusedFrame *ui.Frame,
-	blinkOn bool,
 ) {
 	// First redraw everything that lives directly on the root
 	// screen (stdscr). We intentionally refresh this parent
@@ -602,8 +601,8 @@ func redrawThreadView(
 
 	// Render history and input frames after the root screen so
 	// their contents are not overwritten.
-	historyFrame.Render(blinkOn && focusedFrame == historyFrame)
-	inputFrame.Render(blinkOn && focusedFrame == inputFrame)
+	historyFrame.Render(focusedFrame == historyFrame)
+	inputFrame.Render(focusedFrame == inputFrame)
 }
 
 func processThreadViewKey(
@@ -734,6 +733,10 @@ func processThreadViewKey(
 // returns to the menu.
 func runThreadView(ctx context.Context, scr *gc.Window,
 	gptCliCtx *CliContext, thread *threads.Thread) error {
+	// Use the terminal cursor for caret display in the thread view.
+	_ = gc.Cursor(1)
+	defer gc.Cursor(0)
+
 	// Listen for SIGWINCH so we can adjust layout on resize while inside
 	// the thread view. This mirrors the behavior of showMenu but keeps
 	// all ncurses calls confined to this goroutine.
@@ -755,20 +758,13 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 	focusedFrame := inputFrame
 	needRedraw := true
 
-	// Simple blink state for the software cursor in the input area. We
-	// toggle blinkOn after a small number of input polling ticks so it
-	// blinks even when the user is idle.
-	blinkOn := true
-	blinkCounter := 0
-	const blinkTicks = 6 // ~300ms at the menu's 50ms timeout
-
 	for {
 		if attachNeedRedraw := attachToRunningThreadAndUpdateUIState(scr, gptCliCtx, thread, historyFrame, inputFrame, ncui); attachNeedRedraw {
 			needRedraw = true
 		}
 
 		if needRedraw {
-			redrawThreadView(scr, thread, gptCliCtx, historyFrame, inputFrame, focusedFrame, blinkOn)
+			redrawThreadView(scr, thread, gptCliCtx, historyFrame, inputFrame, focusedFrame)
 			needRedraw = false
 		}
 
@@ -795,14 +791,6 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 		default:
 			ch = scr.GetChar()
 			if ch == 0 {
-				// Timeout/no key pressed: advance the blink timer for the
-				// software cursor in the active pane.
-				blinkCounter++
-				if blinkCounter >= blinkTicks {
-					blinkCounter = 0
-					blinkOn = !blinkOn
-					needRedraw = true
-				}
 				continue
 			}
 		}
