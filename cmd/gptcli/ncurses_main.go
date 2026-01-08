@@ -1,4 +1,4 @@
-/* Copyright © 2025 Mike Brown. All Rights Reserved.
+/* Copyright © 2025-2026 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -83,7 +83,7 @@ func menuMain(ctx context.Context, gptCliCtx *CliContext,
 	_ = f.Parse(args[1:])
 
 	var sb strings.Builder
-	sb.WriteString(gptCliCtx.mainThreadGroup.String(false, false))
+	sb.WriteString(threadGroupString(gptCliCtx.mainThreadGroup, false, false))
 
 	return showMenu(ctx, gptCliCtx, sb.String())
 }

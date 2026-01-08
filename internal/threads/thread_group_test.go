@@ -1,3 +1,7 @@
+/* Copyright © 2025-2026 Mike Brown. All Rights Reserved.
+ *
+ * See LICENSE file at the root of this package for license terms
+ */
 package threads
 
 import (
@@ -26,9 +30,8 @@ func TestNewThreadInitializesAndRegistersThread(t *testing.T) {
 		thr := threads[0]
 		assert.Equal(t, "first-thread", thr.Name())
 		// All timestamps are initialized to the same creation time.
-		assert.True(t, thr.persisted.CreateTime.Equal(thr.persisted.AccessTime))
-		assert.True(t, thr.persisted.CreateTime.Equal(thr.persisted.ModTime))
-		assert.NotEmpty(t, thr.fileName)
+		assert.True(t, thr.CreateTime().Equal(thr.AccessTime()))
+		assert.True(t, thr.CreateTime().Equal(thr.ModTime()))
 
 		// Initial dialogue contains only the system message.
 		d := thr.Dialogue()
@@ -51,7 +54,7 @@ func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
 	grp := NewThreadGroup("T", dir)
 
 	base := time.Now().Add(-time.Hour)
-	thr := &Thread{persisted: persistedThread{
+	thr := &thread{persisted: persistedThread{
 		Name:       "activate-me",
 		CreateTime: base,
 		AccessTime: base,
@@ -68,15 +71,15 @@ func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
 
 	activated, err := grp.ActivateThread(1)
 	assert.NoError(t, err)
-	assert.Equal(t, thr, activated)
+	assert.Equal(t, thr.Id(), activated.Id())
 	assert.Equal(t, 1, grp.curThreadNum)
-	assert.True(t, activated.persisted.AccessTime.After(oldAccess))
+	assert.True(t, activated.AccessTime().After(oldAccess))
 
 	// Verify the on-disk representation has the updated access time.
 	data, err := os.ReadFile(filepath.Join(dir, thr.fileName))
 	assert.NoError(t, err)
 
-	var diskThread Thread
+	var diskThread thread
 	assert.NoError(t, json.Unmarshal(data, &diskThread.persisted))
 	assert.True(t, diskThread.persisted.AccessTime.After(oldAccess))
 }
@@ -102,7 +105,7 @@ func TestLoadThreadsLoadsAndRenamesStaleFiles(t *testing.T) {
 	// Create a thread JSON with a stale filename that does not match
 	// the genUniqFileName scheme so LoadThreads will rename it.
 	base := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
-	orig := &Thread{persisted: persistedThread{
+	orig := &thread{persisted: persistedThread{
 		Name:       "rename-thread",
 		CreateTime: base,
 		AccessTime: base,
@@ -124,8 +127,9 @@ func TestLoadThreadsLoadsAndRenamesStaleFiles(t *testing.T) {
 	threads := grp.Threads()
 	if assert.Len(t, threads, 1) {
 		loaded := threads[0]
-		expectedFileName := genUniqFileName(loaded.persisted.Name, loaded.persisted.CreateTime)
-		assert.Equal(t, expectedFileName, loaded.fileName)
+		loadedImpl := loaded.(*thread)
+		expectedFileName := genUniqFileName(loaded.Name(), loaded.CreateTime())
+		assert.Equal(t, expectedFileName, loadedImpl.fileName)
 
 		// Old file should be gone; new one should exist.
 		_, err = os.Stat(stalePath)
@@ -145,7 +149,7 @@ func TestMoveThreadMovesFileAndReloadsSourceGroup(t *testing.T) {
 	dstGrp := NewThreadGroup("D", dstDir)
 
 	base := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
-	thr := &Thread{persisted: persistedThread{
+	thr := &thread{persisted: persistedThread{
 		Name:       "move-me",
 		CreateTime: base,
 		AccessTime: base,

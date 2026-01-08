@@ -1,4 +1,4 @@
-/* Copyright © 2025 Mike Brown. All Rights Reserved.
+/* Copyright © 2025-2026 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -16,7 +16,6 @@ import (
 
 	"github.com/famz/SetLocale"
 	gc "github.com/gbin/goncurses"
-	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/types"
 	iui "github.com/mikeb26/gptcli/internal/ui"
 	"golang.org/x/term"
@@ -86,7 +85,7 @@ func (ui *threadMenuUI) draw() {
 
 	ui.adjustOffset()
 
-	headerTitle := strings.Split(threads.ThreadGroupHeaderString(false), "\n")[0]
+	headerTitle := strings.Split(threadGroupHeaderString(false), "\n")[0]
 	headerTitle = iui.TruncateRunes(headerTitle, maxX)
 
 	if ui.useColors {
@@ -242,7 +241,8 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 			needErase = false
 		}
 		if needRefresh {
-			if err := menuUI.resetItems(gptCliCtx.mainThreadGroup.String(false, false)); err != nil {
+			if err :=
+				menuUI.resetItems(threadGroupString(gptCliCtx.mainThreadGroup, false, false)); err != nil {
 				return err
 			}
 			if menuUI.selected >= len(menuUI.items) {

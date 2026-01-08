@@ -1,3 +1,7 @@
+/* Copyright © 2025-2026 Mike Brown. All Rights Reserved.
+ *
+ * See LICENSE file at the root of this package for license terms
+ */
 package threads
 
 import (
@@ -25,8 +29,9 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 	dir := t.TempDir()
 	grp := NewThreadGroup("", dir)
 	assert.NoError(t, grp.NewThread("t1"))
-	thread, err := grp.ActivateThread(1)
+	activated, err := grp.ActivateThread(1)
 	assert.NoError(t, err)
+	thrImpl := activated.(*thread)
 
 	ctxBase := context.Background()
 	ctx, invocationID := llmclient.EnsureInvocationID(ctxBase)
@@ -60,7 +65,7 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 
 	ictx := types.InternalContext{LlmBaseApprover: noopApprover{}}
 	// Inject a mock client into the active thread so ChatOnceAsync uses it.
-	thread.llmClient = mockClient
+	thrImpl.llmClient = mockClient
 	state, err := grp.ChatOnceAsync(ctx, ictx, "hi", false)
 	assert.NoError(t, err)
 	if assert.NotNil(t, state) {
@@ -106,8 +111,9 @@ func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 	dir := t.TempDir()
 	grp := NewThreadGroup("", dir)
 	assert.NoError(t, grp.NewThread("t1"))
-	thread, err := grp.ActivateThread(1)
+	activated, err := grp.ActivateThread(1)
 	assert.NoError(t, err)
+	thrImpl := activated.(*thread)
 
 	ctxBase := context.Background()
 	ctx, invocationID := llmclient.EnsureInvocationID(ctxBase)
@@ -131,7 +137,7 @@ func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 
 	ictx := types.InternalContext{LlmBaseApprover: noopApprover{}}
 	// Inject a mock client into the active thread so ChatOnceAsync uses it.
-	thread.llmClient = mockClient
+	thrImpl.llmClient = mockClient
 	state, err := grp.ChatOnceAsync(ctx, ictx, "hi", false)
 	assert.NoError(t, err)
 	start := <-state.Start

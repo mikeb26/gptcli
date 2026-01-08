@@ -1,4 +1,4 @@
-/* Copyright © 2025 Mike Brown. All Rights Reserved.
+/* Copyright © 2025-2026 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -135,5 +135,5 @@ func (a *AsyncApprover) setThreadState(ctx context.Context,
 	if !ok || thread == nil {
 		return
 	}
-	thread.SetState(state)
+	thread.setState(state)
 }

@@ -1,4 +1,4 @@
-/* Copyright © 2025 Mike Brown. All Rights Reserved.
+/* Copyright © 2025-2026 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -53,7 +53,7 @@ type RunningThreadState struct {
 	Prompt       string
 	InvocationID string
 
-	Thread   *Thread
+	Thread   Thread
 	Prepared *PreparedChat
 
 	Progress         <-chan types.ProgressEvent
@@ -163,7 +163,7 @@ func (thrGrp *ThreadGroup) ChatOnceAsync(
 func runChatOnceAsync(
 	thrGrp *ThreadGroup,
 	ctx context.Context,
-	thread *Thread,
+	thread *thread,
 	prompt string,
 	summarizePrior bool,
 	invocationID string,
@@ -255,14 +255,14 @@ func trySendChunk(ctx context.Context, ch chan<- RunningThreadChunk, ev RunningT
 type threadKey struct{}
 
 // WithThread returns a context with a Thread attached.
-func WithThread(ctx context.Context, thread *Thread) context.Context {
+func WithThread(ctx context.Context, thread *thread) context.Context {
 	return context.WithValue(ctx, threadKey{}, thread)
 }
 
 // GetThread retrieves a Thread from a context, if any.
-func GetThread(ctx context.Context) (*Thread, bool) {
+func GetThread(ctx context.Context) (*thread, bool) {
 	if v := ctx.Value(threadKey{}); v != nil {
-		if t, ok := v.(*Thread); ok && t != nil {
+		if t, ok := v.(*thread); ok && t != nil {
 			return t, true
 		}
 	}

@@ -1,4 +1,4 @@
-/* Copyright © 2023-2025 Mike Brown. All Rights Reserved.
+/* Copyright © 2023-2026 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -39,48 +39,30 @@ type RenderBlock struct {
 	Text string
 }
 
-// formatHeaderTime renders a timestamp for use in the thread list header.
-// If the time falls on the same local calendar day as "now", the date
-// portion is replaced with "Today". If it falls on the preceding
-// calendar day, it is replaced with "Yesterday". Otherwise, the full
-// date is shown. Calendar-day comparisons are done in the local time
-// zone associated with "now" to avoid off-by-one errors around
-// midnight or when using non-UTC locations.
-func formatHeaderTime(ts time.Time, now time.Time) string {
-	// Normalize the target time into the same location as "now" so
-	// that calendar-day comparisons are meaningful.
-	ts = ts.In(now.Location())
-
-	full := ts.Format("01/02/2006 03:04pm")
-	datePart := ts.Format("01/02/2006")
-
-	y, m, d := now.Date()
-	todayY, todayM, todayD := y, m, d
-	yest := now.AddDate(0, 0, -1)
-	yestY, yestM, yestD := yest.Date()
-	ty, tm, td := ts.Date()
-
-	switch {
-	case ty == todayY && tm == todayM && td == todayD:
-		return strings.Replace(full, datePart, "Today", 1)
-	case ty == yestY && tm == yestM && td == yestD:
-		return strings.Replace(full, datePart, "Yesterday", 1)
-	default:
-		return full
-	}
-}
-
 // RenderBlocks flattens the thread dialogue into a sequence of
 // RenderBlocks that capture the semantic structure (user prompt,
 // assistant text, assistant code) without imposing any particular UI
 // representation.
-func (thread *Thread) RenderBlocks() []RenderBlock {
-	thread.mu.RLock()
-	defer thread.mu.RUnlock()
+func (t *thread) RenderBlocks() []RenderBlock {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 
+	return RenderBlocksFromDialogue(t.persisted.Dialogue)
+}
+
+// RenderBlocksFromDialogue flattens a dialogue into a sequence of
+// RenderBlocks that capture the semantic structure (user prompt,
+// assistant text, assistant code) without imposing any particular UI
+// representation.
+//
+// System messages are omitted.
+func RenderBlocksFromDialogue(dialogue []*types.ThreadMessage) []RenderBlock {
 	blocks := make([]RenderBlock, 0)
 
-	for _, msg := range thread.persisted.Dialogue {
+	for _, msg := range dialogue {
+		if msg == nil {
+			continue
+		}
 		if msg.Role == types.LlmRoleSystem {
 			continue
 		}

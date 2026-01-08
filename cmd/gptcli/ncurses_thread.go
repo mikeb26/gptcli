@@ -1,4 +1,4 @@
-/* Copyright © 2025 Mike Brown. All Rights Reserved.
+/* Copyright © 2025-2026 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -81,7 +81,7 @@ func drawNavbar(scr *gc.Window, focus threadViewFocus) {
 }
 
 // drawThreadHeader renders a single-line header for the thread view.
-func drawThreadHeader(scr *gc.Window, thread *threads.Thread) {
+func drawThreadHeader(scr *gc.Window, thread threads.Thread) {
 	maxY, maxX := scr.MaxYX()
 	if maxY <= 0 {
 		return
@@ -104,23 +104,19 @@ func drawThreadHeader(scr *gc.Window, thread *threads.Thread) {
 
 func applySubmittedPromptToUI(
 	scr *gc.Window,
-	thread *threads.Thread,
+	thread threads.Thread,
 	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
 	prompt string,
-) (displayThread threads.Thread, historyLines []ui.FrameLine, maxX int) {
+) (displayBlocks []threads.RenderBlock, historyLines []ui.FrameLine, maxX int) {
 	// Immediately reflect the user's input at the end of the history
 	// window without mutating the underlying thread yet. We do this by
 	// rendering against a temporary thread that includes the pending user
 	// message.
 	_, maxX = scr.MaxYX()
-	displayThread = *(thread.Copy())
-	userMsg := &types.ThreadMessage{
-		Role:    types.LlmRoleUser,
-		Content: prompt,
-	}
-	displayThread.AppendDialogue(userMsg)
-	historyLines = buildHistoryLines(&displayThread, maxX)
+	displayBlocks = append([]threads.RenderBlock(nil), thread.RenderBlocks()...)
+	displayBlocks = append(displayBlocks, threads.RenderBlock{Kind: threads.RenderBlockUserPrompt, Text: prompt})
+	historyLines = buildHistoryLines(displayBlocks, maxX)
 	historyFrame.SetLines(historyLines)
 	historyFrame.MoveEnd()
 	historyFrame.Render(false)
@@ -134,7 +130,7 @@ func applySubmittedPromptToUI(
 	drawThreadInputLabel(scr, "Processing...")
 	scr.Refresh()
 
-	return displayThread, historyLines, maxX
+	return displayBlocks, historyLines, maxX
 }
 
 func updateThreadStatusFromProgress(statusText string, toolCalls *int,
@@ -216,7 +212,7 @@ func beginAsyncChatFromInputBuffer(
 func processAsyncChatState(
 	scr *gc.Window,
 	gptCliCtx *CliContext,
-	thread *threads.Thread,
+	thread threads.Thread,
 	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
 	ncui *ui.NcursesUI,
@@ -259,7 +255,7 @@ func processAsyncChatState(
 				state.Stop()
 				_, _ = showErrorRetryModal(ncui, startEv.Err.Error())
 				_, maxX := scr.MaxYX()
-				persistedLines := buildHistoryLines(thread, maxX)
+				persistedLines := buildHistoryLinesForThread(thread, maxX)
 				historyFrame.SetLines(persistedLines)
 				historyFrame.MoveEnd()
 				needRedraw = true
@@ -298,7 +294,7 @@ func processAsyncChatState(
 			// Whether success or error, the thread is now persisted (or failed),
 			// so rebuild from the thread's current dialogue.
 			_, maxX := scr.MaxYX()
-			persistedLines := buildHistoryLines(thread, maxX)
+			persistedLines := buildHistoryLinesForThread(thread, maxX)
 			historyFrame.SetLines(persistedLines)
 			historyFrame.MoveEnd()
 			needRedraw = true
@@ -313,7 +309,7 @@ func processAsyncChatState(
 }
 
 type asyncChatUIState struct {
-	displayThread threads.Thread
+	displayBlocks []threads.RenderBlock
 	historyLines  []ui.FrameLine
 	maxX          int
 	promptApplied bool
@@ -337,7 +333,7 @@ type asyncChatUIState struct {
 func newAsyncChatUIStateAndRender(
 	scr *gc.Window,
 	gptCliCtx *CliContext,
-	thread *threads.Thread,
+	thread threads.Thread,
 	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
 	state *threads.RunningThreadState,
@@ -347,11 +343,11 @@ func newAsyncChatUIStateAndRender(
 	}
 
 	_, maxX := scr.MaxYX()
-	displayThread := *(thread.Copy())
-	displayThread.AppendDialogue(&types.ThreadMessage{Role: types.LlmRoleUser, Content: state.Prompt})
-	historyLines := buildHistoryLines(&displayThread, maxX)
+	displayBlocks := append([]threads.RenderBlock(nil), thread.RenderBlocks()...)
+	displayBlocks = append(displayBlocks, threads.RenderBlock{Kind: threads.RenderBlockUserPrompt, Text: state.Prompt})
+	historyLines := buildHistoryLines(displayBlocks, maxX)
 
-	uiState := newAsyncChatUIState(gptCliCtx, thread, state, displayThread, historyLines, maxX)
+	uiState := newAsyncChatUIState(gptCliCtx, thread, state, displayBlocks, historyLines, maxX)
 	if uiState == nil {
 		return nil
 	}
@@ -359,7 +355,7 @@ func newAsyncChatUIStateAndRender(
 	// Render immediately with whatever content is available.
 	historyFrame.SetLines(uiState.historyLines)
 	historyFrame.MoveEnd()
-	rebuildHistory(scr, historyFrame, &uiState.displayThread, uiState.historyLines, uiState.maxX, state.ContentSoFar())
+	rebuildHistory(scr, historyFrame, uiState.displayBlocks, uiState.maxX, state.ContentSoFar())
 	inputFrame.Render(true)
 
 	return uiState
@@ -367,9 +363,9 @@ func newAsyncChatUIStateAndRender(
 
 func newAsyncChatUIState(
 	gptCliCtx *CliContext,
-	thread *threads.Thread,
+	thread threads.Thread,
 	state *threads.RunningThreadState,
-	displayThread threads.Thread,
+	displayBlocks []threads.RenderBlock,
 	historyLines []ui.FrameLine,
 	maxX int,
 ) *asyncChatUIState {
@@ -382,9 +378,9 @@ func newAsyncChatUIState(
 		// If we already have a UI state for this thread, prefer to reuse it;
 		// it may be holding channels or counters.
 		//
-		// Refresh the presentation state (thread copy + wrapped history) so the
+		// Refresh the presentation state (render blocks + wrapped history) so the
 		// view can detach/reattach and resize cleanly.
-		existing.displayThread = displayThread
+		existing.displayBlocks = displayBlocks
 		existing.historyLines = historyLines
 		existing.maxX = maxX
 		existing.promptApplied = true
@@ -396,7 +392,7 @@ func newAsyncChatUIState(
 	}
 
 	uiState := &asyncChatUIState{
-		displayThread:  displayThread,
+		displayBlocks:  displayBlocks,
 		historyLines:   historyLines,
 		maxX:           maxX,
 		promptApplied:  true,
@@ -420,34 +416,20 @@ func newAsyncChatUIState(
 func rebuildHistory(
 	scr *gc.Window,
 	historyFrame *ui.Frame,
-	thread *threads.Thread,
-	historyLines []ui.FrameLine,
+	baseBlocks []threads.RenderBlock,
 	maxX int,
 	extraText string,
 ) {
-	// Rebuild a fresh slice so that wrapping stays consistent with
-	// existing history behavior.
-	allLines := make([]ui.FrameLine, len(historyLines))
-	copy(allLines, historyLines)
-
+	blocks := append([]threads.RenderBlock(nil), baseBlocks...)
 	if extraText != "" {
-		// Render the in-flight assistant text as its own block. We reuse
-		// buildHistoryLines on a temporary thread to avoid duplicating
-		// wrapping logic.
-		tmpThread := *thread
-		tmpMsg := &types.ThreadMessage{
+		extraBlocks := threads.RenderBlocksFromDialogue([]*types.ThreadMessage{{
 			Role:    types.LlmRoleAssistant,
 			Content: extraText,
-		}
-		tmpThread.AppendDialogue(tmpMsg)
-		extraLines := buildHistoryLines(&tmpThread, maxX)
-		// Only keep the lines corresponding to the new assistant message by
-		// dropping the original history length.
-		if len(extraLines) > len(historyLines) {
-			allLines = append(allLines, extraLines[len(historyLines):]...)
-		}
+		}})
+		blocks = append(blocks, extraBlocks...)
 	}
 
+	allLines := buildHistoryLines(blocks, maxX)
 	historyFrame.SetLines(allLines)
 	historyFrame.MoveEnd()
 	historyFrame.Render(false)
@@ -468,11 +450,11 @@ type threadViewFrames struct {
 	historyLines []ui.FrameLine
 }
 
-func createThreadViewFrames(scr *gc.Window, thread *threads.Thread) (*threadViewFrames, error) {
+func createThreadViewFrames(scr *gc.Window, thread threads.Thread) (*threadViewFrames, error) {
 	maxY, maxX := scr.MaxYX()
 	frames := &threadViewFrames{}
 
-	frames.historyLines = buildHistoryLines(thread, maxX)
+	frames.historyLines = buildHistoryLinesForThread(thread, maxX)
 	// History frame occupies the region between the header and the input
 	// label. It is read-only but uses the Frame's cursor/scroll helpers
 	// for navigation.
@@ -541,7 +523,7 @@ func closeThreadViewFrames(frames *threadViewFrames) {
 func attachToRunningThreadAndUpdateUIState(
 	scr *gc.Window,
 	gptCliCtx *CliContext,
-	thread *threads.Thread,
+	thread threads.Thread,
 	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
 	ncui *ui.NcursesUI,
@@ -554,7 +536,7 @@ func attachToRunningThreadAndUpdateUIState(
 		if uiState != nil {
 			content := state.ContentSoFar()
 			if len(content) != uiState.lastContentLen {
-				rebuildHistory(scr, historyFrame, &uiState.displayThread, uiState.historyLines, uiState.maxX, content)
+				rebuildHistory(scr, historyFrame, uiState.displayBlocks, uiState.maxX, content)
 				uiState.lastContentLen = len(content)
 				needRedraw = true
 			}
@@ -573,7 +555,7 @@ func attachToRunningThreadAndUpdateUIState(
 
 func redrawThreadView(
 	scr *gc.Window,
-	thread *threads.Thread,
+	thread threads.Thread,
 	gptCliCtx *CliContext,
 	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
@@ -609,7 +591,7 @@ func processThreadViewKey(
 	ctx context.Context,
 	scr *gc.Window,
 	gptCliCtx *CliContext,
-	thread *threads.Thread,
+	thread threads.Thread,
 	historyFrame *ui.Frame,
 	inputFrame *ui.Frame,
 	focusedFrame **ui.Frame,
@@ -701,8 +683,8 @@ func processThreadViewKey(
 			// Immediately reflect the user's submitted prompt in the history
 			// pane and clear the input buffer. This restores the pre-async
 			// behavior where Ctrl-D visually "sends" the buffer right away.
-			displayThread, submittedHistoryLines, submittedMaxX := applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
-			_ = newAsyncChatUIState(gptCliCtx, thread, state, displayThread, submittedHistoryLines, submittedMaxX)
+			displayBlocks, submittedHistoryLines, submittedMaxX := applySubmittedPromptToUI(scr, thread, historyFrame, inputFrame, prompt)
+			_ = newAsyncChatUIState(gptCliCtx, thread, state, displayBlocks, submittedHistoryLines, submittedMaxX)
 			// Do not block waiting for completion; the UI loop will
 			// continue processing async events and the user can detach.
 		}
@@ -732,7 +714,7 @@ func processThreadViewKey(
 // standard navigation keys. Pressing 'q' or ESC in the history focus
 // returns to the menu.
 func runThreadView(ctx context.Context, scr *gc.Window,
-	gptCliCtx *CliContext, thread *threads.Thread) error {
+	gptCliCtx *CliContext, thread threads.Thread) error {
 	// Use the terminal cursor for caret display in the thread view.
 	_ = gc.Cursor(1)
 	defer gc.Cursor(0)
@@ -777,13 +759,13 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 				uiState := newAsyncChatUIStateAndRender(scr, gptCliCtx, thread, historyFrame, inputFrame, state)
 				if uiState != nil {
 					uiState.maxX = maxX
-					uiState.historyLines = buildHistoryLines(&uiState.displayThread, maxX)
+					uiState.historyLines = buildHistoryLines(uiState.displayBlocks, maxX)
 					historyFrame.SetLines(uiState.historyLines)
-					rebuildHistory(scr, historyFrame, &uiState.displayThread, uiState.historyLines, maxX, state.ContentSoFar())
+					rebuildHistory(scr, historyFrame, uiState.displayBlocks, maxX, state.ContentSoFar())
 					uiState.lastContentLen = len(state.ContentSoFar())
 				}
 			} else {
-				historyLines = buildHistoryLines(thread, maxX)
+				historyLines = buildHistoryLinesForThread(thread, maxX)
 				historyFrame.SetLines(historyLines)
 			}
 			needRedraw = true
@@ -798,7 +780,7 @@ func runThreadView(ctx context.Context, scr *gc.Window,
 		if ch == gc.KEY_RESIZE {
 			resizeScreen(scr)
 			_, maxX = scr.MaxYX()
-			historyLines = buildHistoryLines(thread, maxX)
+			historyLines = buildHistoryLinesForThread(thread, maxX)
 			historyFrame.SetLines(historyLines)
 			needRedraw = true
 			continue

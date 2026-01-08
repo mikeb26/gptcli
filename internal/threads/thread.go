@@ -1,4 +1,4 @@
-/* Copyright © 2023-2025 Mike Brown. All Rights Reserved.
+/* Copyright © 2023-2026 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -17,8 +17,6 @@ import (
 
 const (
 	ThreadNoExistErrFmt = "Thread %v does not exist. To list threads try 'ls'.\n"
-	RowFmt              = "│ %8v │ %8v │ %18v │ %18v │ %18v │ %-18v\n"
-	RowSpacer           = "──────────────────────────────────────────────────────────────────────────────────────────────\n"
 )
 
 type ThreadState int
@@ -56,7 +54,19 @@ type persistedThread struct {
 	Id         string
 }
 
-type Thread struct {
+type Thread interface {
+	State() ThreadState
+	Id() string
+	Name() string
+	CreateTime() time.Time
+	AccessTime() time.Time
+	ModTime() time.Time
+	Dialogue() []*types.ThreadMessage
+	RenderBlocks() []RenderBlock
+	GetRunState() *RunningThreadState
+}
+
+type thread struct {
 	persisted persistedThread
 
 	fileName string
@@ -73,11 +83,11 @@ type Thread struct {
 
 // State returns the current thread state. It is primarily intended for UI
 // layers that want to render state (running/blocked/etc.).
-func (thread *Thread) State() ThreadState {
-	thread.mu.RLock()
-	defer thread.mu.RUnlock()
+func (t *thread) State() ThreadState {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 
-	return thread.state
+	return t.state
 }
 
 // GetRunState returns the current thread's running state
@@ -85,96 +95,88 @@ func (thread *Thread) State() ThreadState {
 // single ChatOnceAsync() invocation and its backgrounded activity. It is the
 // caller's responsibility to ensure the returned RunningThreadState cannot
 // be dereferenced subsequent to invoking RunningThreadState.Close()
-func (thread *Thread) GetRunState() *RunningThreadState {
-	thread.mu.RLock()
-	defer thread.mu.RUnlock()
+func (t *thread) GetRunState() *RunningThreadState {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 
-	return thread.runState
+	return t.runState
 }
 
 // SetState sets the current thread state.
-func (thread *Thread) SetState(state ThreadState) {
-	thread.mu.Lock()
-	defer thread.mu.Unlock()
+func (t *thread) setState(state ThreadState) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
-	thread.state = state
+	t.state = state
 }
 
 // Id returns the current thread id
-func (thread *Thread) Id() string {
-	thread.mu.RLock()
-	defer thread.mu.RUnlock()
+func (t *thread) Id() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 
-	return thread.persisted.Id
+	return t.persisted.Id
+}
+
+// CreateTime returns the thread creation timestamp.
+func (t *thread) CreateTime() time.Time {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.persisted.CreateTime
+}
+
+// AccessTime returns the last access timestamp.
+func (t *thread) AccessTime() time.Time {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.persisted.AccessTime
+}
+
+// ModTime returns the last modified timestamp.
+func (t *thread) ModTime() time.Time {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.persisted.ModTime
 }
 
 // Dialogue returns a deep copy of the thread's dialogue
-func (thread *Thread) Dialogue() []*types.ThreadMessage {
-	thread.mu.RLock()
-	defer thread.mu.RUnlock()
+func (t *thread) Dialogue() []*types.ThreadMessage {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 
-	orig := thread.persisted.Dialogue
+	orig := t.persisted.Dialogue
 	dCopy := make([]*types.ThreadMessage, len(orig))
 	copy(dCopy, orig)
 
 	return dCopy
 }
 
-// AppendDialogue appends a message to the existing thred dialogue
-func (thread *Thread) AppendDialogue(msg *types.ThreadMessage) {
-	thread.mu.Lock()
-	defer thread.mu.Unlock()
-
-	thread.persisted.Dialogue = append(thread.persisted.Dialogue, msg)
-}
-
 // Name returns the thread's name
-func (thread *Thread) Name() string {
-	thread.mu.RLock()
-	defer thread.mu.RUnlock()
+func (t *thread) Name() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 
-	return thread.persisted.Name
-}
-
-// Copy returns a deep copy of the thread
-func (thread *Thread) Copy() *Thread {
-	thread.mu.RLock()
-	defer thread.mu.RUnlock()
-
-	return thread.copyInt()
-}
-
-func (thread *Thread) copyInt() *Thread {
-	var thrCopy Thread
-	thrCopy = *thread
-	thrCopy.mu = sync.RWMutex{}
-	thrCopy.state = ThreadStateIdle
-	orig := thread.persisted.Dialogue
-	dCopy := make([]*types.ThreadMessage, len(orig))
-	copy(dCopy, orig)
-	thrCopy.persisted.Dialogue = dCopy
-
-	return &thrCopy
+	return t.persisted.Name
 }
 
 // save persists the thread's dialogue to a file; callers should already hold
 // a write lock on the thread's mutex
-func (thread *Thread) save(dir string) error {
-	if thread.state != ThreadStateIdle {
-		return fmt.Errorf("cannot save non-idle thread state:%v", thread.state)
+func (t *thread) save(dir string) error {
+	if t.state != ThreadStateIdle {
+		return fmt.Errorf("cannot save non-idle thread state:%v", t.state)
 	}
 
-	threadFileContent, err := json.Marshal(&thread.persisted)
+	threadFileContent, err := json.Marshal(&t.persisted)
 	if err != nil {
-		return fmt.Errorf("Failed to save thread %v: %w", thread.persisted.Name,
+		return fmt.Errorf("Failed to save thread %v: %w", t.persisted.Name,
 			err)
 	}
 
-	filePath := filepath.Join(dir, thread.fileName)
+	filePath := filepath.Join(dir, t.fileName)
 	err = os.WriteFile(filePath, threadFileContent, 0600)
 	if err != nil {
 		return fmt.Errorf("Failed to save thread %v(%v): %w",
-			thread.persisted.Name, filePath, err)
+			t.persisted.Name, filePath, err)
 	}
 
 	return nil
@@ -182,32 +184,18 @@ func (thread *Thread) save(dir string) error {
 
 // remove deletes the thread's persisted dialogue; callers should already hold
 // a write lock on the thread's mutex
-func (thread *Thread) remove(dir string) error {
-	if thread.state != ThreadStateIdle {
+func (t *thread) remove(dir string) error {
+	if t.state != ThreadStateIdle {
 		return fmt.Errorf("cannot remove non-idle thread state:%v",
-			thread.state)
+			t.state)
 	}
 
-	filePath := filepath.Join(dir, thread.fileName)
+	filePath := filepath.Join(dir, t.fileName)
 	err := os.Remove(filePath)
 	if err != nil {
 		return fmt.Errorf("Failed to delete thread %v(%v): %w",
-			thread.persisted.Name, filePath, err)
+			t.persisted.Name, filePath, err)
 	}
 
 	return nil
-}
-
-func (t *Thread) HeaderString(threadNum string) string {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	now := time.Now()
-
-	cTime := formatHeaderTime(t.persisted.CreateTime, now)
-	aTime := formatHeaderTime(t.persisted.AccessTime, now)
-	mTime := formatHeaderTime(t.persisted.ModTime, now)
-
-	return fmt.Sprintf(RowFmt, threadNum, t.state, aTime, mTime, cTime,
-		t.persisted.Name)
 }

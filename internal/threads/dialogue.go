@@ -1,4 +1,4 @@
-/* Copyright © 2023-2025 Mike Brown. All Rights Reserved.
+/* Copyright © 2023-2026 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -22,7 +22,7 @@ import (
 // finalization logic.
 type PreparedChat struct {
 	Ctx             context.Context
-	Thread          *Thread
+	Thread          *thread
 	FullDialogue    []*types.ThreadMessage // full history + user request
 	WorkingDialogue []*types.ThreadMessage // possibly summarized + user request
 	ReqMsg          *types.ThreadMessage
@@ -36,7 +36,7 @@ type PreparedChat struct {
 // should call this once and hold on to the returned pointer; callers should
 // not repeatedly consult "current thread" state from the thread group.
 func (thrGrp *ThreadGroup) setCurrentThreadRunning(ctx context.Context,
-	ictx types.InternalContext) (*Thread, error) {
+	ictx types.InternalContext) (*thread, error) {
 	thrGrp.mu.RLock()
 	defer thrGrp.mu.RUnlock()
 
@@ -78,7 +78,7 @@ func (thrGrp *ThreadGroup) setCurrentThreadRunning(ctx context.Context,
 // thread" so that callers can safely record a thread pointer once and reuse it
 // for the lifetime of a run.
 func (thrGrp *ThreadGroup) prepareChatOnceInThread(
-	ctx context.Context, thread *Thread,
+	ctx context.Context, thread *thread,
 	prompt string, summarizePrior bool) (*PreparedChat, error) {
 
 	reqMsg := &types.ThreadMessage{
@@ -158,7 +158,7 @@ func (thrGrp *ThreadGroup) finalizeChatOnce(
 // consuming the stream, assembling the final reply message, and then
 // invoking FinalizeChatOnce.
 func (thrGrp *ThreadGroup) chatOnceStreamInThread(
-	ctx context.Context, thread *Thread, prompt string,
+	ctx context.Context, thread *thread, prompt string,
 	summarizePrior bool,
 ) (*PreparedChat, *schema.StreamReader[*types.ThreadMessage], error) {
 

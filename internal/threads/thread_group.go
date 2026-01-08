@@ -1,4 +1,4 @@
-/* Copyright © 2023-2025 Mike Brown. All Rights Reserved.
+/* Copyright © 2023-2026 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -22,19 +21,19 @@ import (
 )
 
 type ThreadGroup struct {
-	Prefix       string
-	threads      []*Thread
+	prefix       string
+	threads      []*thread
 	totThreads   int
 	dir          string
 	curThreadNum int
 	mu           sync.RWMutex
 }
 
-func NewThreadGroup(PrefixIn string, dirIn string) *ThreadGroup {
+func NewThreadGroup(prefixIn string, dirIn string) *ThreadGroup {
 
 	thrGrp := &ThreadGroup{
-		Prefix:       PrefixIn,
-		threads:      make([]*Thread, 0),
+		prefix:       prefixIn,
+		threads:      make([]*thread, 0),
 		totThreads:   0,
 		dir:          dirIn,
 		curThreadNum: 0,
@@ -43,16 +42,23 @@ func NewThreadGroup(PrefixIn string, dirIn string) *ThreadGroup {
 	return thrGrp
 }
 
-func (thrGrp *ThreadGroup) Threads() []*Thread {
+func (thrGrp *ThreadGroup) Threads() []Thread {
 	thrGrp.mu.RLock()
 	defer thrGrp.mu.RUnlock()
 
-	thrCopies := make([]*Thread, 0, len(thrGrp.threads))
+	out := make([]Thread, 0, len(thrGrp.threads))
 	for _, thr := range thrGrp.threads {
-		thrCopies = append(thrCopies, thr.Copy())
+		out = append(out, thr)
 	}
 
-	return thrCopies
+	return out
+}
+
+func (thrGrp *ThreadGroup) Prefix() string {
+	thrGrp.mu.RLock()
+	defer thrGrp.mu.RUnlock()
+
+	return thrGrp.prefix
 }
 
 // NonIdleThreadCount returns the number of threads in the group that are not
@@ -98,7 +104,7 @@ func (thrGrp *ThreadGroup) LoadThreads() error {
 
 	thrGrp.curThreadNum = 0
 	thrGrp.totThreads = 0
-	thrGrp.threads = make([]*Thread, 0)
+	thrGrp.threads = make([]*thread, 0)
 
 	dEntries, err := os.ReadDir(thrGrp.dir)
 	if err != nil {
@@ -112,7 +118,7 @@ func (thrGrp *ThreadGroup) LoadThreads() error {
 			return fmt.Errorf("Failed to read %v: %w", fullpath, err)
 		}
 
-		var thread Thread
+		var thread thread
 		err = json.Unmarshal(threadFileText, &thread.persisted)
 		if err != nil {
 			return fmt.Errorf("Failed to parse %v: %w", fullpath, err)
@@ -138,58 +144,16 @@ func (thrGrp *ThreadGroup) LoadThreads() error {
 	return nil
 }
 
-func ThreadGroupHeaderString(includeSpacers bool) string {
-	var sb strings.Builder
-
-	if includeSpacers {
-		sb.WriteString(RowSpacer)
-	}
-	sb.WriteString(fmt.Sprintf(RowFmt, "Thread#", "State", "Last Accessed",
-		"Last Modified", "Created", "Name"))
-
-	if includeSpacers {
-		sb.WriteString(RowSpacer)
-	}
-
-	return sb.String()
-}
-
-func ThreadGroupFooterString() string {
-	return RowSpacer
-}
-
-func (thrGrp *ThreadGroup) String(header bool, footer bool) string {
-	var sb strings.Builder
-
-	if header {
-		sb.WriteString(ThreadGroupHeaderString(true))
-	}
-
-	thrGrp.mu.RLock()
-	defer thrGrp.mu.RUnlock()
-
-	for idx, t := range thrGrp.threads {
-		threadNum := fmt.Sprintf("%v%v", thrGrp.Prefix, idx+1)
-		sb.WriteString(t.HeaderString(threadNum))
-	}
-
-	if footer {
-		sb.WriteString(ThreadGroupFooterString())
-	}
-
-	return sb.String()
-}
-
 // activateThread updates the thread group's current thread state,
 // refreshes the access time, and persists the thread to disk. It
 // performs no user-facing I/O and is therefore safe to call from
 // different UIs (CLI, ncurses, etc.).
-func (thrGrp *ThreadGroup) ActivateThread(threadNum int) (*Thread, error) {
+func (thrGrp *ThreadGroup) ActivateThread(threadNum int) (Thread, error) {
 	thrGrp.mu.Lock()
 	defer thrGrp.mu.Unlock()
 
 	if threadNum > thrGrp.totThreads || threadNum == 0 {
-		threadNumPrint := fmt.Sprintf("%v%v", thrGrp.Prefix, threadNum)
+		threadNumPrint := fmt.Sprintf("%v%v", thrGrp.prefix, threadNum)
 		return nil, fmt.Errorf(ThreadNoExistErrFmt, threadNumPrint)
 	}
 
@@ -229,7 +193,7 @@ func (thrGrp *ThreadGroup) NewThread(name string) error {
 			Content: prompts.SystemMsg},
 	}
 
-	curThread := &Thread{
+	curThread := &thread{
 		persisted: persistedThread{
 			Name:       name,
 			CreateTime: cTime,
@@ -247,7 +211,7 @@ func (thrGrp *ThreadGroup) NewThread(name string) error {
 	return nil
 }
 
-func (thrGrp *ThreadGroup) addThread(curThread *Thread) int {
+func (thrGrp *ThreadGroup) addThread(curThread *thread) int {
 	thrGrp.totThreads++
 	thrGrp.threads = append(thrGrp.threads, curThread)
 
@@ -279,7 +243,7 @@ func (srcThrGrp *ThreadGroup) MoveThread(threadNum int,
 	defer second.mu.Unlock()
 
 	if threadNum > srcThrGrp.totThreads || threadNum == 0 {
-		threadNumPrint := fmt.Sprintf("%v%v", srcThrGrp.Prefix, threadNum)
+		threadNumPrint := fmt.Sprintf("%v%v", srcThrGrp.prefix, threadNum)
 		return fmt.Errorf(ThreadNoExistErrFmt, threadNumPrint)
 	}
 

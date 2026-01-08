@@ -1,4 +1,4 @@
-/* Copyright © 2023-2025 Mike Brown. All Rights Reserved.
+/* Copyright © 2023-2026 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -176,7 +176,7 @@ func (gptCliCtx *CliContext) load(ctx context.Context) error {
 	return nil
 }
 
-func threadContainsSearchStr(t *threads.Thread, searchStr string) bool {
+func threadContainsSearchStr(t threads.Thread, searchStr string) bool {
 	for _, msg := range t.Dialogue() {
 		if msg.Role == types.LlmRoleSystem {
 			continue

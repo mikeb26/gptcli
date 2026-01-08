@@ -1,4 +1,4 @@
-/* Copyright © 2025 Mike Brown. All Rights Reserved.
+/* Copyright © 2025-2026 Mike Brown. All Rights Reserved.
  *
  * See LICENSE file at the root of this package for license terms
  */
@@ -16,14 +16,13 @@ import (
 // "LLM:") and soft wrapping with a trailing '\\' on wrapped
 // segments. The resulting slice is suitable for direct line-by-line
 // rendering in the history pane via a ui.Frame.
-func buildHistoryLines(thread *threads.Thread, width int) []ui.FrameLine {
+func buildHistoryLines(blocks []threads.RenderBlock, width int) []ui.FrameLine {
 	// We need at least two columns: one for text and one for the history
 	// frame's scrollbar. Below that threshold we simply omit history
 	// rendering.
 	if width <= 1 {
 		return nil
 	}
-	blocks := thread.RenderBlocks()
 	lines := make([]ui.FrameLine, 0)
 
 	// The history frame reserves its last column for a scrollbar, so we
@@ -67,4 +66,8 @@ func buildHistoryLines(thread *threads.Thread, width int) []ui.FrameLine {
 	}
 
 	return lines
+}
+
+func buildHistoryLinesForThread(thread threads.Thread, width int) []ui.FrameLine {
+	return buildHistoryLines(thread.RenderBlocks(), width)
 }

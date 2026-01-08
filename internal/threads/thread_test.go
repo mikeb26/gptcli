@@ -1,31 +1,18 @@
+/* Copyright © 2025-2026 Mike Brown. All Rights Reserved.
+ *
+ * See LICENSE file at the root of this package for license terms
+ */
 package threads
 
 import (
 	"testing"
-	"time"
 
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestHeaderStringUsesFormattedTimes(t *testing.T) {
-	thr := &Thread{persisted: persistedThread{Name: "test-thread"}}
-
-	// Fix timestamps so behavior is deterministic.
-	base := time.Date(2025, 1, 15, 10, 30, 0, 0, time.Local)
-	thr.persisted.CreateTime = base.Add(-2 * time.Hour)
-	thr.persisted.AccessTime = base.Add(-1 * time.Hour)
-	thr.persisted.ModTime = base.Add(-30 * time.Minute)
-
-	header := thr.HeaderString("T1")
-
-	// Basic sanity checks: thread number and name present, no panic.
-	assert.Contains(t, header, "T1")
-	assert.Contains(t, header, "test-thread")
-}
-
 func TestRenderBlocksSkipsSystemAndSplitsAssistantCode(t *testing.T) {
-	thr := &Thread{persisted: persistedThread{Dialogue: []*types.ThreadMessage{
+	thr := &thread{persisted: persistedThread{Dialogue: []*types.ThreadMessage{
 		{Role: types.LlmRoleSystem, Content: "sys"},
 		{Role: types.LlmRoleUser, Content: "user prompt"},
 		{Role: types.LlmRoleAssistant, Content: "before```\ncode\n```after"},
