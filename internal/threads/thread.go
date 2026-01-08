@@ -63,7 +63,6 @@ type Thread interface {
 	ModTime() time.Time
 	Dialogue() []*types.ThreadMessage
 	RenderBlocks() []RenderBlock
-	GetRunState() *RunningThreadState
 }
 
 type thread struct {
@@ -89,19 +88,6 @@ func (t *thread) State() ThreadState {
 
 	return t.state
 }
-
-// GetRunState returns the current thread's running state
-// Note that RunningThreadState lifetime exists for the duration of a
-// single ChatOnceAsync() invocation and its backgrounded activity. It is the
-// caller's responsibility to ensure the returned RunningThreadState cannot
-// be dereferenced subsequent to invoking RunningThreadState.Close()
-func (t *thread) GetRunState() *RunningThreadState {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	return t.runState
-}
-
 // SetState sets the current thread state.
 func (t *thread) setState(state ThreadState) {
 	t.mu.Lock()

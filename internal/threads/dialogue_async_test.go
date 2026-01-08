@@ -7,8 +7,8 @@ package threads
 import (
 	"context"
 	"io"
-	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/golang/mock/gomock"
@@ -72,20 +72,10 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 		assert.Equal(t, invocationID, state.InvocationID)
 	}
 
-	start := <-state.Start
-	assert.NoError(t, start.Err)
-	assert.NotNil(t, start.Prepared)
-
-	var got strings.Builder
-	for ce := range state.Chunk {
-		if ce.Err != nil {
-			assert.FailNow(t, "unexpected stream error", ce.Err.Error())
-		}
-		if ce.Msg != nil {
-			got.WriteString(ce.Msg.Content)
-		}
-	}
-	assert.Equal(t, "Hello world", got.String())
+	// Poll the accumulated content while the worker streams.
+	assert.Eventually(t, func() bool {
+		return state.ContentSoFar() == "Hello world"
+	}, 2*time.Second, 5*time.Millisecond)
 
 	res := <-state.Result
 	assert.NoError(t, res.Err)
@@ -140,17 +130,11 @@ func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 	thrImpl.llmClient = mockClient
 	state, err := grp.ChatOnceAsync(ctx, ictx, "hi", false)
 	assert.NoError(t, err)
-	start := <-state.Start
-	assert.NoError(t, start.Err)
 
-	// Drain chunks; we expect at least one error chunk.
-	gotErr := false
-	for ce := range state.Chunk {
-		if ce.Err != nil {
-			gotErr = true
-		}
-	}
-	assert.True(t, gotErr)
+	// Wait until we have at least the partial content.
+	assert.Eventually(t, func() bool {
+		return state.ContentSoFar() == "partial"
+	}, 2*time.Second, 5*time.Millisecond)
 
 	res := <-state.Result
 	assert.Error(t, res.Err)

@@ -84,7 +84,7 @@ func (thrGrp *ThreadGroup) NonIdleThreadCount() int {
 
 func (thrGrp *ThreadGroup) hasNonIdleThreads() bool {
 	// caller holds thrGrp.mu so each thread's state cannot transition
-	// out of idle; see setCurrentThreadRunning()
+	// out of idle.
 	for _, thr := range thrGrp.threads {
 		if thr.State() != ThreadStateIdle {
 			return true

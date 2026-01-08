@@ -16,31 +16,11 @@ import (
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
-// RunningThreadChunk represents one incremental streamed message chunk or an
-// error encountered while streaming.
-//
-// When Err is non-nil, Msg may be nil.
-//
-// Stream completion is indicated by the Chunk channel closing; errors are
-// surfaced via Err and the Result channel.
-type RunningThreadChunk struct {
-	Msg *types.ThreadMessage
-	Err error
-}
-
-// RunningThreadStart is sent once, when the request has been prepared and the
-// streaming reader has been established (or the request failed before that).
-type RunningThreadStart struct {
-	Prepared *PreparedChat
-	Err      error
-}
-
 // RunningThreadResult is sent once, when the request has completed (success or
 // failure).
 type RunningThreadResult struct {
-	Prepared *PreparedChat
-	Reply    *types.ThreadMessage
-	Err      error
+	Reply *types.ThreadMessage
+	Err   error
 }
 
 // RunningThreadState captures all asynchronous state for a single in-flight chat
@@ -53,12 +33,7 @@ type RunningThreadState struct {
 	Prompt       string
 	InvocationID string
 
-	Thread   Thread
-	Prepared *PreparedChat
-
 	Progress         <-chan types.ProgressEvent
-	Start            <-chan RunningThreadStart
-	Chunk            <-chan RunningThreadChunk
 	ApprovalRequests <-chan AsyncApprovalRequest
 	AsyncApprover    *AsyncApprover
 
@@ -69,7 +44,7 @@ type RunningThreadState struct {
 
 	mu sync.RWMutex
 	// contentSoFarBuf accumulates the streamed content so far so that background
-	// runs can continue even when no UI is consuming Chunk events.
+	// runs can continue even when no UI is actively consuming progress events.
 	contentSoFarBuf []byte
 }
 
@@ -97,12 +72,10 @@ func (s *RunningThreadState) Stop() {
 }
 
 // ChatOnceAsync is the fully-asynchronous analogue of
-// ChatOnce / ChatOnceStream.
+// the legacy synchronous chat APIs.
 //
 // It returns immediately with a RunningThreadState that exposes channels for:
 //   - progress events
-//   - prepared/start notification
-//   - streamed chunks/errors
 //   - proxy UI requests
 //   - final result
 //   - completion
@@ -128,18 +101,13 @@ func (thrGrp *ThreadGroup) ChatOnceAsync(
 	ctx = WithThread(ctx, thread)
 
 	progressCh := thread.llmClient.SubscribeProgress(invocationID)
-	startCh := make(chan RunningThreadStart, 1)
-	chunkCh := make(chan RunningThreadChunk, 16)
 	resultCh := make(chan RunningThreadResult, 1)
 	doneCh := make(chan struct{})
 
 	state := &RunningThreadState{
 		Prompt:           prompt,
 		InvocationID:     invocationID,
-		Thread:           thread,
 		Progress:         progressCh,
-		Start:            startCh,
-		Chunk:            chunkCh,
 		ApprovalRequests: thread.asyncApprover.Requests,
 		AsyncApprover:    thread.asyncApprover,
 		Result:           resultCh,
@@ -154,7 +122,7 @@ func (thrGrp *ThreadGroup) ChatOnceAsync(
 	go runChatOnceAsync(
 		thrGrp, ctx, thread, prompt, summarizePrior,
 		invocationID, progressCh,
-		state, startCh, chunkCh, resultCh, doneCh,
+		state, resultCh, doneCh,
 	)
 
 	return state, nil
@@ -169,35 +137,57 @@ func runChatOnceAsync(
 	invocationID string,
 	progressCh chan types.ProgressEvent,
 	state *RunningThreadState,
-	startCh chan<- RunningThreadStart,
-	chunkCh chan<- RunningThreadChunk,
 	resultCh chan<- RunningThreadResult,
 	doneCh chan<- struct{},
 ) {
 	defer close(doneCh)
-	defer close(chunkCh)
 	defer close(resultCh)
 	defer thread.llmClient.UnsubscribeProgress(progressCh, invocationID)
 
-	prep, stream, err := thrGrp.chatOnceStreamInThread(ctx, thread, prompt, summarizePrior)
+	// Worker-owned flow: prepare the request, stream the assistant reply,
+	// finalize/persist, then send the terminal result.
+
+	// Build the user request.
+	reqMsg := &types.ThreadMessage{
+		Role:    types.LlmRoleUser,
+		Content: prompt,
+	}
+
+	// Attach a thread reference to the context so lower layers (e.g. tool
+	// approvals) can mark the thread blocked/running.
+	ctx = WithThread(ctx, thread)
+
+	// Copy persisted dialogue so we don't mutate in-memory state while streaming.
+	thread.mu.RLock()
+	fullDialogue := make([]*types.ThreadMessage, len(thread.persisted.Dialogue))
+	copy(fullDialogue, thread.persisted.Dialogue)
+	thread.mu.RUnlock()
+	fullDialogue = append(fullDialogue, reqMsg)
+	workingDialogue := fullDialogue
+
+	if summarizePrior && len(fullDialogue) > 2 {
+		prior := fullDialogue[:len(fullDialogue)-1]
+		summaryDialogue, sumErr := summarizeDialogue(ctx, thread.llmClient, prior)
+		if sumErr != nil {
+			resultCh <- RunningThreadResult{Reply: nil, Err: sumErr}
+			return
+		}
+		workingDialogue = append(summaryDialogue, reqMsg)
+	}
+
+	// Ensure an invocation ID exists on the request context.
+	ctx, _ = llmclient.EnsureInvocationID(ctx)
+	res, err := thread.llmClient.StreamChatCompletion(ctx, workingDialogue)
 	if err != nil {
-		startCh <- RunningThreadStart{Prepared: nil, Err: err}
-		close(startCh)
-		resultCh <- RunningThreadResult{Prepared: nil, Reply: nil, Err: err}
+		resultCh <- RunningThreadResult{Reply: nil, Err: err}
 		return
 	}
-	if prep == nil || stream == nil {
+	if res == nil || res.Stream == nil {
 		err := errors.New("nil stream result")
-		startCh <- RunningThreadStart{Prepared: nil, Err: err}
-		close(startCh)
-		resultCh <- RunningThreadResult{Prepared: nil, Reply: nil, Err: err}
+		resultCh <- RunningThreadResult{Reply: nil, Err: err}
 		return
 	}
-	state.Prepared = prep
-
-	startCh <- RunningThreadStart{Prepared: prep, Err: nil}
-	close(startCh)
-
+	stream := res.Stream
 	defer stream.Close()
 	go closeStreamOnCancel(ctx, stream)
 
@@ -207,29 +197,26 @@ func runChatOnceAsync(
 			if errors.Is(recvErr, io.EOF) {
 				break
 			}
-			trySendChunk(ctx, chunkCh, RunningThreadChunk{Msg: nil, Err: recvErr})
-			resultCh <- RunningThreadResult{Prepared: prep, Reply: nil, Err: recvErr}
+			resultCh <- RunningThreadResult{Reply: nil, Err: recvErr}
 			return
 		}
 		if msg == nil {
 			continue
 		}
 		state.appendContentSoFar(msg.Content)
-		// Chunk delivery is best-effort; the authoritative content lives in
-		// RunningThreadState.contentSoFarBuf.
-		trySendChunk(ctx, chunkCh, RunningThreadChunk{Msg: msg, Err: nil})
 	}
 
 	replyMsg := &types.ThreadMessage{
 		Role:    types.LlmRoleAssistant,
 		Content: state.ContentSoFar(),
 	}
-	if err := thrGrp.finalizeChatOnce(prep, replyMsg); err != nil {
-		resultCh <- RunningThreadResult{Prepared: prep, Reply: nil, Err: err}
+	finalDialogue := append(fullDialogue, replyMsg)
+	if err := finalizeChatOnce(thrGrp, thread, finalDialogue); err != nil {
+		resultCh <- RunningThreadResult{Reply: nil, Err: err}
 		return
 	}
 
-	resultCh <- RunningThreadResult{Prepared: prep, Reply: replyMsg, Err: nil}
+	resultCh <- RunningThreadResult{Reply: replyMsg, Err: nil}
 }
 
 func closeStreamOnCancel(ctx context.Context, stream *schema.StreamReader[*types.ThreadMessage]) {
@@ -238,18 +225,6 @@ func closeStreamOnCancel(ctx context.Context, stream *schema.StreamReader[*types
 	}
 	<-ctx.Done()
 	stream.Close()
-}
-
-func trySendChunk(ctx context.Context, ch chan<- RunningThreadChunk, ev RunningThreadChunk) {
-	// Best-effort send. If the channel is full, drop it. Callers can utilize
-	// ContentSoFar() to get the full history of prior RunningThreadChunk
-	select {
-	case <-ctx.Done():
-		return
-	case ch <- ev:
-	default:
-		// full
-	}
 }
 
 type threadKey struct{}

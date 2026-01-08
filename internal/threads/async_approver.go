@@ -98,13 +98,9 @@ func (a *AsyncApprover) AskApproval(ctx context.Context, req am.ApprovalRequest)
 // AsyncApprovalRequest is a marshaled approval interaction to be executed by
 // an approver-owning goroutine.
 //
-// ThreadID is optional metadata for consumers that want to route/queue
-// requests by thread.
-//
 // Ctx is the context supplied to AskApproval; it may be nil.
 type AsyncApprovalRequest struct {
 	Ctx      context.Context
-	ThreadID string
 	Request  am.ApprovalRequest
 	ReplyCh  chan AsyncApprovalResponse
 }
