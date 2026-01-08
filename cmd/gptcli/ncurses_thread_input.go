@@ -22,8 +22,8 @@ const (
 //
 // statusText, when non-empty, is appended after the label and can be used
 // to display transient thread state (e.g. "Processing...", "LLM: thinking").
-func drawThreadInputLabel(scr *gc.Window, statusText string) {
-	maxY, maxX := scr.MaxYX()
+func drawThreadInputLabel(cliCtx *CliContext, statusText string) {
+	maxY, maxX := cliCtx.rootWin.MaxYX()
 	inputHeight := threadInputHeight
 	startY := maxY - menuStatusHeight - inputHeight
 	if startY < menuHeaderHeight {
@@ -37,12 +37,12 @@ func drawThreadInputLabel(scr *gc.Window, statusText string) {
 		statusText = string([]rune(statusText)[:maxX])
 	}
 	var sepAttr gc.Char = gc.A_NORMAL
-	if globalUseColors {
+	if cliCtx.toggles.useColors {
 		sepAttr = gc.ColorPair(menuColorStatus)
 	}
-	_ = scr.AttrSet(sepAttr)
-	scr.Move(startY, 0)
-	scr.HLine(startY, 0, ' ', maxX)
-	scr.MovePrint(startY, 0, statusText)
-	_ = scr.AttrSet(gc.A_NORMAL)
+	_ = cliCtx.rootWin.AttrSet(sepAttr)
+	cliCtx.rootWin.Move(startY, 0)
+	cliCtx.rootWin.HLine(startY, 0, ' ', maxX)
+	cliCtx.rootWin.MovePrint(startY, 0, statusText)
+	_ = cliCtx.rootWin.AttrSet(gc.A_NORMAL)
 }

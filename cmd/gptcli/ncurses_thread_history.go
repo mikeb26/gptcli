@@ -16,7 +16,9 @@ import (
 // "LLM:") and soft wrapping with a trailing '\\' on wrapped
 // segments. The resulting slice is suitable for direct line-by-line
 // rendering in the history pane via a ui.Frame.
-func buildHistoryLines(blocks []threads.RenderBlock, width int) []ui.FrameLine {
+func buildHistoryLines(cliCtx *CliContext, blocks []threads.RenderBlock,
+	width int) []ui.FrameLine {
+
 	// We need at least two columns: one for text and one for the history
 	// frame's scrollbar. Below that threshold we simply omit history
 	// rendering.
@@ -41,21 +43,21 @@ func buildHistoryLines(blocks []threads.RenderBlock, width int) []ui.FrameLine {
 		switch b.Kind {
 		case threads.RenderBlockUserPrompt:
 			prefix = "You: "
-			if globalUseColors {
+			if cliCtx.toggles.useColors {
 				attr = gc.ColorPair(threadColorUser)
 			} else {
 				attr = gc.A_BOLD
 			}
 		case threads.RenderBlockAssistantText:
 			prefix = "LLM: "
-			if globalUseColors {
+			if cliCtx.toggles.useColors {
 				attr = gc.ColorPair(threadColorAssistant)
 			} else {
 				attr = gc.A_NORMAL
 			}
 		case threads.RenderBlockAssistantCode:
 			prefix = "LLM: "
-			if globalUseColors {
+			if cliCtx.toggles.useColors {
 				attr = gc.ColorPair(threadColorCode)
 			} else {
 				attr = gc.A_BOLD
@@ -68,6 +70,8 @@ func buildHistoryLines(blocks []threads.RenderBlock, width int) []ui.FrameLine {
 	return lines
 }
 
-func buildHistoryLinesForThread(thread threads.Thread, width int) []ui.FrameLine {
-	return buildHistoryLines(thread.RenderBlocks(), width)
+func buildHistoryLinesForThread(cliCtx *CliContext, thread threads.Thread,
+	width int) []ui.FrameLine {
+
+	return buildHistoryLines(cliCtx, thread.RenderBlocks(), width)
 }

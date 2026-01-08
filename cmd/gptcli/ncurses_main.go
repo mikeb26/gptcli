@@ -6,45 +6,32 @@
 package main
 
 import (
-	"context"
-	"flag"
-	"strings"
-
 	gc "github.com/gbin/goncurses"
 )
 
 type threadMenuUI struct {
-	scr       *gc.Window
-	items     []string
-	selected  int
-	offset    int
-	useColors bool
+	cliCtx   *CliContext
+	items    []string
+	selected int
+	offset   int
 }
 
-// globalUseColors mirrors the color capability detected in initUI so
-// that other ncurses views (like the per-thread view) can make the
-// same color vs monochrome decisions without re-detecting.
-var globalUseColors bool
-
-func newThreadMenuUI(scr *gc.Window, useColors bool) *threadMenuUI {
+func newThreadMenuUI(cliCtxIn *CliContext) *threadMenuUI {
 	return &threadMenuUI{
-		scr:       scr,
-		items:     make([]string, 0),
-		selected:  0,
-		offset:    0,
-		useColors: useColors,
+		cliCtx:   cliCtxIn,
+		items:    make([]string, 0),
+		selected: 0,
+		offset:   0,
 	}
 }
 
-func initUI(scr *gc.Window, menuText string) (*threadMenuUI, error) {
+func (cliCtx *CliContext) initMenuUI(menuText string) {
 	gc.CBreak(true)
 	gc.Echo(false)
 	_ = gc.Cursor(0)
-	_ = scr.Keypad(true)
-	scr.Timeout(50)
+	_ = cliCtx.rootWin.Keypad(true)
+	cliCtx.rootWin.Timeout(50)
 
-	// Initialize colors if available
-	useColors := false
 	err := gc.StartColor()
 	if err == nil {
 		err = gc.UseDefaultColors()
@@ -63,27 +50,9 @@ func initUI(scr *gc.Window, menuText string) (*threadMenuUI, error) {
 			_ = gc.InitPair(threadColorAssistant, gc.C_CYAN, -1)
 			_ = gc.InitPair(threadColorCode, gc.C_GREEN, -1)
 
-			useColors = true
+			cliCtx.toggles.useColors = true
 		}
 	}
 
-	ui := newThreadMenuUI(scr, useColors)
-	// Record color capability for use by the thread view and any other
-	// ncurses-based screens.
-	globalUseColors = useColors
-	ui.resetItems(menuText)
-
-	return ui, nil
-}
-
-func menuMain(ctx context.Context, gptCliCtx *CliContext,
-	args []string) error {
-
-	f := flag.NewFlagSet("ls", flag.ContinueOnError)
-	_ = f.Parse(args[1:])
-
-	var sb strings.Builder
-	sb.WriteString(threadGroupString(gptCliCtx.mainThreadGroup, false, false))
-
-	return showMenu(ctx, gptCliCtx, sb.String())
+	cliCtx.menu.resetItems(menuText)
 }

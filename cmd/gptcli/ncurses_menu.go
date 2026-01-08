@@ -45,7 +45,7 @@ func confirmQuitIfNonIdleThreads(gptCliCtx *CliContext) (bool, error) {
 	defaultQuit := false
 	trueOpt := types.UIOption{Key: "y", Label: "y"}
 	falseOpt := types.UIOption{Key: "n", Label: "n"}
-	quit, err := gptCliCtx.realUI.SelectBool(prompt, trueOpt, falseOpt, &defaultQuit)
+	quit, err := gptCliCtx.ui.SelectBool(prompt, trueOpt, falseOpt, &defaultQuit)
 	if err != nil {
 		return false, err
 	}
@@ -63,7 +63,7 @@ const (
 )
 
 func (ui *threadMenuUI) viewHeight() int {
-	maxY, _ := ui.scr.MaxYX()
+	maxY, _ := ui.cliCtx.rootWin.MaxYX()
 	vh := maxY - menuHeaderHeight - menuStatusHeight
 	if vh < 0 {
 		return 0
@@ -78,7 +78,7 @@ func (ui *threadMenuUI) adjustOffset() {
 }
 
 func (ui *threadMenuUI) draw() {
-	scr := ui.scr
+	scr := ui.cliCtx.rootWin
 
 	maxY, maxX := scr.MaxYX()
 	vh := ui.viewHeight()
@@ -88,7 +88,7 @@ func (ui *threadMenuUI) draw() {
 	headerTitle := strings.Split(threadGroupHeaderString(false), "\n")[0]
 	headerTitle = iui.TruncateRunes(headerTitle, maxX)
 
-	if ui.useColors {
+	if ui.cliCtx.toggles.useColors {
 		_ = scr.AttrSet(gc.A_NORMAL | gc.ColorPair(menuColorHeader))
 	} else {
 		_ = scr.AttrSet(gc.A_NORMAL)
@@ -108,7 +108,7 @@ func (ui *threadMenuUI) draw() {
 			line := iui.TruncateRunes(ui.items[idx], maxX)
 
 			if idx == ui.selected {
-				if ui.useColors {
+				if ui.cliCtx.toggles.useColors {
 					_ = scr.AttrSet(gc.A_NORMAL | gc.ColorPair(menuColorSelected))
 				} else {
 					_ = scr.AttrSet(gc.A_REVERSE | gc.A_NORMAL)
@@ -154,7 +154,7 @@ func (ui *threadMenuUI) draw() {
 			{text: " Quit:", bold: false},
 			{text: "ESC", bold: true},
 		}
-		drawStatusSegments(scr, statusY, maxX, segments, ui.useColors)
+		drawStatusSegments(scr, statusY, maxX, segments, ui.cliCtx.toggles.useColors)
 	}
 
 	_ = scr.AttrSet(gc.A_NORMAL)
@@ -178,7 +178,6 @@ func gcInit() (*gc.Window, error) {
 		return nil, ErrTTYRequired
 	}
 
-	SetLocale.SetLocale(SetLocale.LC_ALL, "en_US.UTF-8")
 	// Reduce ncurses' ESC-key delay so pressing ESC is responsive.
 	//
 	// In keypad mode, ncurses must disambiguate a literal ESC press from
@@ -187,33 +186,21 @@ func gcInit() (*gc.Window, error) {
 	//
 	// This MUST be set before initializing ncurses via gc.Init().
 	_ = os.Setenv("ESCDELAY", "100")
-	// Ensure environment is consistent for UTF-8 rendering.
-	_ = os.Setenv("LANG", "en_US.UTF-8")
-	_ = os.Setenv("LC_ALL", "en_US.UTF-8")
-	scr, err := gc.Init()
+	// Enable UTF-8; must similarly be set before gc.Init()
+	SetLocale.SetLocale(SetLocale.LC_ALL, "en_US.UTF-8")
+	rootWin, err := gc.Init()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrFailedToInitScreen, err)
 	}
 
-	return scr, nil
+	return rootWin, nil
 }
 
 func gcExit() {
 	gc.End()
 }
 
-func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error {
-
-	//scr, err := gcInit()
-	//if err != nil {
-	//return err
-	//}
-	//defer gcExit()
-	scr := gptCliCtx.scr
-	if scr == nil {
-		return ErrNilScreen
-	}
-
+func showMenu(ctx context.Context, cliCtx *CliContext, menuText string) error {
 	// Listen for SIGWINCH (terminal resize). We handle the signal in this
 	// same goroutine by polling the channel inside the UI loop, which
 	// keeps all ncurses interaction single-threaded.
@@ -221,51 +208,47 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 	signal.Notify(sigCh, syscall.SIGWINCH)
 	defer signal.Stop(sigCh)
 
-	menuUI, err := initUI(scr, menuText)
-	if err != nil {
-		return err
-	}
+	cliCtx.initMenuUI(menuText)
 	needErase := true
 	needRefresh := false
 	upgradeChecked := false
-	ncui := gptCliCtx.realUI
 
 	// Keep internal/ui modal selection styling consistent with the menu's
 	// colors (or fall back to reverse-video in monochrome mode).
-	ncui.SetTheme(iui.Theme{UseColors: menuUI.useColors, SelectedPair: menuColorSelected})
+	cliCtx.ui.SetTheme(iui.Theme{UseColors: cliCtx.toggles.useColors, SelectedPair: menuColorSelected})
 	lastRefresh := time.Now()
 
 	for {
 		if needErase {
-			scr.Erase()
+			cliCtx.rootWin.Erase()
 			needErase = false
 		}
 		if needRefresh {
 			if err :=
-				menuUI.resetItems(threadGroupString(gptCliCtx.mainThreadGroup, false, false)); err != nil {
+				cliCtx.menu.resetItems(threadGroupString(cliCtx.mainThreadGroup, false, false)); err != nil {
 				return err
 			}
-			if menuUI.selected >= len(menuUI.items) {
-				menuUI.selected = len(menuUI.items) - 1
+			if cliCtx.menu.selected >= len(cliCtx.menu.items) {
+				cliCtx.menu.selected = len(cliCtx.menu.items) - 1
 			}
 			needRefresh = false
 			lastRefresh = time.Now()
 		}
 
-		menuUI.draw()
+		cliCtx.menu.draw()
 		if !upgradeChecked {
-			upgradeIfNeeded(ctx, gptCliCtx)
+			upgradeIfNeeded(ctx, cliCtx)
 			upgradeChecked = true
 		}
 
 		var ch gc.Key
 		select {
 		case <-sigCh:
-			resizeScreen(scr)
+			resizeScreen(cliCtx.rootWin)
 			needErase = true
 			continue
 		default:
-			ch = scr.GetChar()
+			ch = cliCtx.rootWin.GetChar()
 			if ch == 0 {
 				if time.Now().Sub(lastRefresh) > 200*time.Millisecond {
 					needRefresh = true
@@ -276,7 +259,7 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 
 		switch ch {
 		case gc.Key(27): // ESC
-			quit, err := confirmQuitIfNonIdleThreads(gptCliCtx)
+			quit, err := confirmQuitIfNonIdleThreads(cliCtx)
 			if err != nil {
 				return err
 			}
@@ -286,49 +269,49 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 			needErase = true
 			continue
 		case gc.KEY_UP:
-			if menuUI.selected > 0 {
-				menuUI.selected--
+			if cliCtx.menu.selected > 0 {
+				cliCtx.menu.selected--
 			}
 		case gc.KEY_DOWN:
-			if menuUI.selected < len(menuUI.items)-1 {
-				menuUI.selected++
+			if cliCtx.menu.selected < len(cliCtx.menu.items)-1 {
+				cliCtx.menu.selected++
 			}
 		case gc.KEY_HOME:
-			menuUI.selected = 0
+			cliCtx.menu.selected = 0
 		case gc.KEY_END:
-			if len(menuUI.items) > 0 {
-				menuUI.selected = len(menuUI.items) - 1
+			if len(cliCtx.menu.items) > 0 {
+				cliCtx.menu.selected = len(cliCtx.menu.items) - 1
 			}
 		case gc.KEY_PAGEUP:
-			if vh := menuUI.viewHeight(); vh > 0 {
-				menuUI.selected -= vh
-				if menuUI.selected < 0 {
-					menuUI.selected = 0
+			if vh := cliCtx.menu.viewHeight(); vh > 0 {
+				cliCtx.menu.selected -= vh
+				if cliCtx.menu.selected < 0 {
+					cliCtx.menu.selected = 0
 				}
 			}
 		case gc.KEY_PAGEDOWN:
-			if vh := menuUI.viewHeight(); vh > 0 {
-				menuUI.selected += vh
-				if menuUI.selected > len(menuUI.items)-1 {
-					menuUI.selected = len(menuUI.items) - 1
+			if vh := cliCtx.menu.viewHeight(); vh > 0 {
+				cliCtx.menu.selected += vh
+				if cliCtx.menu.selected > len(cliCtx.menu.items)-1 {
+					cliCtx.menu.selected = len(cliCtx.menu.items) - 1
 				}
 			}
 		case gc.KEY_ENTER, gc.KEY_RETURN:
 			// Enter: activate the selected thread and transition into the
 			// ncurses-based thread view instead of dropping back to the
 			// basic CLI prompt.
-			if len(menuUI.items) == 0 {
+			if len(cliCtx.menu.items) == 0 {
 				continue
 			}
-			threadIndex := menuUI.selected + 1 // threads are 1-based
-			gptCliCtx.curThreadGroup = gptCliCtx.mainThreadGroup
-			thread, err := gptCliCtx.mainThreadGroup.ActivateThread(threadIndex)
+			threadIndex := cliCtx.menu.selected + 1 // threads are 1-based
+			cliCtx.curThreadGroup = cliCtx.mainThreadGroup
+			thread, err := cliCtx.mainThreadGroup.ActivateThread(threadIndex)
 			if err != nil {
 				// Propagate the error so the caller can handle it and
 				// exit ncurses cleanly.
 				return err
 			}
-			if err := runThreadView(ctx, scr, gptCliCtx, thread); err != nil {
+			if err := runThreadView(ctx, cliCtx, thread); err != nil {
 				return err
 			}
 			// After returning from the thread view, redraw the menu.
@@ -338,48 +321,48 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 			// Create a new thread (equivalent to the "new" subcommand), but
 			// prompt for the name using an ncurses modal so we don't mix
 			// stdio with the UI.
-			name, err := promptForThreadNameNCurses(ncui)
+			name, err := promptForThreadNameNCurses(cliCtx.ui)
 			if err != nil {
 				return fmt.Errorf("%w: %w", ErrFailedToPromptThreadName, err)
 			}
 			if name == "" { // user cancelled
 				continue
 			}
-			if err := gptCliCtx.mainThreadGroup.NewThread(name); err != nil {
+			if err := cliCtx.mainThreadGroup.NewThread(name); err != nil {
 				return fmt.Errorf("%w: %w", ErrFailedToCreateThread, err)
 			}
 			needRefresh = true
 		case 'c':
-			configMain(ctx, gptCliCtx)
+			configMain(ctx, cliCtx)
 		case 'a':
 			needErase = true
 			// Archive the currently selected thread from the main thread group.
 			// This mirrors the behavior of archiveThreadMain(), but uses the
 			// selection from the menu UI instead of parsing a CLI argument.
-			if len(menuUI.items) == 0 {
+			if len(cliCtx.menu.items) == 0 {
 				continue
 			}
-			threadIndex := menuUI.selected + 1 // threads are 1-based
+			threadIndex := cliCtx.menu.selected + 1 // threads are 1-based
 
 			// Only main-thread-group entries are shown in the menu, so we move
 			// from mainThreadGroup to archiveThreadGroup directly.
-			if gptCliCtx.mainThreadGroup.Count() == 0 {
+			if cliCtx.mainThreadGroup.Count() == 0 {
 				continue
 			}
-			if threadIndex > gptCliCtx.mainThreadGroup.Count() {
+			if threadIndex > cliCtx.mainThreadGroup.Count() {
 				continue
 			}
 
-			threadId := gptCliCtx.mainThreadGroup.ThreadId(threadIndex)
+			threadId := cliCtx.mainThreadGroup.ThreadId(threadIndex)
 			// @todo should cleanup thread.{asyncApprover, llmClient}
-			if err := gptCliCtx.mainThreadGroup.MoveThread(threadIndex, gptCliCtx.archiveThreadGroup); err != nil {
+			if err := cliCtx.mainThreadGroup.MoveThread(threadIndex, cliCtx.archiveThreadGroup); err != nil {
 				return fmt.Errorf("%w: %w", ErrFailedToArchiveThread, err)
 			}
 
-			delete(gptCliCtx.asyncChatUIStates, threadId)
+			delete(cliCtx.asyncChatUIStates, threadId)
 			needRefresh = true
 		case gc.KEY_RESIZE:
-			resizeScreen(scr)
+			resizeScreen(cliCtx.rootWin)
 			needErase = true
 			continue
 		}

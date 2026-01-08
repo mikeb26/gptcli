@@ -39,7 +39,7 @@ func (gptCliCtx *CliContext) loadPrefs() error {
 	if err != nil {
 		return err
 	}
-	gptCliCtx.curSummaryToggle = gptCliCtx.prefs.SummarizePrior
+	gptCliCtx.toggles.summary = gptCliCtx.prefs.SummarizePrior
 	if gptCliCtx.prefs.Vendor == "" {
 		gptCliCtx.prefs.Vendor = internal.DefaultVendor
 	}
@@ -86,7 +86,7 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 		choices = append(choices, types.UIOption{Key: v, Label: v})
 	}
 
-	selection, err := gptCliCtx.realUI.SelectOption("Choose an LLM vendor:", choices)
+	selection, err := gptCliCtx.ui.SelectOption("Choose an LLM vendor:", choices)
 	if err != nil {
 		return err
 	}
@@ -112,7 +112,7 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 		defaultKeep := true
 		trueOpt := types.UIOption{Key: "y", Label: "y"}
 		falseOpt := types.UIOption{Key: "n", Label: "n"}
-		keepKey, err = gptCliCtx.realUI.SelectBool(keepPrompt, trueOpt, falseOpt, &defaultKeep)
+		keepKey, err = gptCliCtx.ui.SelectBool(keepPrompt, trueOpt, falseOpt, &defaultKeep)
 		if err != nil {
 			return err
 		}
@@ -120,7 +120,7 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 
 	if !keepKey {
 		keyPrompt := fmt.Sprintf("Enter your %v API key: ", vendor)
-		key, err := gptCliCtx.realUI.Get(keyPrompt)
+		key, err := gptCliCtx.ui.Get(keyPrompt)
 		if err != nil {
 			return err
 		}
@@ -149,13 +149,13 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 	trueOpt := types.UIOption{Key: "y", Label: "y"}
 	falseOpt := types.UIOption{Key: "n", Label: "n"}
 
-	summarize, err := gptCliCtx.realUI.SelectBool(summarizePrompt, trueOpt, falseOpt, &defaultSummarize)
+	summarize, err := gptCliCtx.ui.SelectBool(summarizePrompt, trueOpt, falseOpt, &defaultSummarize)
 	if err != nil {
 		return err
 	}
 
 	gptCliCtx.prefs.SummarizePrior = summarize
-	gptCliCtx.curSummaryToggle = gptCliCtx.prefs.SummarizePrior
+	gptCliCtx.toggles.summary = gptCliCtx.prefs.SummarizePrior
 
 	auditLogPath, err := getAuditLogPath()
 	if err != nil {
@@ -166,7 +166,7 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 		auditLogPath,
 	)
 	defaultAudit := true
-	enableAudit, err := gptCliCtx.realUI.SelectBool(auditPrompt, trueOpt, falseOpt, &defaultAudit)
+	enableAudit, err := gptCliCtx.ui.SelectBool(auditPrompt, trueOpt, falseOpt, &defaultAudit)
 	if err != nil {
 		return err
 	}
