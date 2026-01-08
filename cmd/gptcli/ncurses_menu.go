@@ -17,9 +17,42 @@ import (
 	"github.com/famz/SetLocale"
 	gc "github.com/gbin/goncurses"
 	"github.com/mikeb26/gptcli/internal/threads"
+	"github.com/mikeb26/gptcli/internal/types"
 	iui "github.com/mikeb26/gptcli/internal/ui"
 	"golang.org/x/term"
 )
+
+func confirmQuitIfNonIdleThreads(gptCliCtx *CliContext) (bool, error) {
+	if gptCliCtx == nil {
+		return true, nil
+	}
+
+	nonIdle := 0
+	if gptCliCtx.mainThreadGroup != nil {
+		nonIdle += gptCliCtx.mainThreadGroup.NonIdleThreadCount()
+	}
+	if gptCliCtx.archiveThreadGroup != nil {
+		nonIdle += gptCliCtx.archiveThreadGroup.NonIdleThreadCount()
+	}
+
+	if nonIdle == 0 {
+		return true, nil
+	}
+
+	prompt := fmt.Sprintf(
+		"You have %d non-idle thread(s) (running or awaiting approval). Quit anyway?\n\nIf you quit now, you may lose progress/output.",
+		nonIdle,
+	)
+	defaultQuit := false
+	trueOpt := types.UIOption{Key: "y", Label: "y"}
+	falseOpt := types.UIOption{Key: "n", Label: "n"}
+	quit, err := gptCliCtx.realUI.SelectBool(prompt, trueOpt, falseOpt, &defaultQuit)
+	if err != nil {
+		return false, err
+	}
+
+	return quit, nil
+}
 
 const (
 	menuHeaderHeight         = 1
@@ -243,7 +276,15 @@ func showMenu(ctx context.Context, gptCliCtx *CliContext, menuText string) error
 
 		switch ch {
 		case gc.Key(27): // ESC
-			return nil
+			quit, err := confirmQuitIfNonIdleThreads(gptCliCtx)
+			if err != nil {
+				return err
+			}
+			if quit {
+				return nil
+			}
+			needErase = true
+			continue
 		case gc.KEY_UP:
 			if menuUI.selected > 0 {
 				menuUI.selected--

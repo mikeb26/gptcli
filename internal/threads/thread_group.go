@@ -55,6 +55,27 @@ func (thrGrp *ThreadGroup) Threads() []*Thread {
 	return thrCopies
 }
 
+// NonIdleThreadCount returns the number of threads in the group that are not
+// idle (e.g. running or blocked waiting for user approval).
+//
+// This is intended for UI layers that want to warn the user before quitting.
+func (thrGrp *ThreadGroup) NonIdleThreadCount() int {
+	thrGrp.mu.RLock()
+	defer thrGrp.mu.RUnlock()
+
+	count := 0
+	for _, thr := range thrGrp.threads {
+		if thr == nil {
+			continue
+		}
+		if thr.State() != ThreadStateIdle {
+			count++
+		}
+	}
+
+	return count
+}
+
 func (thrGrp *ThreadGroup) hasNonIdleThreads() bool {
 	// caller holds thrGrp.mu so each thread's state cannot transition
 	// out of idle; see setCurrentThreadRunning()
