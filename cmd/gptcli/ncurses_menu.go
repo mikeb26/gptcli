@@ -145,15 +145,26 @@ func (ui *threadMenuUI) draw() {
 			{text: "End", bold: true},
 			{text: " Select:", bold: false},
 			{text: "⏎", bold: true},
-			{text: " New:", bold: false},
-			{text: "n", bold: true},
-			{text: " Archive:", bold: false},
-			{text: "a", bold: true},
+		}
+		if ui.cliCtx.curThreadGroup == ui.cliCtx.mainThreadGroup {
+			segments = append(segments, []statusSegment{
+				{text: " New:", bold: false},
+				{text: "n", bold: true},
+				{text: " Archive:", bold: false},
+				{text: "a", bold: true},
+			}...)
+		} else if ui.cliCtx.curThreadGroup == ui.cliCtx.archiveThreadGroup {
+			segments = append(segments, []statusSegment{
+				{text: " Unarchive:", bold: false},
+				{text: "u", bold: true},
+			}...)
+		}
+		segments = append(segments, []statusSegment{
 			{text: " Config:", bold: false},
 			{text: "c", bold: true},
 			{text: " Quit:", bold: false},
 			{text: "ESC", bold: true},
-		}
+		}...)
 		drawStatusSegments(scr, statusY, maxX, segments, ui.cliCtx.toggles.useColors)
 	}
 
@@ -225,7 +236,7 @@ func showMenu(ctx context.Context, cliCtx *CliContext, menuText string) error {
 		}
 		if needRefresh {
 			if err :=
-				cliCtx.menu.resetItems(threadGroupString(cliCtx.mainThreadGroup, false, false)); err != nil {
+				cliCtx.menu.resetItems(threadGroupString(cliCtx.curThreadGroup, false, false)); err != nil {
 				return err
 			}
 			if cliCtx.menu.selected >= len(cliCtx.menu.items) {
@@ -304,8 +315,7 @@ func showMenu(ctx context.Context, cliCtx *CliContext, menuText string) error {
 				continue
 			}
 			threadIndex := cliCtx.menu.selected + 1 // threads are 1-based
-			cliCtx.curThreadGroup = cliCtx.mainThreadGroup
-			thread, err := cliCtx.mainThreadGroup.ActivateThread(threadIndex)
+			thread, err := cliCtx.curThreadGroup.ActivateThread(threadIndex)
 			if err != nil {
 				// Propagate the error so the caller can handle it and
 				// exit ncurses cleanly.
@@ -328,13 +338,25 @@ func showMenu(ctx context.Context, cliCtx *CliContext, menuText string) error {
 			if name == "" { // user cancelled
 				continue
 			}
-			if err := cliCtx.mainThreadGroup.NewThread(name); err != nil {
+			if err := cliCtx.curThreadGroup.NewThread(name); err != nil {
 				return fmt.Errorf("%w: %w", ErrFailedToCreateThread, err)
 			}
 			needRefresh = true
 		case 'c':
 			configMain(ctx, cliCtx)
 		case 'a':
+			fallthrough
+		case 'u':
+			dstThreadGroup := cliCtx.archiveThreadGroup
+			if ch == 'a' && cliCtx.curThreadGroup != cliCtx.mainThreadGroup {
+				continue
+			}
+			if ch == 'u' {
+				if cliCtx.curThreadGroup != cliCtx.archiveThreadGroup {
+					continue
+				}
+				dstThreadGroup = cliCtx.mainThreadGroup
+			}
 			needErase = true
 			// Archive the currently selected thread from the main thread group.
 			// This mirrors the behavior of archiveThreadMain(), but uses the
@@ -346,16 +368,16 @@ func showMenu(ctx context.Context, cliCtx *CliContext, menuText string) error {
 
 			// Only main-thread-group entries are shown in the menu, so we move
 			// from mainThreadGroup to archiveThreadGroup directly.
-			if cliCtx.mainThreadGroup.Count() == 0 {
+			if cliCtx.curThreadGroup.Count() == 0 {
 				continue
 			}
-			if threadIndex > cliCtx.mainThreadGroup.Count() {
+			if threadIndex > cliCtx.curThreadGroup.Count() {
 				continue
 			}
 
-			threadId := cliCtx.mainThreadGroup.ThreadId(threadIndex)
+			threadId := cliCtx.curThreadGroup.ThreadId(threadIndex)
 			// @todo should cleanup thread.{asyncApprover, llmClient}
-			if err := cliCtx.mainThreadGroup.MoveThread(threadIndex, cliCtx.archiveThreadGroup); err != nil {
+			if err := cliCtx.curThreadGroup.MoveThread(threadIndex, dstThreadGroup); err != nil {
 				return fmt.Errorf("%w: %w", ErrFailedToArchiveThread, err)
 			}
 

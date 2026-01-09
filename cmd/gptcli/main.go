@@ -200,6 +200,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	showMenu(ctx, cliCtx, threadGroupString(cliCtx.mainThreadGroup,
+	showMenu(ctx, cliCtx, threadGroupString(cliCtx.curThreadGroup,
 		false, false))
 }

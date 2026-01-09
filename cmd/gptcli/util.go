@@ -21,12 +21,12 @@ const (
 func threadHeaderString(t threads.Thread, threadNum string) string {
 	now := time.Now()
 
-	cTime := formatHeaderTime(t.CreateTime(), now)
 	aTime := formatHeaderTime(t.AccessTime(), now)
 	mTime := formatHeaderTime(t.ModTime(), now)
+	cTime := formatHeaderTime(t.CreateTime(), now)
 
-	return fmt.Sprintf(RowFmt, threadNum, t.State().String(), cTime, aTime,
-		mTime, t.Name())
+	return fmt.Sprintf(RowFmt, threadNum, t.State().String(), aTime, mTime,
+		cTime, t.Name())
 }
 
 // formatHeaderTime renders a timestamp for use in the thread list header.

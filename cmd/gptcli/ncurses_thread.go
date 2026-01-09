@@ -69,13 +69,19 @@ func drawNavbar(cliCtx *CliContext, focus threadViewFocus) {
 		{text: "Home", bold: true},
 		{text: "/", bold: false},
 		{text: "End", bold: true},
-		{text: " OtherWin:", bold: false},
-		{text: "Tab", bold: true},
-		{text: " Send:", bold: false},
-		{text: "Ctrl-d", bold: true},
+	}
+	if cliCtx.curThreadGroup == cliCtx.mainThreadGroup {
+		segments = append(segments, []statusSegment{
+			{text: " OtherWin:", bold: false},
+			{text: "Tab", bold: true},
+			{text: " Send:", bold: false},
+			{text: "Ctrl-d", bold: true},
+		}...)
+	}
+	segments = append(segments, []statusSegment{
 		{text: " Back:", bold: false},
 		{text: "ESC", bold: true},
-	}
+	}...)
 	drawStatusSegments(cliCtx.rootWin, statusY, maxX, segments,
 		cliCtx.toggles.useColors)
 
@@ -535,7 +541,10 @@ func redrawThreadView(
 	// scr.Refresh() call.
 	cliCtx.rootWin.Erase()
 	drawThreadHeader(cliCtx, thread)
-	statusText := ""
+	statusText := "What can I help with?"
+	if cliCtx.curThreadGroup == cliCtx.archiveThreadGroup {
+		statusText = "This thread is archived."
+	}
 	if uiState, ok := cliCtx.asyncChatUIStates[thread.Id()]; ok && uiState != nil && uiState.state != nil {
 		statusText = uiState.statusText
 		if statusText == "" {
@@ -562,17 +571,11 @@ func processThreadViewKey(
 	ncui *ui.NcursesUI,
 	ch gc.Key,
 ) (exit bool, needRedraw bool) {
-	if focusedFrame == nil {
-		return false, false
-	}
-	if *focusedFrame == nil {
-		*focusedFrame = inputFrame
-	}
 
 	if ch == gc.KEY_TAB {
 		if *focusedFrame == inputFrame {
 			*focusedFrame = historyFrame
-		} else {
+		} else if cliCtx.curThreadGroup == cliCtx.mainThreadGroup {
 			*focusedFrame = inputFrame
 		}
 		return false, true
@@ -584,11 +587,6 @@ func processThreadViewKey(
 	// Exit keys.
 	if ch == gc.Key(27) { // ESC
 		return true, false
-	}
-	if isHistory {
-		if ch == 'q' || ch == 'Q' || ch == 'd'-'a'+1 { // q/Q, ctrl-d
-			return true, false
-		}
 	}
 
 	// Navigation keys (shared by both history and input frames).
@@ -625,6 +623,21 @@ func processThreadViewKey(
 	case gc.KEY_END:
 		(*focusedFrame).MoveEnd()
 		return false, true
+	case 'd' - 'a' + 1: // Ctrl-D sends the input buffer
+		if cliCtx.curThreadGroup != cliCtx.mainThreadGroup {
+			return false, false
+		}
+		prompt, state, ok := beginAsyncChatFromInputBuffer(ctx, cliCtx, inputFrame, ncui)
+		if ok {
+			_ = ensureAsyncChatUIState(cliCtx, thread, state)
+			blocks := threadViewDisplayBlocks(thread, prompt)
+			setHistoryFrameFromBlocks(cliCtx, historyFrame, blocks, state.ContentSoFar())
+			inputFrame.ResetInput()
+			inputFrame.EnsureCursorVisible()
+			// Do not block waiting for completion; the UI loop will
+			// continue processing async events and the user can detach.
+		}
+		return false, true
 	}
 
 	if !isInput {
@@ -640,18 +653,6 @@ func processThreadViewKey(
 	case gc.KEY_ENTER, gc.KEY_RETURN:
 		inputFrame.InsertNewline()
 		inputFrame.EnsureCursorVisible()
-		return false, true
-	case 'd' - 'a' + 1: // Ctrl-D sends the input buffer
-		prompt, state, ok := beginAsyncChatFromInputBuffer(ctx, cliCtx, inputFrame, ncui)
-		if ok {
-			_ = ensureAsyncChatUIState(cliCtx, thread, state)
-			blocks := threadViewDisplayBlocks(thread, prompt)
-			setHistoryFrameFromBlocks(cliCtx, historyFrame, blocks, state.ContentSoFar())
-			inputFrame.ResetInput()
-			inputFrame.EnsureCursorVisible()
-			// Do not block waiting for completion; the UI loop will
-			// continue processing async events and the user can detach.
-		}
 		return false, true
 	default:
 		// Treat any printable byte (including high‑bit bytes from
@@ -701,6 +702,9 @@ func runThreadView(ctx context.Context, cliCtx *CliContext,
 	inputFrame := frames.inputFrame
 
 	focusedFrame := inputFrame
+	if cliCtx.curThreadGroup == cliCtx.archiveThreadGroup {
+		focusedFrame = historyFrame
+	}
 	needRedraw := true
 
 	for {

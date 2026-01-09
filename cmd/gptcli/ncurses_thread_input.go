@@ -29,9 +29,6 @@ func drawThreadInputLabel(cliCtx *CliContext, statusText string) {
 	if startY < menuHeaderHeight {
 		startY = menuHeaderHeight
 	}
-	if statusText == "" {
-		statusText = "What can I help with?"
-	}
 
 	if len([]rune(statusText)) > maxX {
 		statusText = string([]rune(statusText)[:maxX])
