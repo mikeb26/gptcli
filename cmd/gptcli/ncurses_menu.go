@@ -82,6 +82,11 @@ func (ui *threadMenuUI) draw() {
 
 	maxY, maxX := scr.MaxYX()
 	vh := ui.viewHeight()
+	showScrollbar := vh > 0 && len(ui.items) > vh && maxX >= 2
+	listWidth := maxX
+	if showScrollbar {
+		listWidth = maxX - 1
+	}
 
 	ui.adjustOffset()
 
@@ -99,15 +104,13 @@ func (ui *threadMenuUI) draw() {
 
 	// Scrollable list area
 	startY := menuHeaderHeight
-	if vh > 0 && len(ui.items) > 0 {
+	if vh > 0 {
 		for row := 0; row < vh; row++ {
 			idx := ui.offset + row
-			if idx >= len(ui.items) {
-				break
-			}
-			line := iui.TruncateRunes(ui.items[idx], maxX)
+			rowY := startY + row
 
-			if idx == ui.selected {
+			isSelected := idx == ui.selected && idx < len(ui.items)
+			if isSelected {
 				if ui.cliCtx.toggles.useColors {
 					_ = scr.AttrSet(gc.A_NORMAL | gc.ColorPair(menuColorSelected))
 				} else {
@@ -119,10 +122,22 @@ func (ui *threadMenuUI) draw() {
 
 			// Fill the entire row so the background spans full width, then
 			// render the visible text at the start of the line.
-			rowY := startY + row
 			scr.Move(rowY, 0)
 			scr.HLine(rowY, 0, ' ', maxX)
+
+			if idx >= len(ui.items) {
+				continue
+			}
+			line := iui.TruncateRunes(ui.items[idx], listWidth)
 			scr.MovePrintf(rowY, 0, "%s", line)
+		}
+	}
+
+	// Draw scrollbar in the last column of the list area (only when needed).
+	if showScrollbar {
+		sb := iui.ComputeScrollbar(len(ui.items), vh, ui.offset)
+		for row := 0; row < vh; row++ {
+			iui.DrawScrollbarCell(scr, startY+row, row, vh, maxX-1, sb)
 		}
 	}
 
