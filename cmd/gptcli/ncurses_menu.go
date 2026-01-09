@@ -390,13 +390,11 @@ func showMenu(ctx context.Context, cliCtx *CliContext, menuText string) error {
 				continue
 			}
 
-			threadId := cliCtx.curThreadGroup.ThreadId(threadIndex)
 			// @todo should cleanup thread.{asyncApprover, llmClient}
 			if err := cliCtx.curThreadGroup.MoveThread(threadIndex, dstThreadGroup); err != nil {
 				return fmt.Errorf("%w: %w", ErrFailedToArchiveThread, err)
 			}
 
-			delete(cliCtx.asyncChatUIStates, threadId)
 			needRefresh = true
 		case gc.KEY_RESIZE:
 			resizeScreen(cliCtx.rootWin)

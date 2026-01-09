@@ -47,9 +47,10 @@ type Toggles struct {
 type CliContext struct {
 	ictx types.InternalContext
 
-	ui      *ui.NcursesUI
-	rootWin *gc.Window
-	menu    *threadMenuUI
+	ui          *ui.NcursesUI
+	rootWin     *gc.Window
+	menu        *threadMenuUI
+	threadViews map[string]*threadViewUI
 
 	prefs   Prefs
 	toggles Toggles
@@ -58,8 +59,6 @@ type CliContext struct {
 	archiveThreadGroup *threads.ThreadGroup
 	mainThreadGroup    *threads.ThreadGroup
 	curThreadGroup     *threads.ThreadGroup
-
-	asyncChatUIStates map[string]*asyncChatUIState
 }
 
 func NewCliContext(ctx context.Context) (*CliContext, error) {
@@ -87,7 +86,7 @@ func NewCliContext(ctx context.Context) (*CliContext, error) {
 		mainThreadGroup:    nil,
 		curThreadGroup:     nil,
 		threadGroups:       make([]*threads.ThreadGroup, 0),
-		asyncChatUIStates:  make(map[string]*asyncChatUIState),
+		threadViews:        make(map[string]*threadViewUI),
 	}
 	cliCtx.menu = newThreadMenuUI(cliCtx)
 

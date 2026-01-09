@@ -7,6 +7,7 @@ package main
 
 import (
 	gc "github.com/gbin/goncurses"
+	"github.com/mikeb26/gptcli/internal/ui"
 )
 
 const (
@@ -42,4 +43,28 @@ func drawThreadInputLabel(cliCtx *CliContext, statusText string) {
 	cliCtx.rootWin.HLine(startY, 0, ' ', maxX)
 	cliCtx.rootWin.MovePrint(startY, 0, statusText)
 	_ = cliCtx.rootWin.AttrSet(gc.A_NORMAL)
+}
+
+func restoreInputFrameContent(inputFrame *ui.Frame, content string, cursorLine, cursorCol int) {
+	if inputFrame == nil {
+		return
+	}
+	inputFrame.ResetInput()
+	for _, r := range []rune(content) {
+		if r == '\n' {
+			inputFrame.InsertNewline()
+			continue
+		}
+		inputFrame.InsertRune(r)
+	}
+
+	// Restore cursor position best-effort.
+	inputFrame.MoveHome()
+	for i := 0; i < cursorLine; i++ {
+		inputFrame.MoveCursorDown()
+	}
+	for i := 0; i < cursorCol; i++ {
+		inputFrame.MoveCursorRight()
+	}
+	inputFrame.EnsureCursorVisible()
 }

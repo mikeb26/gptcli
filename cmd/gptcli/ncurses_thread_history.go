@@ -8,6 +8,7 @@ package main
 import (
 	gc "github.com/gbin/goncurses"
 	"github.com/mikeb26/gptcli/internal/threads"
+	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/mikeb26/gptcli/internal/ui"
 )
 
@@ -74,4 +75,36 @@ func buildHistoryLinesForThread(cliCtx *CliContext, thread threads.Thread,
 	width int) []ui.FrameLine {
 
 	return buildHistoryLines(cliCtx, thread.RenderBlocks(), width)
+}
+
+func (tvUI *threadViewUI) setHistoryFrameFromBlocks(
+	blocks []threads.RenderBlock,
+	extraAssistantText string,
+) {
+	fullBlocks := append([]threads.RenderBlock(nil), blocks...)
+	if extraAssistantText != "" {
+		extraBlocks := threads.RenderBlocksFromDialogue([]*types.ThreadMessage{{
+			Role:    types.LlmRoleAssistant,
+			Content: extraAssistantText,
+		}})
+		fullBlocks = append(fullBlocks, extraBlocks...)
+	}
+	_, maxX := tvUI.cliCtx.rootWin.MaxYX()
+	lines := buildHistoryLines(tvUI.cliCtx, fullBlocks, maxX)
+	tvUI.historyFrame.SetLines(lines)
+	tvUI.historyFrame.MoveEnd()
+}
+
+func (tvUI *threadViewUI) setHistoryFrameForThread() {
+	_, maxX := tvUI.cliCtx.rootWin.MaxYX()
+	tvUI.historyFrame.SetLines(buildHistoryLinesForThread(tvUI.cliCtx, tvUI.thread, maxX))
+	tvUI.historyFrame.MoveEnd()
+}
+
+func threadViewDisplayBlocks(thread threads.Thread, pendingPrompt string) []threads.RenderBlock {
+	blocks := append([]threads.RenderBlock(nil), thread.RenderBlocks()...)
+	if pendingPrompt != "" {
+		blocks = append(blocks, threads.RenderBlock{Kind: threads.RenderBlockUserPrompt, Text: pendingPrompt})
+	}
+	return blocks
 }
