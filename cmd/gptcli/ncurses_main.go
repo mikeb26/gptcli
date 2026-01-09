@@ -7,6 +7,7 @@ package main
 
 import (
 	gc "github.com/gbin/goncurses"
+	"github.com/mikeb26/gptcli/internal/threads"
 )
 
 type threadMenuUI struct {
@@ -25,7 +26,7 @@ func newThreadMenuUI(cliCtxIn *CliContext) *threadMenuUI {
 	}
 }
 
-func (cliCtx *CliContext) initMenuUI(menuText string) {
+func (cliCtx *CliContext) initMenuUI(thrGrp *threads.ThreadGroup) {
 	gc.CBreak(true)
 	gc.Echo(false)
 	_ = gc.Cursor(0)
@@ -54,5 +55,5 @@ func (cliCtx *CliContext) initMenuUI(menuText string) {
 		}
 	}
 
-	cliCtx.menu.resetItems(menuText)
+	cliCtx.menu.resetItems(thrGrp)
 }

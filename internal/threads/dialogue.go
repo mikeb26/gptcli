@@ -67,7 +67,6 @@ func finalizeChatOnce(thrGrp *ThreadGroup, thread *thread,
 
 	thread.persisted.Dialogue = fullDialogue
 	thread.persisted.ModTime = time.Now()
-	thread.persisted.AccessTime = time.Now()
 	thread.state = ThreadStateIdle
 	thread.runState = nil
 

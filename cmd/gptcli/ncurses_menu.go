@@ -16,6 +16,7 @@ import (
 
 	"github.com/famz/SetLocale"
 	gc "github.com/gbin/goncurses"
+	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/types"
 	iui "github.com/mikeb26/gptcli/internal/ui"
 	"golang.org/x/term"
@@ -187,15 +188,15 @@ func (ui *threadMenuUI) draw() {
 	scr.Refresh()
 }
 
-func (ui *threadMenuUI) resetItems(menuText string) error {
-	trimmed := strings.TrimRight(menuText, "\n")
-	if trimmed == "" {
-		return ErrEmptyMenuText
+func (ui *threadMenuUI) resetItems(thrGrp *threads.ThreadGroup) {
+	items := make([]string, 0, len(thrGrp.Threads()))
+	for idx, t := range thrGrp.Threads() {
+		threadNum := fmt.Sprintf("%v%v", thrGrp.Prefix(), idx+1)
+		line := strings.TrimRight(threadHeaderString(t, threadNum), "\n")
+		items = append(items, line)
 	}
 
-	ui.items = strings.Split(trimmed, "\n")
-
-	return nil
+	ui.items = items
 }
 
 func gcInit() (*gc.Window, error) {
@@ -226,7 +227,7 @@ func gcExit() {
 	gc.End()
 }
 
-func showMenu(ctx context.Context, cliCtx *CliContext, menuText string) error {
+func showMenu(ctx context.Context, cliCtx *CliContext, thrGrp *threads.ThreadGroup) error {
 	// Listen for SIGWINCH (terminal resize). We handle the signal in this
 	// same goroutine by polling the channel inside the UI loop, which
 	// keeps all ncurses interaction single-threaded.
@@ -234,7 +235,7 @@ func showMenu(ctx context.Context, cliCtx *CliContext, menuText string) error {
 	signal.Notify(sigCh, syscall.SIGWINCH)
 	defer signal.Stop(sigCh)
 
-	cliCtx.initMenuUI(menuText)
+	cliCtx.initMenuUI(thrGrp)
 	needErase := true
 	needRefresh := false
 	upgradeChecked := false
@@ -250,10 +251,7 @@ func showMenu(ctx context.Context, cliCtx *CliContext, menuText string) error {
 			needErase = false
 		}
 		if needRefresh {
-			if err :=
-				cliCtx.menu.resetItems(threadGroupString(cliCtx.curThreadGroup, false, false)); err != nil {
-				return err
-			}
+			cliCtx.menu.resetItems(cliCtx.curThreadGroup)
 			if cliCtx.menu.selected >= len(cliCtx.menu.items) {
 				cliCtx.menu.selected = len(cliCtx.menu.items) - 1
 			}
