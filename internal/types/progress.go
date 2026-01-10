@@ -14,9 +14,9 @@ import (
 type ProgressPhase string
 
 const (
-	ProgressPhaseStart               ProgressPhase = "start"
-	ProgressPhaseEnd                 ProgressPhase = "end"
-	ProgressPhaseEndWithStreamOutput ProgressPhase = "end_with_stream_output"
+	ProgressPhaseStart         ProgressPhase = "start"
+	ProgressPhaseEnd           ProgressPhase = "end"
+	ProgressPhaseStreamingResp ProgressPhase = "streaming"
 )
 
 // ProgressComponent indicates whether the event is describing model or tool

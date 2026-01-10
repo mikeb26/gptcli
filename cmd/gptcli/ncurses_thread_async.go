@@ -9,10 +9,18 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/types"
 )
+
+const asyncStatusProcessing = "Processing"
+const asyncStatusThinking = "Thinking"
+const asyncStatusToolRun = "Running"
+const asyncStatusAnswering = "Answering"
+const asyncStatusIdle = "What can I help with?"
+const asyncStatusArchived = "This thread is archived."
 
 type threadViewAsyncChatState struct {
 	toolCalls    int
@@ -25,6 +33,12 @@ type threadViewAsyncChatState struct {
 	approvalCh <-chan threads.AsyncApprovalRequest
 
 	lastContentLen int
+
+	startedAt     time.Time
+	stepStartedAt time.Time
+
+	lastStatusUpdate time.Time
+	lastStatusPrefix string
 }
 
 func (tvUI *threadViewUI) beginAsyncChat(
@@ -63,7 +77,9 @@ func (tvUI *threadViewUI) beginAsyncChat(
 }
 
 func (tvUI *threadViewUI) setRunningState(state *threads.RunningThreadState) {
-	tvUI.statusText = "Processing..."
+	now := time.Now()
+	tvUI.statusText = asyncStatusProcessing
+	tvUI.running.lastStatusPrefix = asyncStatusProcessing
 	tvUI.running.toolCalls = 0
 	tvUI.running.requestCount = 0
 	tvUI.running.state = state
@@ -71,48 +87,75 @@ func (tvUI *threadViewUI) setRunningState(state *threads.RunningThreadState) {
 	tvUI.running.resultCh = state.Result
 	tvUI.running.approvalCh = state.ApprovalRequests
 	tvUI.running.lastContentLen = -1
+	tvUI.running.startedAt = now
+	tvUI.running.stepStartedAt = now
+	tvUI.running.lastStatusUpdate = now
 }
 
 func (tvUI *threadViewUI) clearRunningState() {
-	tvUI.statusText = "What can I help with?"
+	tvUI.statusText = asyncStatusIdle
 	if tvUI.cliCtx.curThreadGroup == tvUI.cliCtx.archiveThreadGroup {
-		tvUI.statusText = "This thread is archived."
+		tvUI.statusText = asyncStatusArchived
 	}
 	tvUI.running = threadViewAsyncChatState{}
 }
 
-func (s *threadViewAsyncChatState) statusFromProgress(prev string, ev types.ProgressEvent) string {
-	statusText := prev
+func (running *threadViewAsyncChatState) formatStatus(now time.Time) string {
+	if running == nil {
+		return ""
+	}
 
-	var statusPrefix string
-	addSuffix := true
+	prefix := running.lastStatusPrefix
+
+	stepSec := int(now.Sub(running.stepStartedAt).Seconds())
+	totalSec := int(now.Sub(running.startedAt).Seconds())
+
+	return fmt.Sprintf("%v(%vs of %vs)... [requests:%v toolcalls:%v]",
+		prefix, stepSec, totalSec, running.requestCount, running.toolCalls)
+}
+
+func (s *threadViewAsyncChatState) statusFromProgress(ev types.ProgressEvent) string {
+	now := time.Now()
+	s.stepStartedAt = now
+	s.lastStatusUpdate = now
 
 	switch ev.Component {
 	case types.ProgressComponentModel:
-		statusPrefix = "LLM: thinking"
 		if ev.Phase == types.ProgressPhaseStart {
 			s.requestCount++
+			s.lastStatusPrefix = asyncStatusThinking
 		} else {
-			statusPrefix = "Processing..."
+			if s.state != nil && s.state.ContentSoFar() == "" {
+				s.lastStatusPrefix = asyncStatusProcessing
+			} else {
+				s.lastStatusPrefix = asyncStatusAnswering
+			}
 		}
 	case types.ProgressComponentTool:
 		if ev.Phase == types.ProgressPhaseStart {
 			s.toolCalls++
-			statusPrefix = "Tool: running " + ev.DisplayText
-			addSuffix = false
+			s.lastStatusPrefix = asyncStatusToolRun + ev.DisplayText
 		} else {
-			statusPrefix = "Processing..."
+			s.lastStatusPrefix = asyncStatusProcessing
 		}
-	default:
-		statusPrefix = statusText
 	}
 
-	if !addSuffix {
-		return statusPrefix
+	return s.formatStatus(now)
+}
+
+func (tvUI *threadViewUI) tickStatus() {
+	if tvUI.running.state == nil {
+		return
 	}
 
-	return fmt.Sprintf("%v (requests:%v toolcalls:%v)...", statusPrefix,
-		s.requestCount, s.toolCalls)
+	now := time.Now()
+	if now.Sub(tvUI.running.lastStatusUpdate) < 200*time.Millisecond {
+		return
+	}
+
+	tvUI.running.lastStatusUpdate = now
+	tvUI.statusText = tvUI.running.formatStatus(now)
+	drawThreadInputLabel(tvUI.cliCtx, tvUI.statusText)
 }
 
 func (tvUI *threadViewUI) processAsyncChat() (needRedraw bool) {
@@ -131,6 +174,9 @@ func (tvUI *threadViewUI) processAsyncChat() (needRedraw bool) {
 	if stepRedraw {
 		needRedraw = true
 	}
+
+	// Keep status durations ticking even if no new progress events arrive.
+	tvUI.tickStatus()
 	return needRedraw
 }
 
@@ -163,7 +209,7 @@ func (tvUI *threadViewUI) processAsyncChatEvents() (done bool, needRedraw bool) 
 				tvUI.running.progressCh = nil
 				continue
 			}
-			tvUI.statusText = tvUI.running.statusFromProgress(tvUI.statusText, ev)
+			tvUI.statusText = tvUI.running.statusFromProgress(ev)
 			drawThreadInputLabel(tvUI.cliCtx, tvUI.statusText)
 		case res, ok := <-tvUI.running.resultCh:
 			if !ok {

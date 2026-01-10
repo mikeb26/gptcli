@@ -91,10 +91,11 @@ func TestAuditModelCallbacks_DrainModelStream(t *testing.T) {
 	cb.drainModelStream("[id] ", "m", sr)
 
 	out := buf.String()
-	assert.Contains(t, out, "[id] model_m: <streaming> chunk1")
-	assert.Contains(t, out, "[id] model_m: <streaming> chunk2")
-	assert.Contains(t, out, "[id] model_m: chunk2 end")
-	assert.Contains(t, out, "[id] model_m: reasoning: r")
+	assert.Contains(t, out, "[id] model_m: <streaming> start")
+	// drainModelStream currently emits reasoning without a space after the colon.
+	assert.Contains(t, out, "[id] model_m: reasoning:r")
+	// The streamed chunks are aggregated and logged once at the end.
+	assert.Contains(t, out, "[id] model_m: <streaming> end resp:chunk1chunk2")
 }
 
 func TestAuditToolCallbacks_DrainToolStream(t *testing.T) {

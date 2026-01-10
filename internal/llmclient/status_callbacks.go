@@ -76,7 +76,7 @@ func (h *statusModelCallbacks) OnEndWithStreamOutput(
 		InvocationID: id,
 		Component:    types.ProgressComponentModel,
 		DisplayText:  "",
-		Phase:        types.ProgressPhaseEndWithStreamOutput,
+		Phase:        types.ProgressPhaseStreamingResp,
 		Time:         time.Now(),
 	})
 	return ctx
@@ -153,7 +153,7 @@ func (h *statusToolCallbacks) OnEndWithStreamOutput(
 		InvocationID: id,
 		Component:    types.ProgressComponentTool,
 		DisplayText:  fmt.Sprintf("<-%v: <stream>", name),
-		Phase:        types.ProgressPhaseEndWithStreamOutput,
+		Phase:        types.ProgressPhaseStreamingResp,
 		Time:         time.Now(),
 	})
 	return ctx

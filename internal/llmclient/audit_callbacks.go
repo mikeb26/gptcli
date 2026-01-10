@@ -155,7 +155,9 @@ func (h *auditModelCallbacks) drainModelStream(
 	defer sr.Close()
 
 	resp := "<nil>"
-	var reasoning string
+	var reasoningSb strings.Builder
+	var contentSb strings.Builder
+	started := false
 
 	for {
 		chunk, err := sr.Recv()
@@ -172,20 +174,26 @@ func (h *auditModelCallbacks) drainModelStream(
 
 		msg := chunk.Message
 		if msg.Content != "" {
-			resp = summarizeText(msg.Content)
-			// Log each non-empty content chunk as it arrives so that
-			// long-running streams show activity in the audit log
-			// instead of appearing idle until completion.
-			h.logger.Printf("%smodel_%s: <streaming> %s", prefix, name, resp)
+			if !started {
+				h.logger.Printf("%smodel_%s: <streaming> start", prefix, name)
+				started = true
+			}
+			contentSb.WriteString(msg.Content)
 		}
 		if rc := msg.ReasoningContent; rc != "" {
-			reasoning = rc
+			reasoningSb.WriteString(rc)
 		}
 	}
 
-	h.logger.Printf("%smodel_%s: %s end", prefix, name, resp)
-	if reasoning != "" {
-		h.logger.Printf("%smodel_%s: reasoning: %s", prefix, name, reasoning)
+	resp = summarizeText(reasoningSb.String())
+	if resp != "" {
+		h.logger.Printf("%smodel_%s: reasoning:%s", prefix, name,
+			resp)
+	}
+	resp = summarizeText(contentSb.String())
+	if resp != "" {
+		h.logger.Printf("%smodel_%s: <streaming> end resp:%s", prefix, name,
+			resp)
 	}
 }
 
