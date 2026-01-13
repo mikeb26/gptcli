@@ -21,22 +21,20 @@ import (
 )
 
 type ThreadGroup struct {
-	prefix       string
-	threads      []*thread
-	totThreads   int
-	dir          string
-	curThreadNum int
-	mu           sync.RWMutex
+	prefix     string
+	threads    []*thread
+	totThreads int
+	dir        string
+	mu         sync.RWMutex
 }
 
 func NewThreadGroup(prefixIn string, dirIn string) *ThreadGroup {
 
 	thrGrp := &ThreadGroup{
-		prefix:       prefixIn,
-		threads:      make([]*thread, 0),
-		totThreads:   0,
-		dir:          dirIn,
-		curThreadNum: 0,
+		prefix:     prefixIn,
+		threads:    make([]*thread, 0),
+		totThreads: 0,
+		dir:        dirIn,
 	}
 
 	return thrGrp
@@ -102,7 +100,6 @@ func (thrGrp *ThreadGroup) LoadThreads() error {
 		return fmt.Errorf("Cannot re-load thread group with non-idle threads")
 	}
 
-	thrGrp.curThreadNum = 0
 	thrGrp.totThreads = 0
 	thrGrp.threads = make([]*thread, 0)
 
@@ -129,16 +126,17 @@ func (thrGrp *ThreadGroup) LoadThreads() error {
 		thread.state = ThreadStateIdle
 		thread.fileName = genUniqFileName(thread.persisted.Name,
 			thread.persisted.CreateTime)
+		thread.dir = thrGrp.dir
 		if thread.fileName != dEnt.Name() {
 			oldPath := filepath.Join(thrGrp.dir, dEnt.Name())
 			newPath := filepath.Join(thrGrp.dir, thread.fileName)
 			fmt.Fprintf(os.Stderr, "Renaming thread %v to %v\n",
 				oldPath, newPath)
 			_ = os.Remove(oldPath)
-			_ = thread.save(thrGrp.dir)
+			_ = thread.save()
 		}
 
-		_ = thrGrp.addThread(&thread)
+		thrGrp.addThread(&thread)
 	}
 
 	return nil
@@ -148,18 +146,7 @@ func (thrGrp *ThreadGroup) LoadThreads() error {
 // refreshes the access time, and persists the thread to disk. It
 // performs no user-facing I/O and is therefore safe to call from
 // different UIs (CLI, ncurses, etc.).
-func (thrGrp *ThreadGroup) ActivateThread(threadNum int) (Thread, error) {
-	thrGrp.mu.Lock()
-	defer thrGrp.mu.Unlock()
-
-	if threadNum > thrGrp.totThreads || threadNum == 0 {
-		threadNumPrint := fmt.Sprintf("%v%v", thrGrp.prefix, threadNum)
-		return nil, fmt.Errorf(ThreadNoExistErrFmt, threadNumPrint)
-	}
-
-	thrGrp.curThreadNum = threadNum
-	thread := thrGrp.threads[thrGrp.curThreadNum-1]
-
+func (thread *thread) Access() error {
 	thread.mu.Lock()
 	defer thread.mu.Unlock()
 
@@ -170,12 +157,12 @@ func (thrGrp *ThreadGroup) ActivateThread(threadNum int) (Thread, error) {
 	// Allow UIs to "activate" (focus) a non-idle thread so they can
 	// detach/reattach to a running thread without failing here.
 	if thread.state == ThreadStateIdle {
-		if err := thread.save(thrGrp.dir); err != nil {
-			return nil, err
+		if err := thread.save(); err != nil {
+			return err
 		}
 	}
 
-	return thread, nil
+	return nil
 }
 
 // NewThread encapsulates the logic to allocate and register a new
@@ -203,19 +190,18 @@ func (thrGrp *ThreadGroup) NewThread(name string) error {
 			Id:         uuid.NewString(),
 		},
 		fileName: fileName,
+		dir:      thrGrp.dir,
 		state:    ThreadStateIdle,
 	}
 
-	thrGrp.curThreadNum = thrGrp.addThread(curThread)
+	thrGrp.addThread(curThread)
 
 	return nil
 }
 
-func (thrGrp *ThreadGroup) addThread(curThread *thread) int {
+func (thrGrp *ThreadGroup) addThread(curThread *thread) {
 	thrGrp.totThreads++
 	thrGrp.threads = append(thrGrp.threads, curThread)
-
-	return thrGrp.totThreads
 }
 
 // @todo need ux
@@ -252,17 +238,17 @@ func (srcThrGrp *ThreadGroup) MoveThread(threadNum int,
 	thread.mu.Lock()
 	defer thread.mu.Unlock()
 
-	err := thread.save(dstThrGrp.dir)
+	err := thread.saveWithDir(dstThrGrp.dir)
 	if err != nil {
 		return err
 	}
-	err = thread.remove(srcThrGrp.dir)
+	err = thread.removeWithDir(srcThrGrp.dir)
 	if err != nil {
-		_ = thread.remove(dstThrGrp.dir)
+		_ = thread.removeWithDir(dstThrGrp.dir)
 		return err
 	}
-	srcThrGrp.curThreadNum = 0
 
+	thread.dir = dstThrGrp.dir
 	dstThrGrp.addThread(thread)
 
 	srcThrGrp.totThreads--

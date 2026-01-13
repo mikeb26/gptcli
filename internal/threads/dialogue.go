@@ -15,23 +15,12 @@ import (
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
-// setCurrentThreadRunning returns the currently selected thread, if any, and
-// transitions it to ThreadStateRunning.
+// setRunning transitions the thread to ThreadStateRunning.
 //
 // NOTE: Callers that need a stable reference for the lifetime of a request
-// should call this once and hold on to the returned pointer; callers should
-// not repeatedly consult "current thread" state from the thread group.
-func (thrGrp *ThreadGroup) setCurrentThreadRunning(ctx context.Context,
+// should call this once and hold on to the returned pointer
+func (thr *thread) setRunning(ctx context.Context,
 	ictx types.InternalContext) (*thread, error) {
-	thrGrp.mu.RLock()
-	defer thrGrp.mu.RUnlock()
-
-	if thrGrp.curThreadNum == 0 || thrGrp.curThreadNum > thrGrp.totThreads {
-		return nil, fmt.Errorf("No thread is currently selected.")
-	}
-
-	thr := thrGrp.threads[thrGrp.curThreadNum-1]
-
 	thr.mu.Lock()
 	defer thr.mu.Unlock()
 
@@ -56,11 +45,8 @@ func (thrGrp *ThreadGroup) setCurrentThreadRunning(ctx context.Context,
 	return thr, nil
 }
 
-func finalizeChatOnce(thrGrp *ThreadGroup, thread *thread,
+func finalizeChatOnce(thread *thread,
 	fullDialogue []*types.ThreadMessage) error {
-	if thrGrp == nil || thread == nil {
-		return fmt.Errorf("invalid finalize: missing thread group or thread")
-	}
 
 	thread.mu.Lock()
 	defer thread.mu.Unlock()
@@ -70,7 +56,7 @@ func finalizeChatOnce(thrGrp *ThreadGroup, thread *thread,
 	thread.state = ThreadStateIdle
 	thread.runState = nil
 
-	if err := thread.save(thrGrp.dir); err != nil {
+	if err := thread.save(); err != nil {
 		return err
 	}
 

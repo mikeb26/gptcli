@@ -53,13 +53,13 @@ func (tvUI *threadViewUI) beginAsyncChat(
 		return "", false
 	}
 
-	if tvUI.cliCtx.curThreadGroup == tvUI.cliCtx.archiveThreadGroup {
+	if tvUI.isArchived {
 		_, _ = showErrorRetryModal(tvUI.cliCtx.ui,
 			ErrCannotEditArchivedThread.Error())
 		return "", false
 	}
 
-	state, err := tvUI.cliCtx.curThreadGroup.ChatOnceAsync(ctx,
+	state, err := tvUI.thread.ChatOnceAsync(ctx,
 		tvUI.cliCtx.ictx, prompt, tvUI.cliCtx.toggles.summary)
 	if err != nil {
 		_, _ = showErrorRetryModal(tvUI.cliCtx.ui, err.Error())

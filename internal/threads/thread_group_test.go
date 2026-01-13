@@ -63,16 +63,20 @@ func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
 	}}
 	thr.state = ThreadStateIdle
 	thr.fileName = genUniqFileName(thr.persisted.Name, thr.persisted.CreateTime)
+	thr.dir = dir
 	// Persist initial state so ActivateThread can overwrite it.
-	assert.NoError(t, thr.save(dir))
+	assert.NoError(t, thr.save())
 
 	grp.addThread(thr)
 	oldAccess := thr.persisted.AccessTime
 
-	activated, err := grp.ActivateThread(1)
-	assert.NoError(t, err)
+	threads := grp.Threads()
+	if !assert.Len(t, threads, 1) {
+		return
+	}
+	activated := threads[0]
+	assert.NoError(t, activated.Access())
 	assert.Equal(t, thr.Id(), activated.Id())
-	assert.Equal(t, 1, grp.curThreadNum)
 	assert.True(t, activated.AccessTime().After(oldAccess))
 
 	// Verify the on-disk representation has the updated access time.
@@ -88,15 +92,9 @@ func TestActivateThreadInvalidIndex(t *testing.T) {
 	dir := t.TempDir()
 	grp := NewThreadGroup("T", dir)
 
-	thr, err := grp.ActivateThread(1)
-	assert.Nil(t, thr)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Thread T1")
-
-	thr, err = grp.ActivateThread(0)
-	assert.Nil(t, thr)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Thread T0")
+	// ActivateThread was removed; ensure lookups behave as expected.
+	assert.Equal(t, 0, grp.Count())
+	assert.Len(t, grp.Threads(), 0)
 }
 
 func TestLoadThreadsLoadsAndRenamesStaleFiles(t *testing.T) {
@@ -158,7 +156,8 @@ func TestMoveThreadMovesFileAndReloadsSourceGroup(t *testing.T) {
 	}}
 	thr.state = ThreadStateIdle
 	thr.fileName = genUniqFileName(thr.persisted.Name, thr.persisted.CreateTime)
-	assert.NoError(t, thr.save(srcDir))
+	thr.dir = srcDir
+	assert.NoError(t, thr.save())
 
 	srcGrp.addThread(thr)
 	assert.Equal(t, 1, srcGrp.Count())

@@ -39,6 +39,7 @@ const (
 type threadViewUI struct {
 	cliCtx       *CliContext
 	thread       threads.Thread
+	isArchived   bool
 	running      threadViewAsyncChatState
 	statusText   string
 	inputFrame   *ui.Frame
@@ -175,7 +176,7 @@ func (tvUI *threadViewUI) redrawThreadView() {
 	tvUI.cliCtx.rootWin.Erase()
 	drawThreadHeader(tvUI.cliCtx, tvUI.thread)
 	drawThreadInputLabel(tvUI.cliCtx, tvUI.statusText)
-	drawNavbar(tvUI.cliCtx, tvUI.getFocus())
+	drawNavbar(tvUI.cliCtx, tvUI.getFocus(), tvUI.isArchived)
 	tvUI.cliCtx.rootWin.Refresh()
 
 	// Render history and input frames after the root screen so
@@ -192,7 +193,7 @@ func (tvUI *threadViewUI) processThreadViewKey(
 	if ch == gc.KEY_TAB {
 		if tvUI.getFocus() == focusInput {
 			tvUI.focusedFrame = tvUI.historyFrame
-		} else if tvUI.cliCtx.curThreadGroup == tvUI.cliCtx.mainThreadGroup {
+		} else if !tvUI.isArchived {
 			tvUI.focusedFrame = tvUI.inputFrame
 		}
 
@@ -240,7 +241,7 @@ func (tvUI *threadViewUI) processThreadViewKey(
 		tvUI.focusedFrame.MoveEnd()
 		return false, true
 	case 'd' - 'a' + 1: // Ctrl-D sends the input buffer
-		if tvUI.cliCtx.curThreadGroup != tvUI.cliCtx.mainThreadGroup {
+		if tvUI.isArchived {
 			return false, false
 		}
 		prompt, ok := tvUI.beginAsyncChat(ctx)
@@ -295,7 +296,7 @@ func (tvUI *threadViewUI) processThreadViewKey(
 // standard navigation keys. Pressing 'q' or ESC in the history focus
 // returns to the menu.
 func runThreadView(ctx context.Context, cliCtx *CliContext,
-	thread threads.Thread) error {
+	thread threads.Thread, isArchived bool) error {
 
 	// Use the terminal cursor for caret display in the thread view.
 	_ = gc.Cursor(1)
@@ -316,7 +317,8 @@ func runThreadView(ctx context.Context, cliCtx *CliContext,
 	defer tvUI.closeThreadViewFrames()
 
 	tvUI.focusedFrame = tvUI.inputFrame
-	if cliCtx.curThreadGroup == cliCtx.archiveThreadGroup {
+	tvUI.isArchived = isArchived
+	if isArchived {
 		tvUI.focusedFrame = tvUI.historyFrame
 	}
 	needRedraw := true

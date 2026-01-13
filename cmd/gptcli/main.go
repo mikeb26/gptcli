@@ -199,5 +199,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	showMenu(ctx, cliCtx, cliCtx.curThreadGroup)
+	showMenu(ctx, cliCtx)
 }

@@ -10,9 +10,15 @@ import (
 	"github.com/mikeb26/gptcli/internal/threads"
 )
 
+type threadMenuEntry struct {
+	label      string
+	thread     threads.Thread
+	isArchived bool
+}
+
 type threadMenuUI struct {
 	cliCtx   *CliContext
-	items    []string
+	entries  []threadMenuEntry
 	selected int
 	offset   int
 }
@@ -20,13 +26,13 @@ type threadMenuUI struct {
 func newThreadMenuUI(cliCtxIn *CliContext) *threadMenuUI {
 	return &threadMenuUI{
 		cliCtx:   cliCtxIn,
-		items:    make([]string, 0),
+		entries:  make([]threadMenuEntry, 0),
 		selected: 0,
 		offset:   0,
 	}
 }
 
-func (cliCtx *CliContext) initMenuUI(thrGrp *threads.ThreadGroup) {
+func (cliCtx *CliContext) initMenuUI() {
 	gc.CBreak(true)
 	gc.Echo(false)
 	_ = gc.Cursor(0)
@@ -55,5 +61,6 @@ func (cliCtx *CliContext) initMenuUI(thrGrp *threads.ThreadGroup) {
 		}
 	}
 
-	cliCtx.menu.resetItems(thrGrp)
+	cliCtx.menu.resetItems(cliCtx.curThreadGroup,
+		cliCtx.menu.cliCtx.curThreadGroup == cliCtx.archiveThreadGroup)
 }

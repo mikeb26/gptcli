@@ -29,9 +29,11 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 	dir := t.TempDir()
 	grp := NewThreadGroup("", dir)
 	assert.NoError(t, grp.NewThread("t1"))
-	activated, err := grp.ActivateThread(1)
-	assert.NoError(t, err)
-	thrImpl := activated.(*thread)
+	threads := grp.Threads()
+	if !assert.Len(t, threads, 1) {
+		return
+	}
+	thrImpl := threads[0].(*thread)
 
 	ctxBase := context.Background()
 	ctx, invocationID := llmclient.EnsureInvocationID(ctxBase)
@@ -66,7 +68,7 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 	ictx := types.InternalContext{LlmBaseApprover: noopApprover{}}
 	// Inject a mock client into the active thread so ChatOnceAsync uses it.
 	thrImpl.llmClient = mockClient
-	state, err := grp.ChatOnceAsync(ctx, ictx, "hi", false)
+	state, err := thrImpl.ChatOnceAsync(ctx, ictx, "hi", false)
 	assert.NoError(t, err)
 	if assert.NotNil(t, state) {
 		assert.Equal(t, invocationID, state.InvocationID)
@@ -101,9 +103,11 @@ func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 	dir := t.TempDir()
 	grp := NewThreadGroup("", dir)
 	assert.NoError(t, grp.NewThread("t1"))
-	activated, err := grp.ActivateThread(1)
-	assert.NoError(t, err)
-	thrImpl := activated.(*thread)
+	threads := grp.Threads()
+	if !assert.Len(t, threads, 1) {
+		return
+	}
+	thrImpl := threads[0].(*thread)
 
 	ctxBase := context.Background()
 	ctx, invocationID := llmclient.EnsureInvocationID(ctxBase)
@@ -128,7 +132,7 @@ func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 	ictx := types.InternalContext{LlmBaseApprover: noopApprover{}}
 	// Inject a mock client into the active thread so ChatOnceAsync uses it.
 	thrImpl.llmClient = mockClient
-	state, err := grp.ChatOnceAsync(ctx, ictx, "hi", false)
+	state, err := thrImpl.ChatOnceAsync(ctx, ictx, "hi", false)
 	assert.NoError(t, err)
 
 	// Wait until we have at least the partial content.

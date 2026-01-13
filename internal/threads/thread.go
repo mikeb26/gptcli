@@ -5,6 +5,7 @@
 package threads
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -63,12 +64,16 @@ type Thread interface {
 	ModTime() time.Time
 	Dialogue() []*types.ThreadMessage
 	RenderBlocks() []RenderBlock
+	Access() error
+	ChatOnceAsync(context.Context, types.InternalContext, string,
+		bool) (*RunningThreadState, error)
 }
 
 type thread struct {
 	persisted persistedThread
 
 	fileName string
+	dir      string
 	state    ThreadState
 	runState *RunningThreadState
 
@@ -88,6 +93,7 @@ func (t *thread) State() ThreadState {
 
 	return t.state
 }
+
 // SetState sets the current thread state.
 func (t *thread) setState(state ThreadState) {
 	t.mu.Lock()
@@ -147,7 +153,10 @@ func (t *thread) Name() string {
 
 // save persists the thread's dialogue to a file; callers should already hold
 // a write lock on the thread's mutex
-func (t *thread) save(dir string) error {
+func (t *thread) save() error {
+	return t.saveWithDir(t.dir)
+}
+func (t *thread) saveWithDir(dir string) error {
 	if t.state != ThreadStateIdle {
 		return fmt.Errorf("cannot save non-idle thread state:%v", t.state)
 	}
@@ -170,7 +179,10 @@ func (t *thread) save(dir string) error {
 
 // remove deletes the thread's persisted dialogue; callers should already hold
 // a write lock on the thread's mutex
-func (t *thread) remove(dir string) error {
+func (t *thread) remove() error {
+	return t.removeWithDir(t.dir)
+}
+func (t *thread) removeWithDir(dir string) error {
 	if t.state != ThreadStateIdle {
 		return fmt.Errorf("cannot remove non-idle thread state:%v",
 			t.state)

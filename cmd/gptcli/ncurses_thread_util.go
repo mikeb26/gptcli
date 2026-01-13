@@ -36,7 +36,7 @@ func drawThreadHeader(cliCtx *CliContext, thread threads.Thread) {
 
 // drawNavbar renders a simple status line at the bottom of the
 // screen, including mode information and key hints.
-func drawNavbar(cliCtx *CliContext, focus threadViewFocus) {
+func drawNavbar(cliCtx *CliContext, focus threadViewFocus, isArchived bool) {
 	maxY, maxX := cliCtx.rootWin.MaxYX()
 	statusY := maxY - 1
 	if statusY < 0 {
@@ -61,7 +61,7 @@ func drawNavbar(cliCtx *CliContext, focus threadViewFocus) {
 		{text: "/", bold: false},
 		{text: "End", bold: true},
 	}
-	if cliCtx.curThreadGroup == cliCtx.mainThreadGroup {
+	if !isArchived {
 		segments = append(segments, []statusSegment{
 			{text: " OtherWin:", bold: false},
 			{text: "Tab", bold: true},

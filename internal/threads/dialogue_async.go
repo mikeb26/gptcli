@@ -82,14 +82,14 @@ func (s *RunningThreadState) Stop() {
 //
 // The worker goroutine fully manages the request lifecycle, including
 // finalizing and persisting the thread upon success.
-func (thrGrp *ThreadGroup) ChatOnceAsync(
+func (thread *thread) ChatOnceAsync(
 	ctx context.Context, ictx types.InternalContext, prompt string,
 	summarizePrior bool,
 ) (*RunningThreadState, error) {
 	// Record the current thread immediately so that the lifetime of this run is
 	// independent of any subsequent changes to the thread group's notion of
 	// "current thread".
-	thread, err := thrGrp.setCurrentThreadRunning(ctx, ictx)
+	thread, err := thread.setRunning(ctx, ictx)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func (thrGrp *ThreadGroup) ChatOnceAsync(
 	thread.mu.Unlock()
 
 	go runChatOnceAsync(
-		thrGrp, ctx, thread, prompt, summarizePrior,
+		ctx, thread, prompt, summarizePrior,
 		invocationID, progressCh,
 		state, resultCh, doneCh,
 	)
@@ -129,7 +129,6 @@ func (thrGrp *ThreadGroup) ChatOnceAsync(
 }
 
 func runChatOnceAsync(
-	thrGrp *ThreadGroup,
 	ctx context.Context,
 	thread *thread,
 	prompt string,
@@ -211,7 +210,7 @@ func runChatOnceAsync(
 		Content: state.ContentSoFar(),
 	}
 	finalDialogue := append(fullDialogue, replyMsg)
-	if err := finalizeChatOnce(thrGrp, thread, finalDialogue); err != nil {
+	if err := finalizeChatOnce(thread, finalDialogue); err != nil {
 		resultCh <- RunningThreadResult{Reply: nil, Err: err}
 		return
 	}

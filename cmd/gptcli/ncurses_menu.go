@@ -74,7 +74,7 @@ func (ui *threadMenuUI) viewHeight() int {
 
 func (ui *threadMenuUI) adjustOffset() {
 	vh := ui.viewHeight()
-	total := len(ui.items)
+	total := len(ui.entries)
 	iui.AdjustListViewport(total, vh, &ui.selected, &ui.offset)
 }
 
@@ -83,7 +83,7 @@ func (ui *threadMenuUI) draw() {
 
 	maxY, maxX := scr.MaxYX()
 	vh := ui.viewHeight()
-	showScrollbar := vh > 0 && len(ui.items) > vh && maxX >= 2
+	showScrollbar := vh > 0 && len(ui.entries) > vh && maxX >= 2
 	listWidth := maxX
 	if showScrollbar {
 		listWidth = maxX - 1
@@ -110,7 +110,7 @@ func (ui *threadMenuUI) draw() {
 			idx := ui.offset + row
 			rowY := startY + row
 
-			isSelected := idx == ui.selected && idx < len(ui.items)
+			isSelected := idx == ui.selected && idx < len(ui.entries)
 			if isSelected {
 				if ui.cliCtx.toggles.useColors {
 					_ = scr.AttrSet(gc.A_NORMAL | gc.ColorPair(menuColorSelected))
@@ -126,17 +126,17 @@ func (ui *threadMenuUI) draw() {
 			scr.Move(rowY, 0)
 			scr.HLine(rowY, 0, ' ', maxX)
 
-			if idx >= len(ui.items) {
+			if idx >= len(ui.entries) {
 				continue
 			}
-			line := iui.TruncateRunes(ui.items[idx], listWidth)
+			line := iui.TruncateRunes(ui.entries[idx].label, listWidth)
 			scr.MovePrintf(rowY, 0, "%s", line)
 		}
 	}
 
 	// Draw scrollbar in the last column of the list area (only when needed).
 	if showScrollbar {
-		sb := iui.ComputeScrollbar(len(ui.items), vh, ui.offset)
+		sb := iui.ComputeScrollbar(len(ui.entries), vh, ui.offset)
 		for row := 0; row < vh; row++ {
 			iui.DrawScrollbarCell(scr, startY+row, row, vh, maxX-1, sb)
 		}
@@ -188,15 +188,21 @@ func (ui *threadMenuUI) draw() {
 	scr.Refresh()
 }
 
-func (ui *threadMenuUI) resetItems(thrGrp *threads.ThreadGroup) {
-	items := make([]string, 0, len(thrGrp.Threads()))
+func (ui *threadMenuUI) resetItems(thrGrp *threads.ThreadGroup,
+	isArchivedLocal bool) {
+
+	items := make([]threadMenuEntry, 0, len(thrGrp.Threads()))
 	for idx, t := range thrGrp.Threads() {
 		threadNum := fmt.Sprintf("%v%v", thrGrp.Prefix(), idx+1)
 		line := strings.TrimRight(threadHeaderString(t, threadNum), "\n")
-		items = append(items, line)
+		entry := threadMenuEntry{
+			label:      line,
+			thread:     t,
+			isArchived: isArchivedLocal,
+		}
+		items = append(items, entry)
 	}
-
-	ui.items = items
+	ui.entries = items
 }
 
 func gcInit() (*gc.Window, error) {
@@ -227,7 +233,7 @@ func gcExit() {
 	gc.End()
 }
 
-func showMenu(ctx context.Context, cliCtx *CliContext, thrGrp *threads.ThreadGroup) error {
+func showMenu(ctx context.Context, cliCtx *CliContext) error {
 	// Listen for SIGWINCH (terminal resize). We handle the signal in this
 	// same goroutine by polling the channel inside the UI loop, which
 	// keeps all ncurses interaction single-threaded.
@@ -235,7 +241,7 @@ func showMenu(ctx context.Context, cliCtx *CliContext, thrGrp *threads.ThreadGro
 	signal.Notify(sigCh, syscall.SIGWINCH)
 	defer signal.Stop(sigCh)
 
-	cliCtx.initMenuUI(thrGrp)
+	cliCtx.initMenuUI()
 	needErase := true
 	needRefresh := false
 	upgradeChecked := false
@@ -251,9 +257,10 @@ func showMenu(ctx context.Context, cliCtx *CliContext, thrGrp *threads.ThreadGro
 			needErase = false
 		}
 		if needRefresh {
-			cliCtx.menu.resetItems(cliCtx.curThreadGroup)
-			if cliCtx.menu.selected >= len(cliCtx.menu.items) {
-				cliCtx.menu.selected = len(cliCtx.menu.items) - 1
+			cliCtx.menu.resetItems(cliCtx.curThreadGroup,
+				cliCtx.curThreadGroup == cliCtx.archiveThreadGroup)
+			if cliCtx.menu.selected >= len(cliCtx.menu.entries) {
+				cliCtx.menu.selected = len(cliCtx.menu.entries) - 1
 			}
 			needRefresh = false
 			lastRefresh = time.Now()
@@ -297,14 +304,14 @@ func showMenu(ctx context.Context, cliCtx *CliContext, thrGrp *threads.ThreadGro
 				cliCtx.menu.selected--
 			}
 		case gc.KEY_DOWN:
-			if cliCtx.menu.selected < len(cliCtx.menu.items)-1 {
+			if cliCtx.menu.selected < len(cliCtx.menu.entries)-1 {
 				cliCtx.menu.selected++
 			}
 		case gc.KEY_HOME:
 			cliCtx.menu.selected = 0
 		case gc.KEY_END:
-			if len(cliCtx.menu.items) > 0 {
-				cliCtx.menu.selected = len(cliCtx.menu.items) - 1
+			if len(cliCtx.menu.entries) > 0 {
+				cliCtx.menu.selected = len(cliCtx.menu.entries) - 1
 			}
 		case gc.KEY_PAGEUP:
 			if vh := cliCtx.menu.viewHeight(); vh > 0 {
@@ -316,25 +323,27 @@ func showMenu(ctx context.Context, cliCtx *CliContext, thrGrp *threads.ThreadGro
 		case gc.KEY_PAGEDOWN:
 			if vh := cliCtx.menu.viewHeight(); vh > 0 {
 				cliCtx.menu.selected += vh
-				if cliCtx.menu.selected > len(cliCtx.menu.items)-1 {
-					cliCtx.menu.selected = len(cliCtx.menu.items) - 1
+				if cliCtx.menu.selected > len(cliCtx.menu.entries)-1 {
+					cliCtx.menu.selected = len(cliCtx.menu.entries) - 1
 				}
 			}
 		case gc.KEY_ENTER, gc.KEY_RETURN:
 			// Enter: activate the selected thread and transition into the
 			// ncurses-based thread view instead of dropping back to the
 			// basic CLI prompt.
-			if len(cliCtx.menu.items) == 0 {
+			if len(cliCtx.menu.entries) == 0 {
 				continue
 			}
-			threadIndex := cliCtx.menu.selected + 1 // threads are 1-based
-			thread, err := cliCtx.curThreadGroup.ActivateThread(threadIndex)
+
+			entry := cliCtx.menu.entries[cliCtx.menu.selected]
+			err := entry.thread.Access()
 			if err != nil {
 				// Propagate the error so the caller can handle it and
 				// exit ncurses cleanly.
 				return err
 			}
-			if err := runThreadView(ctx, cliCtx, thread); err != nil {
+			if err := runThreadView(ctx, cliCtx, entry.thread,
+				entry.isArchived); err != nil {
 				return err
 			}
 			// After returning from the thread view, redraw the menu.
@@ -360,38 +369,35 @@ func showMenu(ctx context.Context, cliCtx *CliContext, thrGrp *threads.ThreadGro
 		case 'a':
 			fallthrough
 		case 'u':
+			entry := cliCtx.menu.entries[cliCtx.menu.selected]
 			dstThreadGroup := cliCtx.archiveThreadGroup
-			if ch == 'a' && cliCtx.curThreadGroup != cliCtx.mainThreadGroup {
+			srcThreadGroup := cliCtx.mainThreadGroup
+			if ch == 'a' && entry.isArchived {
 				continue
 			}
 			if ch == 'u' {
-				if cliCtx.curThreadGroup != cliCtx.archiveThreadGroup {
+				if !entry.isArchived {
 					continue
 				}
 				dstThreadGroup = cliCtx.mainThreadGroup
+				srcThreadGroup = cliCtx.archiveThreadGroup
 			}
 			needErase = true
 			// Archive the currently selected thread from the main thread group.
 			// This mirrors the behavior of archiveThreadMain(), but uses the
 			// selection from the menu UI instead of parsing a CLI argument.
-			if len(cliCtx.menu.items) == 0 {
+			if len(cliCtx.menu.entries) == 0 {
 				continue
 			}
-			threadIndex := cliCtx.menu.selected + 1 // threads are 1-based
 
-			// Only main-thread-group entries are shown in the menu, so we move
-			// from mainThreadGroup to archiveThreadGroup directly.
-			if cliCtx.curThreadGroup.Count() == 0 {
-				continue
-			}
-			if threadIndex > cliCtx.curThreadGroup.Count() {
-				continue
-			}
+			threadIndex := cliCtx.menu.selected + 1 // threads are 1-based within the entry's thread group (for now)
 
 			// @todo should cleanup thread.{asyncApprover, llmClient}
-			if err := cliCtx.curThreadGroup.MoveThread(threadIndex, dstThreadGroup); err != nil {
+			// @todo should eliminate 'threadIndex' in MoveThread()
+			if err := srcThreadGroup.MoveThread(threadIndex, dstThreadGroup); err != nil {
 				return fmt.Errorf("%w: %w", ErrFailedToArchiveThread, err)
 			}
+			entry.isArchived = !entry.isArchived
 
 			needRefresh = true
 		case gc.KEY_RESIZE:
