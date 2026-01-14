@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 	"unsafe"
@@ -47,6 +48,10 @@ func (thrGrp *ThreadGroup) Threads() []Thread {
 	for _, thr := range thrGrp.threads {
 		out = append(out, thr)
 	}
+
+	slices.SortFunc(out, func(a, b Thread) int {
+		return -a.AccessTime().Compare(b.AccessTime())
+	})
 
 	return out
 }

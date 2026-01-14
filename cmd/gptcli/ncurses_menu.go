@@ -191,6 +191,8 @@ func (ui *threadMenuUI) draw() {
 func (ui *threadMenuUI) resetItems(thrGrp *threads.ThreadGroup,
 	isArchivedLocal bool) {
 
+	selectedThreadID := ui.selectedThreadID()
+
 	items := make([]threadMenuEntry, 0, len(thrGrp.Threads()))
 	for idx, t := range thrGrp.Threads() {
 		threadNum := fmt.Sprintf("%v%v", thrGrp.Prefix(), idx+1)
@@ -203,6 +205,30 @@ func (ui *threadMenuUI) resetItems(thrGrp *threads.ThreadGroup,
 		items = append(items, entry)
 	}
 	ui.entries = items
+
+	ui.restoreSelection(selectedThreadID)
+
+}
+
+func (ui *threadMenuUI) selectedThreadID() string {
+	if ui.selected < 0 || ui.selected >= len(ui.entries) {
+		return ""
+	}
+	return ui.entries[ui.selected].thread.Id()
+}
+
+func (ui *threadMenuUI) restoreSelection(threadID string) {
+	ui.selected = 0
+	if len(ui.entries) == 0 || threadID == "" {
+		return
+	}
+
+	for idx, ent := range ui.entries {
+		if ent.thread.Id() == threadID {
+			ui.selected = idx
+			break
+		}
+	}
 }
 
 func gcInit() (*gc.Window, error) {
@@ -259,9 +285,6 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 		if needRefresh {
 			cliCtx.menu.resetItems(cliCtx.curThreadGroup,
 				cliCtx.curThreadGroup == cliCtx.archiveThreadGroup)
-			if cliCtx.menu.selected >= len(cliCtx.menu.entries) {
-				cliCtx.menu.selected = len(cliCtx.menu.entries) - 1
-			}
 			needRefresh = false
 			lastRefresh = time.Now()
 		}
@@ -369,6 +392,9 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 		case 'a':
 			fallthrough
 		case 'u':
+			if len(cliCtx.menu.entries) == 0 {
+				continue
+			}
 			entry := cliCtx.menu.entries[cliCtx.menu.selected]
 			dstThreadGroup := cliCtx.archiveThreadGroup
 			srcThreadGroup := cliCtx.mainThreadGroup
@@ -386,10 +412,6 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 			// Archive the currently selected thread from the main thread group.
 			// This mirrors the behavior of archiveThreadMain(), but uses the
 			// selection from the menu UI instead of parsing a CLI argument.
-			if len(cliCtx.menu.entries) == 0 {
-				continue
-			}
-
 			// @todo should cleanup thread.{asyncApprover, llmClient}
 			if err := srcThreadGroup.MoveThread(entry.thread, dstThreadGroup); err != nil {
 				return fmt.Errorf("%w: %w", ErrFailedToArchiveThread, err)
