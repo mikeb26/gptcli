@@ -95,6 +95,10 @@ Tools are defined in `internal/tools` and wired into the agent in `defineTools` 
 
 - Prefer reading relevant files (especially `AGENTS.md`) before making changes.
 - Use the smallest necessary tool: prefer `file_patch` over recreating whole files when modifying existing content.
+- Do not throw away or overwrite a user’s uncommitted local changes (a “dirty” working tree) without explicit confirmation.
+  - Prefer to leave existing local modifications in place.
+  - If your change would conflict with local modifications (e.g. would overwrite the same hunks), ask the user for confirmation before proceeding.
+  - If your change does not conflict, leave the user’s local modifications untouched.
 - After changes that affect build or tests, run the appropriate `make` targets and fix any issues before finishing.
 - Provide clear, minimal explanations to the user, and avoid flooding them with full file contents when not necessary.
 
@@ -118,6 +122,10 @@ The `Makefile` defines `TESTPKGS` to include core packages (`cmd/gptcli`, `inter
   - Follow existing package boundaries (`cmd/`, `internal/`, `vendor/`).
   - Keep agent/tool behavior centralized in `internal/llmclient` and `internal/tools`.
   - Aim for small, focused tools; reuse `ToolApprovalUI` and approval policies instead of duplicating approval logic.
+  - Avoid excessive defensive `nil` and empty-string checks when the value is deterministic.
+    - Example: in a method with receiver `func (c *Client) Foo(...)`, `c` is necessarily non-`nil` at the callsite; do not clutter the method with `if c == nil { ... }`.
+    - Example: if an internal helper is passed a string that is guaranteed by construction to be non-empty, do not add redundant `if s == "" { ... }` checks.
+    - `nil` / empty checks are appropriate when the value is non-deterministic or derived from external input (e.g. user input, config files, env vars, network responses).
   - When changing public behavior of tools (e.g., adding fields to requests or responses), preserve backward compatibility with existing JSON field names.
   - Prefer **named, non-anonymous functions** for any non-trivial behavior (anything more than ~5 lines, multiple branches, or stateful logic). Avoid long inline anonymous function literals passed directly to other functions or stored in variables.
     - Example of *discouraged* style:
