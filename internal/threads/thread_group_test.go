@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/stretchr/testify/assert"
@@ -60,6 +61,7 @@ func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
 		AccessTime: base,
 		ModTime:    base,
 		Dialogue:   []*types.ThreadMessage{},
+		Id:         uuid.NewString(),
 	}}
 	thr.state = ThreadStateIdle
 	thr.fileName = genUniqFileName(thr.persisted.Name, thr.persisted.CreateTime)
@@ -109,6 +111,7 @@ func TestLoadThreadsLoadsAndRenamesStaleFiles(t *testing.T) {
 		AccessTime: base,
 		ModTime:    base,
 		Dialogue:   []*types.ThreadMessage{},
+		Id:         uuid.NewString(),
 	}}
 	orig.state = ThreadStateIdle
 
@@ -153,6 +156,7 @@ func TestMoveThreadMovesFileAndReloadsSourceGroup(t *testing.T) {
 		AccessTime: base,
 		ModTime:    base,
 		Dialogue:   []*types.ThreadMessage{},
+		Id:         uuid.NewString(),
 	}}
 	thr.state = ThreadStateIdle
 	thr.fileName = genUniqFileName(thr.persisted.Name, thr.persisted.CreateTime)
@@ -163,7 +167,7 @@ func TestMoveThreadMovesFileAndReloadsSourceGroup(t *testing.T) {
 	assert.Equal(t, 1, srcGrp.Count())
 
 	// Move the thread from src to dst.
-	err := srcGrp.MoveThread(1, dstGrp)
+	err := srcGrp.MoveThread(thr, dstGrp)
 	assert.NoError(t, err)
 
 	// Source has been reloaded from disk and is now empty.
@@ -193,7 +197,7 @@ func TestMoveThreadInvalidIndex(t *testing.T) {
 	srcGrp := NewThreadGroup("S", srcDir)
 	dstGrp := NewThreadGroup("D", dstDir)
 
-	err := srcGrp.MoveThread(1, dstGrp)
+	err := srcGrp.MoveThread(&thread{persisted: persistedThread{Id: "does-not-exist"}}, dstGrp)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Thread S1")
+	assert.Contains(t, err.Error(), "does not exist")
 }

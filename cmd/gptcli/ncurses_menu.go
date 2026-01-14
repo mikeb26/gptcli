@@ -390,11 +390,8 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 				continue
 			}
 
-			threadIndex := cliCtx.menu.selected + 1 // threads are 1-based within the entry's thread group (for now)
-
 			// @todo should cleanup thread.{asyncApprover, llmClient}
-			// @todo should eliminate 'threadIndex' in MoveThread()
-			if err := srcThreadGroup.MoveThread(threadIndex, dstThreadGroup); err != nil {
+			if err := srcThreadGroup.MoveThread(entry.thread, dstThreadGroup); err != nil {
 				return fmt.Errorf("%w: %w", ErrFailedToArchiveThread, err)
 			}
 			entry.isArchived = !entry.isArchived

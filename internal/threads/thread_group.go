@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
 	"time"
 	"unsafe"
@@ -22,7 +21,7 @@ import (
 
 type ThreadGroup struct {
 	prefix     string
-	threads    []*thread
+	threads    map[string]*thread
 	totThreads int
 	dir        string
 	mu         sync.RWMutex
@@ -32,7 +31,7 @@ func NewThreadGroup(prefixIn string, dirIn string) *ThreadGroup {
 
 	thrGrp := &ThreadGroup{
 		prefix:     prefixIn,
-		threads:    make([]*thread, 0),
+		threads:    make(map[string]*thread),
 		totThreads: 0,
 		dir:        dirIn,
 	}
@@ -101,7 +100,7 @@ func (thrGrp *ThreadGroup) LoadThreads() error {
 	}
 
 	thrGrp.totThreads = 0
-	thrGrp.threads = make([]*thread, 0)
+	thrGrp.threads = make(map[string]*thread)
 
 	dEntries, err := os.ReadDir(thrGrp.dir)
 	if err != nil {
@@ -200,8 +199,14 @@ func (thrGrp *ThreadGroup) NewThread(name string) error {
 }
 
 func (thrGrp *ThreadGroup) addThread(curThread *thread) {
+	if curThread.persisted.Id == "" {
+		panic("missing thread id")
+	}
+	if _, exists := thrGrp.threads[curThread.persisted.Id]; exists {
+		panic("duplicate thread id")
+	}
+	thrGrp.threads[curThread.persisted.Id] = curThread
 	thrGrp.totThreads++
-	thrGrp.threads = append(thrGrp.threads, curThread)
 }
 
 // @todo need ux
@@ -214,8 +219,11 @@ func (thrGrp *ThreadGroup) Count() int {
 	return thrGrp.totThreads
 }
 
-func (srcThrGrp *ThreadGroup) MoveThread(threadNum int,
-	dstThrGrp *ThreadGroup) error {
+func (srcThrGrp *ThreadGroup) MoveThread(thr Thread, dstThrGrp *ThreadGroup) error {
+	if srcThrGrp == dstThrGrp {
+		return fmt.Errorf("cannot move thread within the same thread group")
+	}
+
 	// Ensure consistent locking order to prevent deadlocks if two goroutines
 	// concurrently move threads in opposite directions between two groups.
 	first, second := srcThrGrp, dstThrGrp
@@ -228,12 +236,13 @@ func (srcThrGrp *ThreadGroup) MoveThread(threadNum int,
 	second.mu.Lock()
 	defer second.mu.Unlock()
 
-	if threadNum > srcThrGrp.totThreads || threadNum == 0 {
-		threadNumPrint := fmt.Sprintf("%v%v", srcThrGrp.prefix, threadNum)
-		return fmt.Errorf(ThreadNoExistErrFmt, threadNumPrint)
+	thrId := thr.Id()
+	if _, exists := srcThrGrp.threads[thrId]; !exists {
+		return fmt.Errorf("thread %q does not exist in group %q", thrId,
+			srcThrGrp.prefix)
 	}
 
-	thread := srcThrGrp.threads[threadNum-1]
+	thread := srcThrGrp.threads[thrId]
 
 	thread.mu.Lock()
 	defer thread.mu.Unlock()
@@ -251,21 +260,8 @@ func (srcThrGrp *ThreadGroup) MoveThread(threadNum int,
 	thread.dir = dstThrGrp.dir
 	dstThrGrp.addThread(thread)
 
+	delete(srcThrGrp.threads, thrId)
 	srcThrGrp.totThreads--
-	srcThrGrp.threads = slices.Delete(srcThrGrp.threads, threadNum-1, threadNum)
 
 	return nil
-}
-
-// ThreadId returns the thread id of the specified thread number in the group
-func (thrGrp *ThreadGroup) ThreadId(threadNum int) string {
-	thrGrp.mu.RLock()
-	defer thrGrp.mu.RUnlock()
-
-	if threadNum > thrGrp.totThreads || threadNum == 0 {
-		return ""
-	}
-	thread := thrGrp.threads[threadNum-1]
-
-	return thread.Id()
 }
