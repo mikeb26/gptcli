@@ -16,6 +16,7 @@ var (
 	ErrNilScreen                   = errors.New("Nil screen returned")
 	ErrCannotEditArchivedThread    = errors.New("Cannot edit archived thread; please unarchive first")
 	ErrUnsupportedVendor           = errors.New("LLM Vendor is not currently supported")
+	ErrUnsupportedModel            = errors.New("LLM Model is not currently supported")
 	ErrCouldNotParseLatestRelease  = errors.New("Could not parse latest release JSON")
 	ErrFailedToDownloadVersion     = errors.New("Failed to download new version")
 	ErrFailedToCreateTempFile      = errors.New("Failed to create temp file")

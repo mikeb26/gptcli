@@ -4,12 +4,20 @@
  */
 package internal
 
+var SupportedModels = map[string][]string{
+	"google": []string{"gemini-3-pro-preview", "gemini-3-flash-preview"},
+	"anthropic": []string{"claude-sonnet-4-5-20250929",
+		"claude-opus-4-5-20251101", "claude-haiku-4-5-20251001"},
+	"openai": []string{"gpt-5.2", "gpt-5-mini", "gpt-5.2-pro"},
+}
+
 const DefaultVendor = "openai"
 
-var DefaultModels = map[string]string{
-	"google":    "gemini-3-pro-preview",
-	"anthropic": "claude-sonnet-4-5-20250929",
-	"openai":    "gpt-5.2",
+// key is the index into SupportedModels
+var DefaultModels = map[string]int{
+	"google":    0,
+	"anthropic": 0,
+	"openai":    0,
 }
 
 const MaxDepth = 3

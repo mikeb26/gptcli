@@ -19,11 +19,14 @@ import (
 )
 
 func (gptCliCtx *CliContext) loadPrefs() error {
+	vendor := internal.DefaultVendor
+	model := internal.SupportedModels[vendor][internal.DefaultModels[vendor]]
 	// Establish defaults so newly added prefs fields take the intended defaults
 	// even when loading older prefs.json files that don't include them.
 	gptCliCtx.prefs = Prefs{
 		SummarizePrior: false,
-		Vendor:         internal.DefaultVendor,
+		Vendor:         vendor,
+		Model:          model,
 		EnableAuditLog: true,
 	}
 
@@ -41,9 +44,11 @@ func (gptCliCtx *CliContext) loadPrefs() error {
 	}
 	gptCliCtx.toggles.summary = gptCliCtx.prefs.SummarizePrior
 	if gptCliCtx.prefs.Vendor == "" {
-		gptCliCtx.prefs.Vendor = internal.DefaultVendor
+		gptCliCtx.prefs.Vendor = vendor
 	}
-
+	if gptCliCtx.prefs.Model == "" {
+		gptCliCtx.prefs.Model = model
+	}
 	return nil
 }
 
@@ -95,6 +100,22 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 		return fmt.Errorf("%w: %v", ErrUnsupportedVendor, vendor)
 	}
 	gptCliCtx.prefs.Vendor = vendor
+
+	models := internal.SupportedModels[vendor]
+	choices = make([]types.UIOption, 0, len(models))
+	for _, m := range models {
+		choices = append(choices, types.UIOption{Key: m, Label: m})
+	}
+	selection, err = gptCliCtx.ui.SelectOption(
+		fmt.Sprintf("Choose an %v model:", vendor), choices)
+	if err != nil {
+		return err
+	}
+	model := strings.ToLower(strings.TrimSpace(selection.Key))
+	if _, ok := internal.SupportedModels[vendor]; !ok {
+		return fmt.Errorf("%w: %v", ErrUnsupportedModel, model)
+	}
+	gptCliCtx.prefs.Model = model
 
 	keyPath := path.Join(configDir, fmt.Sprintf(KeyFileFmt, vendor))
 	keyBytes, err := os.ReadFile(keyPath)

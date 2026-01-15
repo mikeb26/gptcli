@@ -34,6 +34,7 @@ const (
 type Prefs struct {
 	SummarizePrior bool   `json:"summarize_prior"`
 	Vendor         string `json:"vendor"`
+	Model          string `json:"model"`
 	EnableAuditLog bool   `json:"enable_audit_log"`
 }
 
@@ -68,6 +69,8 @@ func NewCliContext(ctx context.Context) (*CliContext, error) {
 		return nil, err
 	}
 
+	vendor := internal.DefaultVendor
+	model := internal.SupportedModels[vendor][internal.DefaultModels[vendor]]
 	cliCtx := &CliContext{
 		ui:      ui.NewNcursesUI(rootWinLocal),
 		rootWin: rootWinLocal,
@@ -79,6 +82,7 @@ func NewCliContext(ctx context.Context) (*CliContext, error) {
 		prefs: Prefs{
 			SummarizePrior: false,
 			Vendor:         internal.DefaultVendor,
+			Model:          model,
 			EnableAuditLog: true,
 		},
 		archiveThreadGroup: nil,
@@ -149,7 +153,7 @@ func (cliCtx *CliContext) load(ctx context.Context) error {
 
 	cliCtx.ictx.LlmPolicyStore = policyStore
 	cliCtx.ictx.LlmVendor = cliCtx.prefs.Vendor
-	cliCtx.ictx.LlmModel = internal.DefaultModels[cliCtx.prefs.Vendor]
+	cliCtx.ictx.LlmModel = cliCtx.prefs.Model
 	cliCtx.ictx.LlmApiKey = keyText
 	cliCtx.ictx.LlmReasoningEffort = laclopenai.ReasoningEffortLevelMedium
 	if cliCtx.prefs.EnableAuditLog {
