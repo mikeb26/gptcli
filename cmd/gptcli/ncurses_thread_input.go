@@ -40,7 +40,13 @@ func drawThreadInputLabel(cliCtx *CliContext, statusText string) {
 	}
 	_ = cliCtx.rootWin.AttrSet(sepAttr)
 	cliCtx.rootWin.Move(startY, 0)
-	cliCtx.rootWin.HLine(startY, 0, ' ', maxX)
+	// Note: ncurses' mvwhline uses the attributes embedded in the provided
+	// character (chtype). It does not reliably apply the window's current
+	// attributes to the repeated characters. If we pass a plain space (' '),
+	// the line can be drawn with default attributes and only the subsequently
+	// printed status text will show the color, making the background appear
+	// truncated.
+	cliCtx.rootWin.HLine(startY, 0, gc.Char(' ')|sepAttr, maxX)
 	cliCtx.rootWin.MovePrint(startY, 0, statusText)
 	_ = cliCtx.rootWin.AttrSet(gc.A_NORMAL)
 }
