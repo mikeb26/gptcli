@@ -321,10 +321,6 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 		}
 
 		cliCtx.menu.draw()
-		if !upgradeChecked {
-			upgradeIfNeeded(ctx, cliCtx)
-			upgradeChecked = true
-		}
 
 		var ch gc.Key
 		select {
@@ -333,6 +329,16 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 			needErase = true
 			continue
 		default:
+			if cliCtx.toggles.needConfig {
+				configMain(ctx, cliCtx)
+				needRefresh = true
+				continue
+			}
+			if !upgradeChecked {
+				upgradeIfNeeded(ctx, cliCtx)
+				upgradeChecked = true
+			}
+
 			ch = cliCtx.rootWin.GetChar()
 			if ch == 0 {
 				if time.Now().Sub(lastRefresh) > 200*time.Millisecond {
