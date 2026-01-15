@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	gc "github.com/gbin/goncurses"
+	"github.com/mikeb26/gptcli/internal/types"
 )
 
 // Modal is a thin wrapper around a Frame that provides a centered,
@@ -46,10 +47,6 @@ type Modal struct {
 // hasCursor and hasInput flags are passed through to the Frame
 // constructor.
 func (n *NcursesUI) newCenteredModal(height, width int, hasCursor, hasInput bool) (*Modal, error) {
-	if n == nil || n.scr == nil {
-		return nil, fmt.Errorf("ncurses UI not initialized")
-	}
-
 	maxY, maxX := n.scr.MaxYX()
 	if maxY < 3 || maxX < 4 {
 		return nil, fmt.Errorf("terminal too small for ncurses window")
@@ -454,6 +451,242 @@ func (n *NcursesUI) selectFromListModalFrame(userPrompt string, items []string, 
 			}
 		default:
 			// Ignore other keys.
+		}
+	}
+}
+
+func wrapTextToWidth(lines []string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		r := []rune(line)
+		if len(r) == 0 {
+			out = append(out, "")
+			continue
+		}
+		for start := 0; start < len(r); {
+			end := start + width
+			if end > len(r) {
+				end = len(r)
+			}
+			out = append(out, string(r[start:end]))
+			start = end
+		}
+	}
+	if len(out) == 0 {
+		out = []string{""}
+	}
+	return out
+}
+
+// selectBoolScrollablePromptModalFrame displays a centered modal with a
+// scrollable prompt area (using our vertical scrollbar primitives) and a
+// small list of selectable options below it.
+//
+// The prompt is word-agnostic hard-wrapped to the available width so long
+// single-line error strings are visible instead of being truncated.
+func (n *NcursesUI) selectBoolScrollablePromptModalFrame(userPrompt string,
+	trueOption, falseOption types.UIOption,
+	defaultOpt *bool) (bool, bool, error) {
+
+	maxY, maxX := n.scr.MaxYX()
+	if maxY < 3 || maxX < 4 {
+		return false, false, fmt.Errorf("terminal too small for ncurses window")
+	}
+
+	// Make this modal intentionally large since the primary use-case is
+	// showing potentially long error messages.
+	desiredHeight := maxY - 4
+	if desiredHeight < 10 {
+		desiredHeight = 10
+	}
+	desiredWidth := maxX - 4
+	if desiredWidth < 40 {
+		desiredWidth = 40
+	}
+
+	modal, err := n.newCenteredModal(desiredHeight, desiredWidth, false /* hasCursor */, false /* hasInput */)
+	if err != nil {
+		return false, false, err
+	}
+	defer modal.Close()
+
+	win := modal.Frame.Win
+	cy, cx, ch, cw := modal.ContentArea()
+	if cw < 1 {
+		cw = 1
+	}
+	if ch < 1 {
+		ch = 1
+	}
+
+	// Prompt rendering: reserve the last column for the scrollbar when we
+	// have enough width.
+	textWidth := cw
+	scrollbarCol := -1
+	if cw >= 2 {
+		textWidth = cw - 1
+		scrollbarCol = cx + cw - 1
+	}
+
+	trimmed := strings.TrimRight(userPrompt, "\n")
+	promptLines := strings.Split(trimmed, "\n")
+	wrappedPrompt := wrapTextToWidth(promptLines, textWidth)
+	totalPrompt := len(wrappedPrompt)
+	if totalPrompt == 0 {
+		wrappedPrompt = []string{""}
+		totalPrompt = 1
+	}
+
+	items := []string{
+		fmt.Sprintf("%s - %s", trueOption.Key, trueOption.Label),
+		fmt.Sprintf("%s - %s", falseOption.Key, falseOption.Label),
+	}
+	selected := 0
+	if defaultOpt != nil && !*defaultOpt {
+		selected = 1
+	}
+
+	// Keep the options always visible and dedicate the remaining content
+	// rows to the scrollable prompt.
+	spacerRows := 1
+	optionsHeight := len(items)
+	promptViewHeight := ch - (spacerRows + optionsHeight)
+	if promptViewHeight < 1 {
+		promptViewHeight = 1
+	}
+	maxPromptOffset := totalPrompt - promptViewHeight
+	if maxPromptOffset < 0 {
+		maxPromptOffset = 0
+	}
+	promptOffset := 0
+
+	// Use a short timeout to keep the UI responsive.
+	win.Timeout(50)
+	defer win.Timeout(-1)
+
+	// Draw the border once; subsequent updates only modify inner area.
+	_ = win.Box(0, 0)
+
+	var selectedAttr gc.Char
+	if n.theme.UseColors && n.theme.SelectedPair != 0 {
+		selectedAttr = gc.A_NORMAL | gc.ColorPair(n.theme.SelectedPair)
+	} else {
+		selectedAttr = gc.A_REVERSE | gc.A_NORMAL
+	}
+	normalAttr := gc.A_NORMAL
+
+	for {
+		// Recompute max offset in case the terminal is resized or prompt
+		// rendering changes.
+		maxPromptOffset = totalPrompt - promptViewHeight
+		if maxPromptOffset < 0 {
+			maxPromptOffset = 0
+		}
+		if promptOffset < 0 {
+			promptOffset = 0
+		}
+		if promptOffset > maxPromptOffset {
+			promptOffset = maxPromptOffset
+		}
+
+		// Clear inner content area.
+		_ = win.AttrSet(normalAttr)
+		for row := 0; row < ch; row++ {
+			y := cy + row
+			win.Move(y, cx)
+			win.HLine(y, cx, ' ', cw)
+		}
+
+		// Prompt area.
+		sb := ComputeScrollbar(totalPrompt, promptViewHeight, promptOffset)
+		for row := 0; row < promptViewHeight; row++ {
+			y := cy + row
+			idx := promptOffset + row
+			if idx >= 0 && idx < totalPrompt {
+				win.MovePrint(y, cx, TruncateRunes(wrappedPrompt[idx], textWidth))
+			}
+			if scrollbarCol >= 0 && sb.HasScrollbar() {
+				DrawScrollbarCell(win, y, row, promptViewHeight, scrollbarCol, sb)
+			}
+		}
+
+		// Options.
+		optionsStartY := cy + promptViewHeight + spacerRows
+		for i, item := range items {
+			y := optionsStartY + i
+			if y >= cy+ch {
+				break
+			}
+			if i == selected {
+				_ = win.AttrSet(selectedAttr)
+			} else {
+				_ = win.AttrSet(normalAttr)
+			}
+			win.Move(y, cx)
+			win.HLine(y, cx, ' ', cw)
+			win.MovePrint(y, cx, TruncateRunes(item, cw))
+		}
+
+		win.Refresh()
+
+		chKey := win.GetChar()
+		if chKey == 0 {
+			continue
+		}
+
+		switch chKey {
+		case gc.Key(27):
+			// ESC: report cancellation (caller decides how to handle default).
+			return false, true, nil
+		case gc.KEY_ENTER, gc.KEY_RETURN:
+			return selected == 0, false, nil
+		case gc.KEY_UP:
+			if selected > 0 {
+				selected--
+			}
+		case gc.KEY_DOWN:
+			if selected < len(items)-1 {
+				selected++
+			}
+		case gc.KEY_LEFT, gc.KEY_RIGHT:
+			if selected == 0 {
+				selected = 1
+			} else {
+				selected = 0
+			}
+		case gc.KEY_HOME:
+			promptOffset = 0
+		case gc.KEY_END:
+			promptOffset = maxPromptOffset
+		case gc.KEY_PAGEUP:
+			promptOffset -= promptViewHeight
+			if promptOffset < 0 {
+				promptOffset = 0
+			}
+		case gc.KEY_PAGEDOWN:
+			promptOffset += promptViewHeight
+			if promptOffset > maxPromptOffset {
+				promptOffset = maxPromptOffset
+			}
+		default:
+			// Support direct key selection when options use single-character keys
+			// (common for y/n prompts).
+			if chKey >= 32 && chKey < 256 {
+				k := strings.ToLower(string(rune(chKey)))
+				if strings.ToLower(trueOption.Key) == k {
+					return true, false, nil
+				}
+				if strings.ToLower(falseOption.Key) == k {
+					return false, false, nil
+				}
+			}
 		}
 	}
 }

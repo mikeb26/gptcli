@@ -125,14 +125,42 @@ func (n *NcursesUI) SelectBool(userPrompt string,
 	prompt := strings.TrimRight(userPrompt, "\n")
 
 	for {
-		idx, canceled, err := n.selectFromListModalFrame(prompt, items, initialSelected)
-		if err != nil {
-			return false, err
+		// If the prompt includes very long lines (common for error messages),
+		// use the scrollable modal variant so the user can view the entire
+		// message instead of it being truncated.
+		useScrollable := false
+		if n != nil && n.scr != nil {
+			_, maxX := n.scr.MaxYX()
+			contentTextWidth := maxX - 8
+			if contentTextWidth < 20 {
+				contentTextWidth = 20
+			}
+			lines := strings.Split(strings.TrimRight(prompt, "\n"), "\n")
+			for _, line := range lines {
+				if len([]rune(line)) > contentTextWidth {
+					useScrollable = true
+					break
+				}
+			}
 		}
 
-		if !canceled {
-			// Enter pressed: return the highlighted choice.
-			return idx == 0, nil
+		if useScrollable {
+			choice, canceled, err := n.selectBoolScrollablePromptModalFrame(prompt, trueOption, falseOption, defaultOpt)
+			if err != nil {
+				return false, err
+			}
+			if !canceled {
+				return choice, nil
+			}
+		} else {
+			idx, canceled, err := n.selectFromListModalFrame(prompt, items, initialSelected)
+			if err != nil {
+				return false, err
+			}
+			if !canceled {
+				// Enter pressed: return the highlighted choice.
+				return idx == 0, nil
+			}
 		}
 
 		// ESC pressed: preserve prior semantics.
