@@ -358,6 +358,7 @@ func runThreadView(ctx context.Context, cliCtx *CliContext,
 
 		exit, keyRedraw := tvUI.processThreadViewKey(ctx, ch)
 		if exit {
+			tvUI.thread.Access()
 			return nil
 		}
 		if keyRedraw {
