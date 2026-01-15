@@ -127,6 +127,10 @@ func newAnthropicEINOClient(ctx context.Context, vendor string,
 	chatModel, err := claude.NewChatModel(ctx, &claude.Config{
 		Model:  model,
 		APIKey: apiKey,
+		// currently hardcode max tokens to 64k; see
+		// https://platform.claude.com/docs/en/api/go/messages/create
+		// https://platform.claude.com/docs/en/about-claude/models/overview
+		MaxTokens: 64000,
 	})
 	if err != nil {
 		panic(err)
