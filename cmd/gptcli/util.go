@@ -25,8 +25,14 @@ func threadHeaderString(t threads.Thread, threadNum string) string {
 	mTime := formatHeaderTime(t.ModTime(), now)
 	cTime := formatHeaderTime(t.CreateTime(), now)
 
+	// Append "*" when the thread needs user attention.
+	//
+	// 1) If the thread is blocked awaiting approval, we want the thread list
+	//    (including the ncurses menu) to visually flag it immediately, even
+	//    though no dialogue has been persisted yet.
+	// 2) If the thread has been modified since it was last accessed, also flag it.
 	stateSuffix := ""
-	if t.ModTime().After(t.AccessTime()) {
+	if t.State() == threads.ThreadStateBlocked || t.ModTime().After(t.AccessTime()) {
 		stateSuffix = "*"
 	}
 
