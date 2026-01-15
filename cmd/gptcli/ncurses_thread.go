@@ -142,15 +142,7 @@ func (tvUI *threadViewUI) handleThreadViewResize() (needRedraw bool, err error) 
 
 	restoreInputFrameContent(tvUI.inputFrame, inputContent, inputLine, inputCol)
 
-	if tvUI.running.state != nil {
-		state := tvUI.running.state
-		blocks := threadViewDisplayBlocks(tvUI.thread, state.Prompt)
-		content := state.ContentSoFar()
-		tvUI.setHistoryFrameFromBlocks(blocks, content)
-		tvUI.running.lastContentLen = len(content)
-	} else {
-		tvUI.setHistoryFrameForThread()
-	}
+	tvUI.syncHistoryFrameWithCurrentThreadState()
 
 	return true, nil
 }
@@ -315,6 +307,12 @@ func runThreadView(ctx context.Context, cliCtx *CliContext,
 		return err
 	}
 	defer tvUI.closeThreadViewFrames()
+
+	// If we are re-entering a thread that has an in-flight async run, the
+	// persisted thread dialogue won't include the pending user prompt yet.
+	// Initialize history from the running state so the user sees their prompt
+	// immediately even if the model hasn't streamed any new tokens.
+	tvUI.syncHistoryFrameWithCurrentThreadState()
 
 	tvUI.focusedFrame = tvUI.inputFrame
 	tvUI.isArchived = isArchived

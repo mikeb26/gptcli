@@ -101,6 +101,27 @@ func (tvUI *threadViewUI) setHistoryFrameForThread() {
 	tvUI.historyFrame.MoveEnd()
 }
 
+// syncHistoryFrameWithCurrentThreadState ensures the history frame reflects the
+// best available state.
+//
+// If the thread has an in-flight ChatOnceAsync, the user's pending prompt and
+// any partial assistant output are not yet persisted into the thread's stored
+// dialogue. In that case we must build history from the persisted blocks plus
+// the running state's prompt/content.
+func (tvUI *threadViewUI) syncHistoryFrameWithCurrentThreadState() {
+	if tvUI.running.state != nil {
+		state := tvUI.running.state
+		blocks := threadViewDisplayBlocks(tvUI.thread, state.Prompt)
+		content := state.ContentSoFar()
+		tvUI.setHistoryFrameFromBlocks(blocks, content)
+		// Keep async refresh bookkeeping consistent with what we've rendered.
+		tvUI.running.lastContentLen = len(content)
+		return
+	}
+
+	tvUI.setHistoryFrameForThread()
+}
+
 func threadViewDisplayBlocks(thread threads.Thread, pendingPrompt string) []threads.RenderBlock {
 	blocks := append([]threads.RenderBlock(nil), thread.RenderBlocks()...)
 	if pendingPrompt != "" {
