@@ -14,8 +14,7 @@ import (
 //go:embed system_msg.txt
 var SystemMsgFmt string
 var SystemMsg = fmt.Sprintf(SystemMsgFmt, types.RetrieveUrl,
-	types.RenderUrl, types.RetrieveUrl, types.RenderUrl,
-	types.ReadFile, types.FilePatch, types.FilePatch,
+	types.RetrieveUrl, types.ReadFile, types.FilePatch, types.FilePatch,
 	types.CreateFile, types.AppendFile, types.CreateFile)
 
 const SummarizeMsg = `Please summarize the entire prior conversation

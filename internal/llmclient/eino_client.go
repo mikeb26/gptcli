@@ -217,7 +217,6 @@ func defineTools(ctx context.Context, vendor string, approver am.Approver,
 		tools.NewEnvGetTool(approver),
 		tools.NewEnvSetTool(approver),
 		tools.NewRetrieveUrlTool(approver),
-		tools.NewRenderWebTool(approver),
 	}
 	if depth <= internal.MaxDepth {
 		tools = append(tools, newPromptRunTool(ctx, vendor, approver, apiKey,

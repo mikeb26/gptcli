@@ -18,7 +18,6 @@ const (
 	EnvGet                 = "env_get"
 	EnvSet                 = "env_set"
 	RetrieveUrl            = "url_retrieve"
-	RenderUrl              = "url_render"
 	PromptRun              = "prompt_run"
 )
 
