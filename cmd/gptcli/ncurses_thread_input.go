@@ -39,14 +39,17 @@ func drawThreadInputLabel(cliCtx *CliContext, statusText string) {
 		sepAttr = gc.ColorPair(menuColorStatus)
 	}
 	_ = cliCtx.rootWin.AttrSet(sepAttr)
-	cliCtx.rootWin.Move(startY, 0)
-	// Note: ncurses' mvwhline uses the attributes embedded in the provided
-	// character (chtype). It does not reliably apply the window's current
-	// attributes to the repeated characters. If we pass a plain space (' '),
-	// the line can be drawn with default attributes and only the subsequently
-	// printed status text will show the color, making the background appear
-	// truncated.
-	cliCtx.rootWin.HLine(startY, 0, gc.Char(' ')|sepAttr, maxX)
+	// NOTE:
+	// - We intentionally avoid mvwhline()/HLine here. Even when embedding
+	//   attributes into the chtype, some terminals/curses combos still do not
+	//   consistently repaint the full row during incremental refreshes, which
+	//   can make the status background look "truncated".
+	// - Writing each cell explicitly ensures the full row is touched and uses
+	//   the desired background attributes.
+	for x := 0; x < maxX; x++ {
+		cliCtx.rootWin.MoveAddChar(startY, x, gc.Char(' ')|sepAttr)
+	}
+	_ = cliCtx.rootWin.TouchLine(startY, 1)
 	cliCtx.rootWin.MovePrint(startY, 0, statusText)
 	_ = cliCtx.rootWin.AttrSet(gc.A_NORMAL)
 }

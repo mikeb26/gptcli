@@ -14,10 +14,7 @@ import (
 
 // drawThreadHeader renders a single-line header for the thread view.
 func drawThreadHeader(cliCtx *CliContext, thread threads.Thread) {
-	maxY, maxX := cliCtx.rootWin.MaxYX()
-	if maxY <= 0 {
-		return
-	}
+	_, maxX := cliCtx.rootWin.MaxYX()
 	header := fmt.Sprintf("Thread: %s", thread.Name())
 	if len([]rune(header)) > maxX {
 		header = string([]rune(header)[:maxX])
@@ -28,8 +25,10 @@ func drawThreadHeader(cliCtx *CliContext, thread threads.Thread) {
 		attr |= gc.ColorPair(menuColorHeader)
 	}
 	_ = cliCtx.rootWin.AttrSet(attr)
-	cliCtx.rootWin.Move(0, 0)
-	cliCtx.rootWin.HLine(0, 0, ' ', maxX)
+	for x := 0; x < maxX; x++ {
+		cliCtx.rootWin.MoveAddChar(0, x, gc.Char(' ')|attr)
+	}
+	_ = cliCtx.rootWin.TouchLine(0, 1)
 	cliCtx.rootWin.MovePrint(0, 0, header)
 	_ = cliCtx.rootWin.AttrSet(gc.A_NORMAL)
 }

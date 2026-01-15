@@ -28,17 +28,17 @@ type statusSegment struct {
 // video or the menuColorStatus pair) and highlights bold segments using
 // either A_BOLD or the menuColorStatusKey pair when colors are active.
 func drawStatusSegments(scr *gc.Window, y, maxX int, segments []statusSegment, useColors bool) {
-	if y < 0 {
-		return
-	}
-
 	var baseAttr gc.Char = gc.A_REVERSE
 	if useColors {
 		baseAttr = gc.ColorPair(menuColorStatus)
 	}
 	_ = scr.AttrSet(baseAttr)
-	scr.Move(y, 0)
-	scr.HLine(y, 0, ' ', maxX)
+	// Avoid mvwhline()/HLine for consistent full-row repaint during
+	// incremental updates.
+	for x := 0; x < maxX; x++ {
+		scr.MoveAddChar(y, x, gc.Char(' ')|baseAttr)
+	}
+	_ = scr.TouchLine(y, 1)
 
 	x := 0
 	for _, seg := range segments {
