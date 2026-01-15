@@ -70,8 +70,8 @@ func (tvUI *threadViewUI) beginAsyncChat(
 
 	// We intentionally do not clear the input buffer or mutate the history view
 	// until we know ChatOnceAsync has been successfully started.
-	drawThreadInputLabel(tvUI.cliCtx, tvUI.statusText)
-	tvUI.cliCtx.rootWin.Refresh()
+	// Preserve cursor/focus while updating the status line.
+	tvUI.redrawThreadInputLabelPreserveCursor()
 
 	return prompt, true
 }
@@ -155,7 +155,7 @@ func (tvUI *threadViewUI) tickStatus() {
 
 	tvUI.running.lastStatusUpdate = now
 	tvUI.statusText = tvUI.running.formatStatus(now)
-	drawThreadInputLabel(tvUI.cliCtx, tvUI.statusText)
+	tvUI.redrawThreadInputLabelPreserveCursor()
 }
 
 func (tvUI *threadViewUI) processAsyncChat() (needRedraw bool) {
@@ -201,8 +201,9 @@ func (tvUI *threadViewUI) processAsyncChatEvents() (done bool, needRedraw bool) 
 				continue
 			}
 			state.AsyncApprover.ServeRequest(req)
-			tvUI.historyFrame.Render(false)
-			tvUI.inputFrame.Render(true)
+			// The modal / approval UI may require an input cursor, but we should not
+			// force the thread view's focus to input. Let the normal redraw loop
+			// render with the correct focus/cursor.
 			needRedraw = true
 		case ev, ok := <-tvUI.running.progressCh:
 			if !ok {
@@ -210,7 +211,7 @@ func (tvUI *threadViewUI) processAsyncChatEvents() (done bool, needRedraw bool) 
 				continue
 			}
 			tvUI.statusText = tvUI.running.statusFromProgress(ev)
-			drawThreadInputLabel(tvUI.cliCtx, tvUI.statusText)
+			tvUI.redrawThreadInputLabelPreserveCursor()
 		case res, ok := <-tvUI.running.resultCh:
 			if !ok {
 				tvUI.running.resultCh = nil
