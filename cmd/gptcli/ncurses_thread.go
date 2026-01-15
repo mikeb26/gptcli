@@ -319,7 +319,15 @@ func runThreadView(ctx context.Context, cliCtx *CliContext,
 	if isArchived {
 		tvUI.focusedFrame = tvUI.historyFrame
 	}
-	needRedraw := true
+	// Important: draw the thread view at least once before we service any
+	// in-flight async approval requests. Otherwise, if the thread is currently
+	// blocked awaiting approval and the approval request is already queued, the
+	// approval modal can appear over the previous screen (the menu view).
+	//
+	// We still process async events immediately afterwards; this just ensures the
+	// user sees the thread view first.
+	tvUI.redrawThreadView()
+	needRedraw := false
 
 	for {
 		if runningNeedRedraw := tvUI.processAsyncChat(); runningNeedRedraw {
