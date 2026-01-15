@@ -21,6 +21,10 @@ type threadMenuUI struct {
 	entries  []threadMenuEntry
 	selected int
 	offset   int
+
+	// searchQuery enables the "search results" view when non-empty.
+	// Search is case-sensitive.
+	searchQuery string
 }
 
 func newThreadMenuUI(cliCtxIn *CliContext) *threadMenuUI {
@@ -29,6 +33,8 @@ func newThreadMenuUI(cliCtxIn *CliContext) *threadMenuUI {
 		entries:  make([]threadMenuEntry, 0),
 		selected: 0,
 		offset:   0,
+		// searchQuery empty => normal list view
+		searchQuery: "",
 	}
 }
 

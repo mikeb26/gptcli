@@ -23,17 +23,9 @@ import (
 )
 
 func confirmQuitIfNonIdleThreads(gptCliCtx *CliContext) (bool, error) {
-	if gptCliCtx == nil {
-		return true, nil
-	}
-
 	nonIdle := 0
-	if gptCliCtx.mainThreadGroup != nil {
-		nonIdle += gptCliCtx.mainThreadGroup.NonIdleThreadCount()
-	}
-	if gptCliCtx.archiveThreadGroup != nil {
-		nonIdle += gptCliCtx.archiveThreadGroup.NonIdleThreadCount()
-	}
+	nonIdle += gptCliCtx.mainThreadGroup.NonIdleThreadCount()
+	nonIdle += gptCliCtx.archiveThreadGroup.NonIdleThreadCount()
 
 	if nonIdle == 0 {
 		return true, nil
@@ -62,6 +54,13 @@ const (
 	menuColorSelected  int16 = 3
 	menuColorStatusKey int16 = 4
 )
+
+func (ui *threadMenuUI) selectedEntry() *threadMenuEntry {
+	if ui.selected < 0 || ui.selected >= len(ui.entries) {
+		return nil
+	}
+	return &ui.entries[ui.selected]
+}
 
 func (ui *threadMenuUI) viewHeight() int {
 	maxY, _ := ui.cliCtx.rootWin.MaxYX()
@@ -146,41 +145,7 @@ func (ui *threadMenuUI) draw() {
 	_ = scr.AttrSet(gc.A_NORMAL)
 	statusY := maxY - 1
 	if statusY >= 0 {
-		segments := []statusSegment{
-			{text: "Nav:", bold: false},
-			{text: "↑", bold: true},
-			{text: "/", bold: false},
-			{text: "↓", bold: true},
-			{text: "/", bold: false},
-			{text: "PgUp", bold: true},
-			{text: "/", bold: false},
-			{text: "PgDn", bold: true},
-			{text: "/", bold: false},
-			{text: "Home", bold: true},
-			{text: "/", bold: false},
-			{text: "End", bold: true},
-			{text: " Select:", bold: false},
-			{text: "⏎", bold: true},
-		}
-		if ui.cliCtx.curThreadGroup == ui.cliCtx.mainThreadGroup {
-			segments = append(segments, []statusSegment{
-				{text: " New:", bold: false},
-				{text: "n", bold: true},
-				{text: " Archive:", bold: false},
-				{text: "a", bold: true},
-			}...)
-		} else if ui.cliCtx.curThreadGroup == ui.cliCtx.archiveThreadGroup {
-			segments = append(segments, []statusSegment{
-				{text: " Unarchive:", bold: false},
-				{text: "u", bold: true},
-			}...)
-		}
-		segments = append(segments, []statusSegment{
-			{text: " Config:", bold: false},
-			{text: "c", bold: true},
-			{text: " Quit:", bold: false},
-			{text: "ESC", bold: true},
-		}...)
+		segments := ui.buildMenuStatusSegments(maxX)
 		drawStatusSegments(scr, statusY, maxX, segments, ui.cliCtx.toggles.useColors)
 	}
 
@@ -188,23 +153,89 @@ func (ui *threadMenuUI) draw() {
 	scr.Refresh()
 }
 
+func (ui *threadMenuUI) buildMenuStatusSegments(maxX int) []statusSegment {
+	_ = maxX
+
+	segments := []statusSegment{
+		{text: "Nav:", bold: false},
+		{text: "↑", bold: true},
+		{text: "/", bold: false},
+		{text: "↓", bold: true},
+		{text: "/", bold: false},
+		{text: "PgUp", bold: true},
+		{text: "/", bold: false},
+		{text: "PgDn", bold: true},
+		{text: "/", bold: false},
+		{text: "Home", bold: true},
+		{text: "/", bold: false},
+		{text: "End", bold: true},
+		{text: " Select:", bold: false},
+		{text: "⏎", bold: true},
+	}
+	if ent := ui.selectedEntry(); ent != nil {
+		if !ent.isArchived {
+			segments = append(segments, []statusSegment{
+				{text: " Archive:", bold: false},
+				{text: "a", bold: true},
+			}...)
+		} else {
+			segments = append(segments, []statusSegment{
+				{text: " Unarchive:", bold: false},
+				{text: "u", bold: true},
+			}...)
+		}
+	}
+
+	if !ui.isSearchActive() {
+		segments = append(segments, []statusSegment{
+			{text: " New:", bold: false},
+			{text: "n", bold: true},
+			{text: " Search:", bold: false},
+			{text: "/", bold: true},
+		}...)
+	}
+
+	segments = append(segments, []statusSegment{
+		{text: " Config:", bold: false},
+		{text: "c", bold: true},
+	}...)
+
+	if !ui.isSearchActive() {
+		segments = append(segments, []statusSegment{
+			{text: " Quit:", bold: false},
+			{text: "ESC", bold: true},
+		}...)
+	} else {
+		segments = append(segments, []statusSegment{
+			{text: " Exit Search:", bold: false},
+			{text: "ESC", bold: true},
+		}...)
+	}
+
+	return segments
+}
+
 func (ui *threadMenuUI) resetItems(thrGrp *threads.ThreadGroup,
 	isArchivedLocal bool) {
 
 	selectedThreadID := ui.selectedThreadID()
 
-	items := make([]threadMenuEntry, 0, len(thrGrp.Threads()))
-	for idx, t := range thrGrp.Threads() {
-		threadNum := fmt.Sprintf("%v%v", thrGrp.Prefix(), idx+1)
-		line := strings.TrimRight(threadHeaderString(t, threadNum), "\n")
-		entry := threadMenuEntry{
-			label:      line,
-			thread:     t,
-			isArchived: isArchivedLocal,
+	if ui.isSearchActive() {
+		ui.entries = ui.buildSearchEntries(ui.searchQuery)
+	} else {
+		items := make([]threadMenuEntry, 0, len(thrGrp.Threads()))
+		for idx, t := range thrGrp.Threads() {
+			threadNum := fmt.Sprintf("%v%v", thrGrp.Prefix(), idx+1)
+			line := strings.TrimRight(threadHeaderString(t, threadNum), "\n")
+			entry := threadMenuEntry{
+				label:      line,
+				thread:     t,
+				isArchived: isArchivedLocal,
+			}
+			items = append(items, entry)
 		}
-		items = append(items, entry)
+		ui.entries = items
 	}
-	ui.entries = items
 
 	ui.restoreSelection(selectedThreadID)
 
@@ -313,6 +344,11 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 
 		switch ch {
 		case gc.Key(27): // ESC
+			if cliCtx.menu.isSearchActive() {
+				cliCtx.menu.clearSearch()
+				needRefresh = true
+				continue
+			}
 			quit, err := confirmQuitIfNonIdleThreads(cliCtx)
 			if err != nil {
 				return err
@@ -365,13 +401,17 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 				// exit ncurses cleanly.
 				return err
 			}
-			if err := runThreadView(ctx, cliCtx, entry.thread,
-				entry.isArchived); err != nil {
+			if err := runThreadView(ctx, cliCtx, entry.thread, entry.isArchived); err != nil {
 				return err
 			}
 			// After returning from the thread view, redraw the menu.
+			needRefresh = true
 			needErase = true
 		case 'n', 'N':
+			if cliCtx.menu.isSearchActive() {
+				// Disabled while viewing search results.
+				continue
+			}
 			needErase = true
 			// Create a new thread (equivalent to the "new" subcommand), but
 			// prompt for the name using an ncurses modal so we don't mix
@@ -389,26 +429,43 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 			needRefresh = true
 		case 'c':
 			configMain(ctx, cliCtx)
+			needRefresh = true
+		case '/':
+			if cliCtx.menu.isSearchActive() {
+				// Disabled while viewing search results.
+				continue
+			}
+			needErase = true
+			q, err := cliCtx.menu.promptForSearchQuery()
+			if err != nil {
+				return err
+			}
+			if q == "" {
+				continue
+			}
+			cliCtx.menu.doSearch(q)
 		case 'a':
 			fallthrough
 		case 'u':
-			if len(cliCtx.menu.entries) == 0 {
+			entry := cliCtx.menu.selectedEntry()
+			if entry == nil {
 				continue
 			}
-			entry := cliCtx.menu.entries[cliCtx.menu.selected]
-			dstThreadGroup := cliCtx.archiveThreadGroup
-			srcThreadGroup := cliCtx.mainThreadGroup
 			if ch == 'a' && entry.isArchived {
 				continue
 			}
-			if ch == 'u' {
-				if !entry.isArchived {
-					continue
-				}
+			if ch == 'u' && !entry.isArchived {
+				continue
+			}
+
+			dstThreadGroup := cliCtx.archiveThreadGroup
+			srcThreadGroup := cliCtx.mainThreadGroup
+			if entry.isArchived {
 				dstThreadGroup = cliCtx.mainThreadGroup
 				srcThreadGroup = cliCtx.archiveThreadGroup
 			}
 			needErase = true
+			needRefresh = true
 			// Archive the currently selected thread from the main thread group.
 			// This mirrors the behavior of archiveThreadMain(), but uses the
 			// selection from the menu UI instead of parsing a CLI argument.
@@ -417,8 +474,6 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 				return fmt.Errorf("%w: %w", ErrFailedToArchiveThread, err)
 			}
 			entry.isArchived = !entry.isArchived
-
-			needRefresh = true
 		case gc.KEY_RESIZE:
 			resizeScreen(cliCtx.rootWin)
 			needErase = true

@@ -9,7 +9,6 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
-	"strings"
 
 	laclopenai "github.com/cloudwego/eino-ext/libs/acl/openai"
 	gc "github.com/gbin/goncurses"
@@ -167,20 +166,6 @@ func (cliCtx *CliContext) load(ctx context.Context) error {
 	cliCtx.toggles.needConfig = false
 
 	return nil
-}
-
-func threadContainsSearchStr(t threads.Thread, searchStr string) bool {
-	for _, msg := range t.Dialogue() {
-		if msg.Role == types.LlmRoleSystem {
-			continue
-		}
-
-		if strings.Contains(msg.Content, searchStr) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func main() {
