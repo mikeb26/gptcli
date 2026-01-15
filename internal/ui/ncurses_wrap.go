@@ -5,6 +5,42 @@
 
 package ui
 
+// WrapTextHard hard-wraps each input line to width columns (in runes),
+// returning a flat slice of wrapped lines.
+//
+// This is word-agnostic: it breaks strictly at rune boundaries and is
+// intended for UI surfaces where it is preferable to show the full text
+// (e.g. long error messages) rather than truncating.
+func WrapTextHard(lines []string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		r := []rune(line)
+		if len(r) == 0 {
+			out = append(out, "")
+			continue
+		}
+		for start := 0; start < len(r); {
+			end := start + width
+			if end > len(r) {
+				end = len(r)
+			}
+			out = append(out, string(r[start:end]))
+			start = end
+		}
+	}
+	if len(out) == 0 {
+		out = []string{""}
+	}
+	return out
+}
+
 // WrapRunesWithContinuation splits a rune slice into display segments that
 // fit within the given width. When width > 1 and the content must be split
 // across multiple segments, each non-final segment is sized to (width-1)

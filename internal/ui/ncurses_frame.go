@@ -297,7 +297,8 @@ func (f *Frame) Render(showCursor bool) {
 	}
 
 	// Draw scrollbar in the last column of the content area.
-	f.renderScrollbar(contentY, contentX+contentW-1, visibleHeight, len(display), offset)
+	DrawScrollbarColumn(f.Win, contentY, visibleHeight, contentX+contentW-1,
+		len(display), offset)
 
 	// Terminal cursor placement.
 	//

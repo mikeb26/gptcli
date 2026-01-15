@@ -27,6 +27,27 @@ type Scrollbar struct {
 
 func (s Scrollbar) HasScrollbar() bool { return s.hasScrollbar }
 
+// DrawScrollbarColumn computes and draws a full-height vertical scrollbar
+// column.
+//
+// topY is the first row (absolute coordinate in win) for the scrollbar
+// track, height is the number of rows in the track, and col is the X
+// coordinate for the scrollbar column.
+func DrawScrollbarColumn(win *gc.Window, topY, height, col, total, offset int) {
+	if win == nil || height <= 0 || col < 0 {
+		return
+	}
+
+	sb := ComputeScrollbar(total, height, offset)
+	if !sb.HasScrollbar() {
+		return
+	}
+
+	for row := 0; row < height; row++ {
+		DrawScrollbarCell(win, topY+row, row, height, col, sb)
+	}
+}
+
 // ComputeScrollbar calculates how a scrollbar should be rendered for a
 // region with the given visible height, total number of logical rows,
 // and current scroll offset. The thumb is always one row tall and, when

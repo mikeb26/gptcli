@@ -4,6 +4,8 @@
  */
 package ui
 
+import gc "github.com/gbin/goncurses"
+
 // Theme configures optional styling for NcursesUI widgets.
 //
 // Theme values are intentionally minimal; they allow cmd/gptcli to keep
@@ -18,3 +20,17 @@ type Theme struct {
 	// items.
 	SelectedPair int16
 }
+
+// SelectedAttr returns the attribute to use for selected list items.
+//
+// If colors are enabled (UseColors) and SelectedPair is set, it uses the
+// configured color pair. Otherwise it falls back to reverse video.
+func (t Theme) SelectedAttr() gc.Char {
+	if t.UseColors && t.SelectedPair != 0 {
+		return gc.A_NORMAL | gc.ColorPair(t.SelectedPair)
+	}
+	return gc.A_REVERSE | gc.A_NORMAL
+}
+
+// NormalAttr returns the default attribute for non-selected content.
+func (t Theme) NormalAttr() gc.Char { return gc.A_NORMAL }

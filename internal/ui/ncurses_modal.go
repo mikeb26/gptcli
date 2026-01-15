@@ -12,6 +12,18 @@ import (
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
+func clearRect(win *gc.Window, y, x, h, w int) {
+	for row := 0; row < h; row++ {
+		wy := y + row
+		win.Move(wy, x)
+		win.HLine(wy, x, ' ', w)
+	}
+}
+
+func printClipped(win *gc.Window, y, x, w int, s string) {
+	win.MovePrint(y, x, TruncateRunes(s, w))
+}
+
 // Modal is a thin wrapper around a Frame that provides a centered,
 // boxed subwindow suitable for modal dialogs. It is intentionally
 // generic: higher-level helpers (such as line-input or list-selection
@@ -198,7 +210,7 @@ func (n *NcursesUI) readLineModalFrame(userPrompt string) (string, error) {
 		if i >= ch {
 			break
 		}
-		win.MovePrint(cy+i, cx, TruncateRunes(line, cw))
+		printClipped(win, cy+i, cx, cw, line)
 	}
 
 	var buf []rune
@@ -211,9 +223,7 @@ func (n *NcursesUI) readLineModalFrame(userPrompt string) (string, error) {
 
 	for {
 		// Clear input line inside the content area.
-		for x := 0; x < cw; x++ {
-			win.MovePrint(inputY, cx+x, " ")
-		}
+		clearRect(win, inputY, cx, 1, cw)
 
 		// Render current buffer truncated to fit.
 		inputWidth := cw
@@ -365,30 +375,21 @@ func (n *NcursesUI) selectFromListModalFrame(userPrompt string, items []string, 
 		AdjustListViewport(total, viewHeight, &selected, &offset)
 
 		// Clear content area.
-		_ = win.AttrSet(gc.A_NORMAL)
-		for row := 0; row < ch; row++ {
-			y := cy + row
-			win.Move(y, cx)
-			win.HLine(y, cx, ' ', cw)
-		}
+		_ = win.AttrSet(n.theme.NormalAttr())
+		clearRect(win, cy, cx, ch, cw)
 
 		// Render prompt lines at the top of the content area.
-		_ = win.AttrSet(gc.A_NORMAL)
+		_ = win.AttrSet(n.theme.NormalAttr())
 		for i, line := range promptLines {
 			if i >= ch {
 				break
 			}
-			win.MovePrint(cy+i, cx, TruncateRunes(line, cw))
+			printClipped(win, cy+i, cx, cw, line)
 		}
 
 		// Render list items within the remaining rows.
-		var selectedAttr gc.Char
-		if n.theme.UseColors && n.theme.SelectedPair != 0 {
-			selectedAttr = gc.A_NORMAL | gc.ColorPair(n.theme.SelectedPair)
-		} else {
-			selectedAttr = gc.A_REVERSE | gc.A_NORMAL
-		}
-		normalAttr := gc.A_NORMAL
+		selectedAttr := n.theme.SelectedAttr()
+		normalAttr := n.theme.NormalAttr()
 		listStartY := cy + promptHeight + 1 // one blank row after prompt
 		for row := 0; row < viewHeight; row++ {
 			idx := offset + row
@@ -455,36 +456,6 @@ func (n *NcursesUI) selectFromListModalFrame(userPrompt string, items []string, 
 	}
 }
 
-func wrapTextToWidth(lines []string, width int) []string {
-	if width < 1 {
-		width = 1
-	}
-	if len(lines) == 0 {
-		lines = []string{""}
-	}
-
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		r := []rune(line)
-		if len(r) == 0 {
-			out = append(out, "")
-			continue
-		}
-		for start := 0; start < len(r); {
-			end := start + width
-			if end > len(r) {
-				end = len(r)
-			}
-			out = append(out, string(r[start:end]))
-			start = end
-		}
-	}
-	if len(out) == 0 {
-		out = []string{""}
-	}
-	return out
-}
-
 // selectBoolScrollablePromptModalFrame displays a centered modal with a
 // scrollable prompt area (using our vertical scrollbar primitives) and a
 // small list of selectable options below it.
@@ -537,7 +508,7 @@ func (n *NcursesUI) selectBoolScrollablePromptModalFrame(userPrompt string,
 
 	trimmed := strings.TrimRight(userPrompt, "\n")
 	promptLines := strings.Split(trimmed, "\n")
-	wrappedPrompt := wrapTextToWidth(promptLines, textWidth)
+	wrappedPrompt := WrapTextHard(promptLines, textWidth)
 	totalPrompt := len(wrappedPrompt)
 	if totalPrompt == 0 {
 		wrappedPrompt = []string{""}
@@ -574,13 +545,8 @@ func (n *NcursesUI) selectBoolScrollablePromptModalFrame(userPrompt string,
 	// Draw the border once; subsequent updates only modify inner area.
 	_ = win.Box(0, 0)
 
-	var selectedAttr gc.Char
-	if n.theme.UseColors && n.theme.SelectedPair != 0 {
-		selectedAttr = gc.A_NORMAL | gc.ColorPair(n.theme.SelectedPair)
-	} else {
-		selectedAttr = gc.A_REVERSE | gc.A_NORMAL
-	}
-	normalAttr := gc.A_NORMAL
+	selectedAttr := n.theme.SelectedAttr()
+	normalAttr := n.theme.NormalAttr()
 
 	for {
 		// Recompute max offset in case the terminal is resized or prompt
@@ -598,23 +564,18 @@ func (n *NcursesUI) selectBoolScrollablePromptModalFrame(userPrompt string,
 
 		// Clear inner content area.
 		_ = win.AttrSet(normalAttr)
-		for row := 0; row < ch; row++ {
-			y := cy + row
-			win.Move(y, cx)
-			win.HLine(y, cx, ' ', cw)
-		}
+		clearRect(win, cy, cx, ch, cw)
 
 		// Prompt area.
-		sb := ComputeScrollbar(totalPrompt, promptViewHeight, promptOffset)
 		for row := 0; row < promptViewHeight; row++ {
 			y := cy + row
 			idx := promptOffset + row
 			if idx >= 0 && idx < totalPrompt {
-				win.MovePrint(y, cx, TruncateRunes(wrappedPrompt[idx], textWidth))
+				printClipped(win, y, cx, textWidth, wrappedPrompt[idx])
 			}
-			if scrollbarCol >= 0 && sb.HasScrollbar() {
-				DrawScrollbarCell(win, y, row, promptViewHeight, scrollbarCol, sb)
-			}
+		}
+		if scrollbarCol >= 0 {
+			DrawScrollbarColumn(win, cy, promptViewHeight, scrollbarCol, totalPrompt, promptOffset)
 		}
 
 		// Options.
@@ -631,7 +592,7 @@ func (n *NcursesUI) selectBoolScrollablePromptModalFrame(userPrompt string,
 			}
 			win.Move(y, cx)
 			win.HLine(y, cx, ' ', cw)
-			win.MovePrint(y, cx, TruncateRunes(item, cw))
+			printClipped(win, y, cx, cw, item)
 		}
 
 		win.Refresh()
