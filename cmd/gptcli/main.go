@@ -70,7 +70,7 @@ func NewCliContext(ctx context.Context) (*CliContext, error) {
 	}
 
 	vendor := internal.DefaultVendor
-	model := internal.SupportedModels[vendor][internal.DefaultModels[vendor]]
+	model := internal.GetVendorInfo(vendor).DefaultModel
 	cliCtx := &CliContext{
 		ui:      ui.NewNcursesUI(rootWinLocal),
 		rootWin: rootWinLocal,

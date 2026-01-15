@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -20,7 +21,8 @@ import (
 
 func (gptCliCtx *CliContext) loadPrefs() error {
 	vendor := internal.DefaultVendor
-	model := internal.SupportedModels[vendor][internal.DefaultModels[vendor]]
+	vendorInfo := internal.GetVendorInfo(vendor)
+	model := vendorInfo.DefaultModel
 	// Establish defaults so newly added prefs fields take the intended defaults
 	// even when loading older prefs.json files that don't include them.
 	gptCliCtx.prefs = Prefs{
@@ -80,15 +82,12 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 		return fmt.Errorf("%w %v: %w", ErrCouldNotCreateConfigDir, configDir, err)
 	}
 
-	// Build vendor options from internal.DefaultModels so the list stays in sync
-	vendorKeys := make([]string, 0, len(internal.DefaultModels))
-	for v := range internal.DefaultModels {
-		vendorKeys = append(vendorKeys, v)
-	}
+	vendorKeys := internal.GetVendors()
 	sort.Strings(vendorKeys)
 	choices := make([]types.UIOption, 0, len(vendorKeys))
 	for _, v := range vendorKeys {
-		choices = append(choices, types.UIOption{Key: v, Label: v})
+		fullName := internal.GetVendorInfo(v).FullName
+		choices = append(choices, types.UIOption{Key: v, Label: fullName})
 	}
 
 	selection, err := gptCliCtx.ui.SelectOption("Choose an LLM vendor:", choices)
@@ -96,23 +95,24 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 		return err
 	}
 	vendor := strings.ToLower(strings.TrimSpace(selection.Key))
-	if _, ok := internal.DefaultModels[vendor]; !ok {
+	if !slices.Contains(vendorKeys, vendor) {
 		return fmt.Errorf("%w: %v", ErrUnsupportedVendor, vendor)
 	}
 	gptCliCtx.prefs.Vendor = vendor
+	vendorInfo := internal.GetVendorInfo(vendor)
 
-	models := internal.SupportedModels[vendor]
+	models := vendorInfo.SupportedModels
 	choices = make([]types.UIOption, 0, len(models))
 	for _, m := range models {
 		choices = append(choices, types.UIOption{Key: m, Label: m})
 	}
 	selection, err = gptCliCtx.ui.SelectOption(
-		fmt.Sprintf("Choose an %v model:", vendor), choices)
+		fmt.Sprintf("Choose an %v model:", vendorInfo.FullName), choices)
 	if err != nil {
 		return err
 	}
 	model := strings.ToLower(strings.TrimSpace(selection.Key))
-	if _, ok := internal.SupportedModels[vendor]; !ok {
+	if !slices.Contains(models, model) {
 		return fmt.Errorf("%w: %v", ErrUnsupportedModel, model)
 	}
 	gptCliCtx.prefs.Model = model
@@ -128,7 +128,7 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 	if existingKey != "" {
 		keepPrompt := fmt.Sprintf(
 			"An existing %v API key is already configured. Keep using it?",
-			vendor,
+			vendorInfo.FullName,
 		)
 		defaultKeep := true
 		trueOpt := types.UIOption{Key: "y", Label: "y"}
@@ -140,7 +140,7 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 	}
 
 	if !keepKey {
-		keyPrompt := fmt.Sprintf("Enter your %v API key: ", vendor)
+		keyPrompt := fmt.Sprintf("Please visit %v to obtain an API key.\nEnter your %v API key: ", vendorInfo.ApiKeyUrl, vendorInfo.FullName)
 		key, err := gptCliCtx.ui.Get(keyPrompt)
 		if err != nil {
 			return err
@@ -164,7 +164,7 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 
 	summarizePrompt := fmt.Sprintf(
 		"Summarize dialogue when continuing threads? (reduces costs for less precise replies from %v)",
-		vendor,
+		vendorInfo.FullName,
 	)
 	defaultSummarize := false
 	trueOpt := types.UIOption{Key: "y", Label: "y"}
