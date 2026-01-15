@@ -8,23 +8,24 @@ replace github.com/gbin/goncurses => github.com/mikeb26/gobin-goncurses v0.0.0-2
 
 require (
 	github.com/chromedp/chromedp v0.14.2
-	github.com/cloudwego/eino v0.7.11
-	github.com/cloudwego/eino-ext/components/model/claude v0.1.11
-	github.com/cloudwego/eino-ext/components/model/gemini v0.1.20
-	github.com/cloudwego/eino-ext/components/model/openai v0.1.6
-	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.10
+	github.com/cloudwego/eino v0.7.19
+	github.com/cloudwego/eino-ext/components/model/claude v0.1.13
+	github.com/cloudwego/eino-ext/components/model/gemini v0.1.26
+	github.com/cloudwego/eino-ext/components/model/openai v0.1.7
+	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.12
 	github.com/famz/SetLocale v0.0.0-20140414113655-0457ad1065dd
 	github.com/gbin/goncurses v0.0.0-00010101000000-000000000000
 	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/term v0.38.0
-	google.golang.org/genai v1.40.0
+	golang.org/x/term v0.39.0
+	google.golang.org/genai v1.41.1
 )
 
 require (
 	cloud.google.com/go v0.116.0 // indirect
 	cloud.google.com/go/auth v0.9.3 // indirect
+	cloud.google.com/go/auth/oauth2adapt v0.2.4 // indirect
 	cloud.google.com/go/compute/metadata v0.5.0 // indirect
 	github.com/anthropics/anthropic-sdk-go v1.4.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.33.0 // indirect
@@ -53,7 +54,10 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/eino-contrib/jsonschema v1.0.3 // indirect
 	github.com/evanphx/json-patch v0.5.2 // indirect
+	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-json-experiment/json v0.0.0-20250725192818-e39067aee2d2 // indirect
+	github.com/go-logr/logr v1.4.2 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
@@ -83,12 +87,21 @@ require (
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/yargevad/filepathx v1.0.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.54.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.54.0 // indirect
+	go.opentelemetry.io/otel v1.29.0 // indirect
+	go.opentelemetry.io/otel/metric v1.29.0 // indirect
+	go.opentelemetry.io/otel/trace v1.29.0 // indirect
 	golang.org/x/arch v0.12.0 // indirect
 	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1 // indirect
 	golang.org/x/net v0.41.0 // indirect
-	golang.org/x/sys v0.39.0 // indirect
+	golang.org/x/oauth2 v0.23.0 // indirect
+	golang.org/x/sync v0.15.0 // indirect
+	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.26.0 // indirect
+	golang.org/x/time v0.6.0 // indirect
+	google.golang.org/api v0.197.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	google.golang.org/grpc v1.66.2 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
