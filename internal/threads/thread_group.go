@@ -5,10 +5,8 @@
 package threads
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -113,34 +111,11 @@ func (thrGrp *ThreadGroup) LoadThreads() error {
 	}
 
 	for _, dEnt := range dEntries {
-		fullpath := filepath.Join(thrGrp.dir, dEnt.Name())
-		threadFileText, err := os.ReadFile(fullpath)
-		if err != nil {
-			return fmt.Errorf("Failed to read %v: %w", fullpath, err)
+		curThread := &thread{}
+		if err := curThread.load(thrGrp.dir, dEnt.Name()); err != nil {
+			return err
 		}
-
-		var thread thread
-		err = json.Unmarshal(threadFileText, &thread.persisted)
-		if err != nil {
-			return fmt.Errorf("Failed to parse %v: %w", fullpath, err)
-		}
-		if thread.persisted.Id == "" {
-			thread.persisted.Id = uuid.NewString()
-		}
-		thread.state = ThreadStateIdle
-		thread.fileName = genUniqFileName(thread.persisted.Name,
-			thread.persisted.CreateTime)
-		thread.dir = thrGrp.dir
-		if thread.fileName != dEnt.Name() {
-			oldPath := filepath.Join(thrGrp.dir, dEnt.Name())
-			newPath := filepath.Join(thrGrp.dir, thread.fileName)
-			fmt.Fprintf(os.Stderr, "Renaming thread %v to %v\n",
-				oldPath, newPath)
-			_ = os.Remove(oldPath)
-			_ = thread.save()
-		}
-
-		thrGrp.addThread(&thread)
+		thrGrp.addThread(curThread)
 	}
 
 	return nil

@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
@@ -83,6 +85,39 @@ type thread struct {
 	// goroutine servicing this thread.
 	asyncApprover *AsyncApprover
 	mu            sync.RWMutex
+}
+
+// load restores a thread from disk.
+//
+// It also normalizes legacy/stale filenames by renaming the persisted
+// thread file to match the current genUniqFileName scheme.
+func (t *thread) load(dir string, fileName string) error {
+	fullpath := filepath.Join(dir, fileName)
+	threadFileText, err := os.ReadFile(fullpath)
+	if err != nil {
+		return fmt.Errorf("Failed to read %v: %w", fullpath, err)
+	}
+
+	if err := json.Unmarshal(threadFileText, &t.persisted); err != nil {
+		return fmt.Errorf("Failed to parse %v: %w", fullpath, err)
+	}
+	if t.persisted.Id == "" {
+		t.persisted.Id = uuid.NewString()
+	}
+
+	t.state = ThreadStateIdle
+	t.dir = dir
+	t.fileName = genUniqFileName(t.persisted.Name, t.persisted.CreateTime)
+
+	if t.fileName != fileName {
+		oldPath := filepath.Join(dir, fileName)
+		newPath := filepath.Join(dir, t.fileName)
+		fmt.Fprintf(os.Stderr, "Renaming thread %v to %v\n", oldPath, newPath)
+		_ = os.Remove(oldPath)
+		_ = t.save()
+	}
+
+	return nil
 }
 
 // State returns the current thread state. It is primarily intended for UI
