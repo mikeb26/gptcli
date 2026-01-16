@@ -7,7 +7,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -151,15 +153,11 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 			return fmt.Errorf("%w (%v) %v: %w", ErrCouldNotWriteAPIKeyFile, vendor, keyPath, err)
 		}
 	}
-	threadsPath := path.Join(configDir, ThreadsDir)
-	err = os.MkdirAll(threadsPath, 0700)
+	threadGroupsPath := path.Join(configDir, ThreadGroupsDir)
+	err = os.MkdirAll(threadGroupsPath, 0700)
 	if err != nil {
-		return fmt.Errorf("%w %v: %w", ErrCouldNotCreateThreadsDir, threadsPath, err)
-	}
-	archivePath := path.Join(configDir, ArchiveDir)
-	err = os.MkdirAll(archivePath, 0700)
-	if err != nil {
-		return fmt.Errorf("%w %v: %w", ErrCouldNotCreateArchiveDir, archivePath, err)
+		return fmt.Errorf("%w %v: %w", ErrCouldNotCreateThreadsDir,
+			threadGroupsPath, err)
 	}
 
 	summarizePrompt := fmt.Sprintf(
@@ -244,20 +242,28 @@ func getApprovePolicyPath() (string, error) {
 	return filepath.Join(configDir, ApprovePolicyFile), nil
 }
 
-func getThreadsDir() (string, error) {
+func getThreadsDirOld() (string, error) {
 	configDir, err := getConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(configDir, ThreadsDir), nil
+	return filepath.Join(configDir, ThreadsDirOld), nil
 }
 
-func getArchiveDir() (string, error) {
+func getArchiveDirOld() (string, error) {
 	configDir, err := getConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(configDir, ArchiveDir), nil
+	return filepath.Join(configDir, ArchiveDirOld), nil
+}
+
+func getThreadGroupsDir() (string, error) {
+	configDir, err := getConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, ThreadGroupsDir), nil
 }
 
 func getLogsDir() (string, error) {
@@ -283,7 +289,7 @@ func loadKey(vendor string) (string, error) {
 	}
 	data, err := os.ReadFile(keyPath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf("%w (%v): run `%v config` to configure", ErrAPIKeyNotConfigured, vendor, CommandName)
 		}
 		return "", fmt.Errorf("%w (%v): %w", ErrCouldNotLoadAPIKey, vendor, err)

@@ -67,6 +67,5 @@ func (cliCtx *CliContext) initMenuUI() {
 		}
 	}
 
-	cliCtx.menu.resetItems(cliCtx.curThreadGroup,
-		cliCtx.menu.cliCtx.curThreadGroup == cliCtx.archiveThreadGroup)
+	cliCtx.menu.resetItems()
 }

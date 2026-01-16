@@ -18,7 +18,7 @@ const (
 	RowSpacer = "──────────────────────────────────────────────────────────────────────────────────────────────\n"
 )
 
-func threadHeaderString(t threads.Thread, threadNum string) string {
+func threadHeaderString(t threads.Thread) string {
 	now := time.Now()
 
 	aTime := formatHeaderTime(t.AccessTime(), now)
@@ -36,7 +36,7 @@ func threadHeaderString(t threads.Thread, threadNum string) string {
 		stateSuffix = "*"
 	}
 
-	return fmt.Sprintf(RowFmt, threadNum, t.State().String()+stateSuffix,
+	return fmt.Sprintf(RowFmt, t.Id(), t.State().String()+stateSuffix,
 		aTime, mTime, cTime, t.Name())
 }
 
@@ -100,9 +100,8 @@ func threadGroupString(thrGrp *threads.ThreadGroup, header bool,
 		sb.WriteString(threadGroupHeaderString(true))
 	}
 
-	for idx, t := range thrGrp.Threads() {
-		threadNum := fmt.Sprintf("%v%v", thrGrp.Prefix(), idx+1)
-		sb.WriteString(threadHeaderString(t, threadNum))
+	for _, t := range thrGrp.Threads() {
+		sb.WriteString(threadHeaderString(t))
 	}
 
 	if footer {
@@ -110,4 +109,8 @@ func threadGroupString(thrGrp *threads.ThreadGroup, header bool,
 	}
 
 	return sb.String()
+}
+
+func (cliCtx *CliContext) isCurArchived() bool {
+	return cliCtx.curThreadGroup == ArchiveThreadGroupName
 }

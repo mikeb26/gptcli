@@ -7,6 +7,7 @@ package am
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -63,7 +64,7 @@ func (s *JSONApprovalPolicyStore) loadFromFile() error {
 	path := s.file
 	info, err := os.Stat(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			// Nothing to load yet; start empty.
 			return nil
 		}

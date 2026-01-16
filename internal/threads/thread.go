@@ -13,13 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
 const (
 	ThreadNoExistErrFmt = "Thread %v does not exist. To list threads try 'ls'.\n"
+	ThreadFileName      = "thread.json"
 )
 
 type ThreadState int
@@ -54,7 +53,8 @@ type persistedThread struct {
 	AccessTime time.Time              `json:"atime"`
 	ModTime    time.Time              `json:"mtime"`
 	Dialogue   []*types.ThreadMessage `json:"dialogue"`
-	Id         string
+	// Id2 renamed Id2 since preexisting Id2 semantics changed from cur usage
+	Id2 string
 }
 
 type Thread interface {
@@ -74,10 +74,11 @@ type Thread interface {
 type thread struct {
 	persisted persistedThread
 
-	fileName string
-	dir      string
-	state    ThreadState
-	runState *RunningThreadState
+	dirName   string
+	parentDir string
+	state     ThreadState
+	runState  *RunningThreadState
+	parent    *ThreadGroup
 
 	// llmClient is created per-thread (and may be recreated as needed).
 	llmClient types.AIClient
@@ -91,8 +92,8 @@ type thread struct {
 //
 // It also normalizes legacy/stale filenames by renaming the persisted
 // thread file to match the current genUniqFileName scheme.
-func (t *thread) load(dir string, fileName string) error {
-	fullpath := filepath.Join(dir, fileName)
+func (t *thread) load(parentDir string, dirName string) error {
+	fullpath := filepath.Join(parentDir, dirName, ThreadFileName)
 	threadFileText, err := os.ReadFile(fullpath)
 	if err != nil {
 		return fmt.Errorf("Failed to read %v: %w", fullpath, err)
@@ -101,21 +102,17 @@ func (t *thread) load(dir string, fileName string) error {
 	if err := json.Unmarshal(threadFileText, &t.persisted); err != nil {
 		return fmt.Errorf("Failed to parse %v: %w", fullpath, err)
 	}
-	if t.persisted.Id == "" {
-		t.persisted.Id = uuid.NewString()
+	if t.persisted.Id2 == "" {
+		id, err := t.parent.parent.newThreadId()
+		if err != nil {
+			return err
+		}
+		t.persisted.Id2 = id
 	}
 
 	t.state = ThreadStateIdle
-	t.dir = dir
-	t.fileName = genUniqFileName(t.persisted.Name, t.persisted.CreateTime)
-
-	if t.fileName != fileName {
-		oldPath := filepath.Join(dir, fileName)
-		newPath := filepath.Join(dir, t.fileName)
-		fmt.Fprintf(os.Stderr, "Renaming thread %v to %v\n", oldPath, newPath)
-		_ = os.Remove(oldPath)
-		_ = t.save()
-	}
+	t.parentDir = parentDir
+	t.dirName = dirName
 
 	return nil
 }
@@ -142,7 +139,7 @@ func (t *thread) Id() string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	return t.persisted.Id
+	return t.persisted.Id2
 }
 
 // CreateTime returns the thread creation timestamp.
@@ -189,9 +186,9 @@ func (t *thread) Name() string {
 // save persists the thread's dialogue to a file; callers should already hold
 // a write lock on the thread's mutex
 func (t *thread) save() error {
-	return t.saveWithDir(t.dir)
+	return t.saveWithDir(t.parentDir)
 }
-func (t *thread) saveWithDir(dir string) error {
+func (t *thread) saveWithDir(parentDir string) error {
 	if t.state != ThreadStateIdle {
 		return fmt.Errorf("cannot save non-idle thread state:%v", t.state)
 	}
@@ -202,7 +199,14 @@ func (t *thread) saveWithDir(dir string) error {
 			err)
 	}
 
-	filePath := filepath.Join(dir, t.fileName)
+	threadDir := filepath.Join(parentDir, t.dirName)
+	err = os.MkdirAll(threadDir, 0700)
+	if err != nil {
+		return fmt.Errorf("Failed to save thread %v: %w", t.persisted.Name,
+			err)
+	}
+
+	filePath := filepath.Join(threadDir, ThreadFileName)
 	err = os.WriteFile(filePath, threadFileContent, 0600)
 	if err != nil {
 		return fmt.Errorf("Failed to save thread %v(%v): %w",
@@ -215,19 +219,19 @@ func (t *thread) saveWithDir(dir string) error {
 // remove deletes the thread's persisted dialogue; callers should already hold
 // a write lock on the thread's mutex
 func (t *thread) remove() error {
-	return t.removeWithDir(t.dir)
+	return t.removeWithDir(t.parentDir)
 }
-func (t *thread) removeWithDir(dir string) error {
+func (t *thread) removeWithDir(parentDir string) error {
 	if t.state != ThreadStateIdle {
 		return fmt.Errorf("cannot remove non-idle thread state:%v",
 			t.state)
 	}
 
-	filePath := filepath.Join(dir, t.fileName)
-	err := os.Remove(filePath)
+	threadDir := filepath.Join(parentDir, t.dirName)
+	err := os.RemoveAll(threadDir)
 	if err != nil {
 		return fmt.Errorf("Failed to delete thread %v(%v): %w",
-			t.persisted.Name, filePath, err)
+			t.persisted.Name, threadDir, err)
 	}
 
 	return nil

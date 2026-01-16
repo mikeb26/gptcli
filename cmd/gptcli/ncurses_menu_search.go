@@ -6,8 +6,7 @@
 package main
 
 import (
-	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/mikeb26/gptcli/internal/threads"
@@ -52,29 +51,24 @@ func (ui *threadMenuUI) buildSearchEntries(query string) []threadMenuEntry {
 	cliCtx := ui.cliCtx
 
 	entries := make([]threadMenuEntry, 0)
-	thrGroups := []*threads.ThreadGroup{
-		cliCtx.mainThreadGroup,
-		cliCtx.archiveThreadGroup,
-	}
+	thrGroups := []string{MainThreadGroupName, ArchiveThreadGroupName}
 	for _, thrGrp := range thrGroups {
-		for idx, t := range thrGrp.Threads() {
+		for _, t := range cliCtx.threadGroupSet.Threads([]string{thrGrp}) {
 			if !threadContainsSearchStr(t, query) {
 				continue
 			}
 
-			threadNum := fmt.Sprintf("%v%v", thrGrp.Prefix(), idx+1)
-			line := strings.TrimRight(threadHeaderString(t, threadNum), "\n")
+			line := strings.TrimRight(threadHeaderString(t), "\n")
 			entries = append(entries, threadMenuEntry{
 				label:      line,
 				thread:     t,
-				isArchived: thrGrp == cliCtx.archiveThreadGroup,
+				isArchived: thrGrp == ArchiveThreadGroupName,
 			})
 		}
 	}
 
-	sort.SliceStable(entries, func(i, j int) bool {
-		// Most recent first
-		return entries[i].thread.AccessTime().After(entries[j].thread.AccessTime())
+	slices.SortFunc(entries, func(a, b threadMenuEntry) int {
+		return -a.thread.AccessTime().Compare(b.thread.AccessTime())
 	})
 
 	return entries

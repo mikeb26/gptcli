@@ -11,16 +11,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestNewThreadInitializesAndRegistersThread(t *testing.T) {
-	dir := t.TempDir()
+	root := t.TempDir()
+	setDir := root + "/set"
+	grpDir := root + "/threads"
+	assert.NoError(t, os.MkdirAll(setDir, 0o700))
+	assert.NoError(t, os.MkdirAll(grpDir, 0o700))
 
-	grp := NewThreadGroup("T", dir)
+	set := NewThreadGroupSet(setDir, nil)
+	grp := newThreadGroup(set, "T", grpDir)
 	err := grp.NewThread("first-thread")
 	assert.NoError(t, err)
 
@@ -44,15 +48,20 @@ func TestNewThreadInitializesAndRegistersThread(t *testing.T) {
 	}
 
 	// NewThread does not persist to disk by itself.
-	entries, err := os.ReadDir(dir)
+	entries, err := os.ReadDir(grpDir)
 	assert.NoError(t, err)
 	assert.Len(t, entries, 0)
 }
 
 func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
-	dir := t.TempDir()
+	root := t.TempDir()
+	setDir := root + "/set"
+	grpDir := root + "/threads"
+	assert.NoError(t, os.MkdirAll(setDir, 0o700))
+	assert.NoError(t, os.MkdirAll(grpDir, 0o700))
 
-	grp := NewThreadGroup("T", dir)
+	set := NewThreadGroupSet(setDir, nil)
+	grp := newThreadGroup(set, "T", grpDir)
 
 	base := time.Now().Add(-time.Hour)
 	thr := &thread{persisted: persistedThread{
@@ -61,11 +70,11 @@ func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
 		AccessTime: base,
 		ModTime:    base,
 		Dialogue:   []*types.ThreadMessage{},
-		Id:         uuid.NewString(),
+		Id2:        "1",
 	}}
 	thr.state = ThreadStateIdle
-	thr.fileName = genUniqFileName(thr.persisted.Name, thr.persisted.CreateTime)
-	thr.dir = dir
+	thr.dirName = genUniqDirName(thr.persisted.Name, thr.persisted.CreateTime)
+	thr.parentDir = grpDir
 	// Persist initial state so ActivateThread can overwrite it.
 	assert.NoError(t, thr.save())
 
@@ -82,17 +91,23 @@ func TestActivateThreadUpdatesAccessTimeAndPersists(t *testing.T) {
 	assert.True(t, activated.AccessTime().After(oldAccess))
 
 	// Verify the on-disk representation has the updated access time.
-	data, err := os.ReadFile(filepath.Join(dir, thr.fileName))
+	data, err := os.ReadFile(filepath.Join(grpDir, thr.dirName, ThreadFileName))
 	assert.NoError(t, err)
 
-	var diskThread thread
-	assert.NoError(t, json.Unmarshal(data, &diskThread.persisted))
-	assert.True(t, diskThread.persisted.AccessTime.After(oldAccess))
+	var diskThread persistedThread
+	assert.NoError(t, json.Unmarshal(data, &diskThread))
+	assert.True(t, diskThread.AccessTime.After(oldAccess))
 }
 
 func TestActivateThreadInvalidIndex(t *testing.T) {
-	dir := t.TempDir()
-	grp := NewThreadGroup("T", dir)
+	root := t.TempDir()
+	setDir := root + "/set"
+	grpDir := root + "/threads"
+	assert.NoError(t, os.MkdirAll(setDir, 0o700))
+	assert.NoError(t, os.MkdirAll(grpDir, 0o700))
+
+	set := NewThreadGroupSet(setDir, nil)
+	grp := newThreadGroup(set, "T", grpDir)
 
 	// ActivateThread was removed; ensure lookups behave as expected.
 	assert.Equal(t, 0, grp.Count())
@@ -100,10 +115,16 @@ func TestActivateThreadInvalidIndex(t *testing.T) {
 }
 
 func TestLoadThreadsLoadsAndRenamesStaleFiles(t *testing.T) {
-	dir := t.TempDir()
+	root := t.TempDir()
+	setDir := root + "/set"
+	grpDir := root + "/threads"
+	assert.NoError(t, os.MkdirAll(setDir, 0o700))
+	assert.NoError(t, os.MkdirAll(grpDir, 0o700))
 
-	// Create a thread JSON with a stale filename that does not match
-	// the genUniqFileName scheme so LoadThreads will rename it.
+	set := NewThreadGroupSet(setDir, nil)
+
+	// Create a thread JSON under a non-canonical directory name.
+	// ThreadGroup.LoadThreads should still load it.
 	base := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
 	orig := &thread{persisted: persistedThread{
 		Name:       "rename-thread",
@@ -111,43 +132,45 @@ func TestLoadThreadsLoadsAndRenamesStaleFiles(t *testing.T) {
 		AccessTime: base,
 		ModTime:    base,
 		Dialogue:   []*types.ThreadMessage{},
-		Id:         uuid.NewString(),
+		Id2:        "2",
 	}}
 	orig.state = ThreadStateIdle
 
 	data, err := json.Marshal(orig.persisted)
 	assert.NoError(t, err)
 
-	staleName := "stale-name.json"
-	stalePath := filepath.Join(dir, staleName)
-	assert.NoError(t, os.WriteFile(stalePath, data, 0600))
+	staleDirName := "stale-dir-name"
+	staleThreadDir := filepath.Join(grpDir, staleDirName)
+	assert.NoError(t, os.MkdirAll(staleThreadDir, 0o700))
+	staleThreadPath := filepath.Join(staleThreadDir, ThreadFileName)
+	assert.NoError(t, os.WriteFile(staleThreadPath, data, 0600))
 
-	grp := NewThreadGroup("T", dir)
+	grp := newThreadGroup(set, "T", grpDir)
 	assert.NoError(t, grp.LoadThreads())
 
 	threads := grp.Threads()
 	if assert.Len(t, threads, 1) {
 		loaded := threads[0]
 		loadedImpl := loaded.(*thread)
-		expectedFileName := genUniqFileName(loaded.Name(), loaded.CreateTime())
-		assert.Equal(t, expectedFileName, loadedImpl.fileName)
+		assert.Equal(t, staleDirName, loadedImpl.dirName)
 
-		// Old file should be gone; new one should exist.
-		_, err = os.Stat(stalePath)
-		assert.Error(t, err)
-		assert.True(t, os.IsNotExist(err))
-
-		_, err = os.Stat(filepath.Join(dir, expectedFileName))
+		_, err = os.Stat(staleThreadPath)
 		assert.NoError(t, err)
 	}
 }
 
 func TestMoveThreadMovesFileAndReloadsSourceGroup(t *testing.T) {
-	srcDir := t.TempDir()
-	dstDir := t.TempDir()
+	root := t.TempDir()
+	setDir := root + "/set"
+	srcDir := root + "/src"
+	dstDir := root + "/dst"
+	assert.NoError(t, os.MkdirAll(setDir, 0o700))
+	assert.NoError(t, os.MkdirAll(srcDir, 0o700))
+	assert.NoError(t, os.MkdirAll(dstDir, 0o700))
 
-	srcGrp := NewThreadGroup("S", srcDir)
-	dstGrp := NewThreadGroup("D", dstDir)
+	set := NewThreadGroupSet(setDir, nil)
+	srcGrp := newThreadGroup(set, "S", srcDir)
+	dstGrp := newThreadGroup(set, "D", dstDir)
 
 	base := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
 	thr := &thread{persisted: persistedThread{
@@ -156,11 +179,11 @@ func TestMoveThreadMovesFileAndReloadsSourceGroup(t *testing.T) {
 		AccessTime: base,
 		ModTime:    base,
 		Dialogue:   []*types.ThreadMessage{},
-		Id:         uuid.NewString(),
+		Id2:        "3",
 	}}
 	thr.state = ThreadStateIdle
-	thr.fileName = genUniqFileName(thr.persisted.Name, thr.persisted.CreateTime)
-	thr.dir = srcDir
+	thr.dirName = genUniqDirName(thr.persisted.Name, thr.persisted.CreateTime)
+	thr.parentDir = srcDir
 	assert.NoError(t, thr.save())
 
 	srcGrp.addThread(thr)
@@ -182,22 +205,28 @@ func TestMoveThreadMovesFileAndReloadsSourceGroup(t *testing.T) {
 	}
 
 	// File only exists in destination directory.
-	_, err = os.Stat(filepath.Join(srcDir, thr.fileName))
+	_, err = os.Stat(filepath.Join(srcDir, thr.dirName, ThreadFileName))
 	assert.Error(t, err)
 	assert.True(t, os.IsNotExist(err))
 
-	_, err = os.Stat(filepath.Join(dstDir, thr.fileName))
+	_, err = os.Stat(filepath.Join(dstDir, thr.dirName, ThreadFileName))
 	assert.NoError(t, err)
 }
 
 func TestMoveThreadInvalidIndex(t *testing.T) {
-	srcDir := t.TempDir()
-	dstDir := t.TempDir()
+	root := t.TempDir()
+	setDir := root + "/set"
+	srcDir := root + "/src"
+	dstDir := root + "/dst"
+	assert.NoError(t, os.MkdirAll(setDir, 0o700))
+	assert.NoError(t, os.MkdirAll(srcDir, 0o700))
+	assert.NoError(t, os.MkdirAll(dstDir, 0o700))
 
-	srcGrp := NewThreadGroup("S", srcDir)
-	dstGrp := NewThreadGroup("D", dstDir)
+	set := NewThreadGroupSet(setDir, nil)
+	srcGrp := newThreadGroup(set, "S", srcDir)
+	dstGrp := newThreadGroup(set, "D", dstDir)
 
-	err := srcGrp.MoveThread(&thread{persisted: persistedThread{Id: "does-not-exist"}}, dstGrp)
+	err := srcGrp.MoveThread(&thread{persisted: persistedThread{Id2: "does-not-exist"}}, dstGrp)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "does not exist")
 }

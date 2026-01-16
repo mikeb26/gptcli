@@ -16,16 +16,13 @@ import (
 
 	"github.com/famz/SetLocale"
 	gc "github.com/gbin/goncurses"
-	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/types"
 	iui "github.com/mikeb26/gptcli/internal/ui"
 	"golang.org/x/term"
 )
 
 func confirmQuitIfNonIdleThreads(gptCliCtx *CliContext) (bool, error) {
-	nonIdle := 0
-	nonIdle += gptCliCtx.mainThreadGroup.NonIdleThreadCount()
-	nonIdle += gptCliCtx.archiveThreadGroup.NonIdleThreadCount()
+	nonIdle := gptCliCtx.threadGroupSet.NonIdleThreadCount()
 
 	if nonIdle == 0 {
 		return true, nil
@@ -215,22 +212,22 @@ func (ui *threadMenuUI) buildMenuStatusSegments(maxX int) []statusSegment {
 	return segments
 }
 
-func (ui *threadMenuUI) resetItems(thrGrp *threads.ThreadGroup,
-	isArchivedLocal bool) {
+func (ui *threadMenuUI) resetItems() {
 
 	selectedThreadID := ui.selectedThreadID()
 
 	if ui.isSearchActive() {
 		ui.entries = ui.buildSearchEntries(ui.searchQuery)
 	} else {
-		items := make([]threadMenuEntry, 0, len(thrGrp.Threads()))
-		for idx, t := range thrGrp.Threads() {
-			threadNum := fmt.Sprintf("%v%v", thrGrp.Prefix(), idx+1)
-			line := strings.TrimRight(threadHeaderString(t, threadNum), "\n")
+		items := make([]threadMenuEntry, 0)
+		for _, t := range ui.cliCtx.threadGroupSet.Threads(
+			[]string{ui.cliCtx.curThreadGroup}) {
+
+			line := strings.TrimRight(threadHeaderString(t), "\n")
 			entry := threadMenuEntry{
 				label:      line,
 				thread:     t,
-				isArchived: isArchivedLocal,
+				isArchived: ui.cliCtx.isCurArchived(),
 			}
 			items = append(items, entry)
 		}
@@ -314,8 +311,7 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 			needErase = false
 		}
 		if needRefresh {
-			cliCtx.menu.resetItems(cliCtx.curThreadGroup,
-				cliCtx.curThreadGroup == cliCtx.archiveThreadGroup)
+			cliCtx.menu.resetItems()
 			needRefresh = false
 			lastRefresh = time.Now()
 		}
@@ -429,7 +425,7 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 			if name == "" { // user cancelled
 				continue
 			}
-			if err := cliCtx.curThreadGroup.NewThread(name); err != nil {
+			if err := cliCtx.threadGroupSet.NewThread(cliCtx.curThreadGroup, name); err != nil {
 				return fmt.Errorf("%w: %w", ErrFailedToCreateThread, err)
 			}
 			needRefresh = true
@@ -464,19 +460,17 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 				continue
 			}
 
-			dstThreadGroup := cliCtx.archiveThreadGroup
-			srcThreadGroup := cliCtx.mainThreadGroup
+			dstThreadGroup := ArchiveThreadGroupName
+			srcThreadGroup := MainThreadGroupName
 			if entry.isArchived {
-				dstThreadGroup = cliCtx.mainThreadGroup
-				srcThreadGroup = cliCtx.archiveThreadGroup
+				dstThreadGroup = MainThreadGroupName
+				srcThreadGroup = ArchiveThreadGroupName
 			}
 			needErase = true
 			needRefresh = true
-			// Archive the currently selected thread from the main thread group.
-			// This mirrors the behavior of archiveThreadMain(), but uses the
-			// selection from the menu UI instead of parsing a CLI argument.
-			// @todo should cleanup thread.{asyncApprover, llmClient}
-			if err := srcThreadGroup.MoveThread(entry.thread, dstThreadGroup); err != nil {
+			err := cliCtx.threadGroupSet.MoveThread(entry.thread,
+				srcThreadGroup, dstThreadGroup)
+			if err != nil {
 				return fmt.Errorf("%w: %w", ErrFailedToArchiveThread, err)
 			}
 			entry.isArchived = !entry.isArchived

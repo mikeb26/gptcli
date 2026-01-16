@@ -66,18 +66,18 @@ func TestGenUniqFileNameDeterministicAndVariesWithInputs(t *testing.T) {
 	base := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
 
 	name := "example-thread"
-	file1 := genUniqFileName(name, base)
-	file2 := genUniqFileName(name, base)
+	file1 := genUniqDirName(name, base)
+	file2 := genUniqDirName(name, base)
 
 	// Deterministic for the same inputs.
 	assert.Equal(t, file1, file2)
 
 	// Changing the name should change the file name.
 	otherName := "other-thread"
-	file3 := genUniqFileName(otherName, base)
+	file3 := genUniqDirName(otherName, base)
 	assert.NotEqual(t, file1, file3)
 
 	// Changing the timestamp should also change the file name.
-	file4 := genUniqFileName(name, base.Add(time.Second))
+	file4 := genUniqDirName(name, base.Add(time.Second))
 	assert.NotEqual(t, file1, file4)
 }

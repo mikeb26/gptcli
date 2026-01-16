@@ -91,8 +91,8 @@ func RenderBlocksFromDialogue(dialogue []*types.ThreadMessage) []RenderBlock {
 	return blocks
 }
 
-func genUniqFileName(name string, cTime time.Time) string {
-	return fmt.Sprintf("%v_%v.json",
+func genUniqDirName(name string, cTime time.Time) string {
+	return fmt.Sprintf("%v_%v",
 		strconv.FormatUint(uint64(crc32.ChecksumIEEE([]byte(name))), 16),
 		cTime.Unix())
 }

@@ -94,7 +94,7 @@ func (tvUI *threadViewUI) setRunningState(state *threads.RunningThreadState) {
 
 func (tvUI *threadViewUI) clearRunningState() {
 	tvUI.statusText = asyncStatusIdle
-	if tvUI.cliCtx.curThreadGroup == tvUI.cliCtx.archiveThreadGroup {
+	if tvUI.isArchived {
 		tvUI.statusText = asyncStatusArchived
 	}
 	tvUI.running = threadViewAsyncChatState{}

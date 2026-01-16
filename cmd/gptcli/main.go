@@ -21,14 +21,17 @@ import (
 )
 
 const (
-	CommandName       = "gptcli"
-	KeyFileFmt        = ".%v.key"
-	PrefsFile         = "prefs.json"
-	ApprovePolicyFile = "approvals.json"
-	ThreadsDir        = "threads"
-	ArchiveDir        = "archive_threads"
-	LogsDir           = "logs"
-	AuditLogFile      = "audit.log"
+	CommandName            = "gptcli"
+	KeyFileFmt             = ".%v.key"
+	PrefsFile              = "prefs.json"
+	ApprovePolicyFile      = "approvals.json"
+	ThreadsDirOld          = "threads"
+	ArchiveDirOld          = "archive_threads"
+	ThreadGroupsDir        = "thread_groups"
+	LogsDir                = "logs"
+	AuditLogFile           = "audit.log"
+	MainThreadGroupName    = "main"
+	ArchiveThreadGroupName = "archive"
 )
 
 type Prefs struct {
@@ -55,10 +58,8 @@ type CliContext struct {
 	prefs   Prefs
 	toggles Toggles
 
-	threadGroups       []*threads.ThreadGroup
-	archiveThreadGroup *threads.ThreadGroup
-	mainThreadGroup    *threads.ThreadGroup
-	curThreadGroup     *threads.ThreadGroup
+	threadGroupSet *threads.ThreadGroupSet
+	curThreadGroup string
 }
 
 func NewCliContext(ctx context.Context) (*CliContext, error) {
@@ -85,31 +86,19 @@ func NewCliContext(ctx context.Context) (*CliContext, error) {
 			Model:          model,
 			EnableAuditLog: true,
 		},
-		archiveThreadGroup: nil,
-		mainThreadGroup:    nil,
-		curThreadGroup:     nil,
-		threadGroups:       make([]*threads.ThreadGroup, 0),
-		threadViews:        make(map[string]*threadViewUI),
+		threadGroupSet: nil,
+		threadViews:    make(map[string]*threadViewUI),
+		curThreadGroup: MainThreadGroupName,
 	}
 	cliCtx.menu = newThreadMenuUI(cliCtx)
 
-	threadsDirLocal, err := getThreadsDir()
+	threadGroupsDirLocal, err := getThreadGroupsDir()
 	if err != nil {
-		threadsDirLocal = "/tmp"
-	}
-	archiveDirLocal, err := getArchiveDir()
-	if err != nil {
-		archiveDirLocal = "/tmp"
+		threadGroupsDirLocal = "/tmp"
 	}
 
-	cliCtx.threadGroups = append(cliCtx.threadGroups,
-		threads.NewThreadGroup("", threadsDirLocal))
-	cliCtx.threadGroups = append(cliCtx.threadGroups,
-		threads.NewThreadGroup("a", archiveDirLocal))
-
-	cliCtx.mainThreadGroup = cliCtx.threadGroups[0]
-	cliCtx.archiveThreadGroup = cliCtx.threadGroups[1]
-	cliCtx.curThreadGroup = cliCtx.mainThreadGroup
+	cliCtx.threadGroupSet = threads.NewThreadGroupSet(threadGroupsDirLocal,
+		[]string{MainThreadGroupName, ArchiveThreadGroupName})
 
 	return cliCtx, nil
 }
@@ -161,11 +150,9 @@ func (cliCtx *CliContext) load(ctx context.Context) error {
 	}
 	cliCtx.ictx.LlmBaseApprover = ui.NewUIApprover(cliCtx.ui)
 
-	for _, thrGrp := range cliCtx.threadGroups {
-		err := thrGrp.LoadThreads()
-		if err != nil {
-			return err
-		}
+	err = cliCtx.threadGroupSet.Load()
+	if err != nil {
+		return err
 	}
 	cliCtx.toggles.needConfig = false
 

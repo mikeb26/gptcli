@@ -5,34 +5,37 @@
 package threads
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"slices"
 	"sync"
 	"time"
 	"unsafe"
 
-	"github.com/google/uuid"
-
 	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
 type ThreadGroup struct {
-	prefix     string
+	name       string
 	threads    map[string]*thread
 	totThreads int
 	dir        string
 	mu         sync.RWMutex
+	parent     *ThreadGroupSet
 }
 
-func NewThreadGroup(prefixIn string, dirIn string) *ThreadGroup {
+func newThreadGroup(parentIn *ThreadGroupSet, nameIn string,
+	dirIn string) *ThreadGroup {
 
 	thrGrp := &ThreadGroup{
-		prefix:     prefixIn,
+		name:       nameIn,
 		threads:    make(map[string]*thread),
 		totThreads: 0,
 		dir:        dirIn,
+		parent:     parentIn,
 	}
 
 	return thrGrp
@@ -54,11 +57,11 @@ func (thrGrp *ThreadGroup) Threads() []Thread {
 	return out
 }
 
-func (thrGrp *ThreadGroup) Prefix() string {
+func (thrGrp *ThreadGroup) Name() string {
 	thrGrp.mu.RLock()
 	defer thrGrp.mu.RUnlock()
 
-	return thrGrp.prefix
+	return thrGrp.name
 }
 
 // NonIdleThreadCount returns the number of threads in the group that are not
@@ -106,7 +109,7 @@ func (thrGrp *ThreadGroup) LoadThreads() error {
 	thrGrp.threads = make(map[string]*thread)
 
 	dEntries, err := os.ReadDir(thrGrp.dir)
-	if err != nil {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("Failed to read dir %v: %w", thrGrp.dir, err)
 	}
 
@@ -152,7 +155,7 @@ func (thrGrp *ThreadGroup) NewThread(name string) error {
 	defer thrGrp.mu.Unlock()
 
 	cTime := time.Now()
-	fileName := genUniqFileName(name, cTime)
+	dirNameLocal := genUniqDirName(name, cTime)
 
 	dialogue := []*types.ThreadMessage{
 		{Role: types.LlmRoleSystem,
@@ -166,12 +169,17 @@ func (thrGrp *ThreadGroup) NewThread(name string) error {
 			AccessTime: cTime,
 			ModTime:    cTime,
 			Dialogue:   dialogue,
-			Id:         uuid.NewString(),
 		},
-		fileName: fileName,
-		dir:      thrGrp.dir,
-		state:    ThreadStateIdle,
+		dirName:   dirNameLocal,
+		parentDir: thrGrp.dir,
+		state:     ThreadStateIdle,
+		parent:    thrGrp,
 	}
+	id, err := thrGrp.parent.newThreadId()
+	if err != nil {
+		return err
+	}
+	curThread.persisted.Id2 = id
 
 	thrGrp.addThread(curThread)
 
@@ -179,13 +187,13 @@ func (thrGrp *ThreadGroup) NewThread(name string) error {
 }
 
 func (thrGrp *ThreadGroup) addThread(curThread *thread) {
-	if curThread.persisted.Id == "" {
+	if curThread.persisted.Id2 == "" {
 		panic("missing thread id")
 	}
-	if _, exists := thrGrp.threads[curThread.persisted.Id]; exists {
+	if _, exists := thrGrp.threads[curThread.persisted.Id2]; exists {
 		panic("duplicate thread id")
 	}
-	thrGrp.threads[curThread.persisted.Id] = curThread
+	thrGrp.threads[curThread.persisted.Id2] = curThread
 	thrGrp.totThreads++
 }
 
@@ -219,7 +227,7 @@ func (srcThrGrp *ThreadGroup) MoveThread(thr Thread, dstThrGrp *ThreadGroup) err
 	thrId := thr.Id()
 	if _, exists := srcThrGrp.threads[thrId]; !exists {
 		return fmt.Errorf("thread %q does not exist in group %q", thrId,
-			srcThrGrp.prefix)
+			srcThrGrp.name)
 	}
 
 	thread := srcThrGrp.threads[thrId]
@@ -237,7 +245,7 @@ func (srcThrGrp *ThreadGroup) MoveThread(thr Thread, dstThrGrp *ThreadGroup) err
 		return err
 	}
 
-	thread.dir = dstThrGrp.dir
+	thread.parentDir = dstThrGrp.dir
 	dstThrGrp.addThread(thread)
 
 	delete(srcThrGrp.threads, thrId)

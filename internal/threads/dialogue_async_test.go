@@ -7,6 +7,7 @@ package threads
 import (
 	"context"
 	"io"
+	"os"
 	"testing"
 	"time"
 
@@ -26,8 +27,14 @@ func (n noopApprover) AskApproval(ctx context.Context, req am.ApprovalRequest) (
 }
 
 func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
-	dir := t.TempDir()
-	grp := NewThreadGroup("", dir)
+	root := t.TempDir()
+	setDir := root + "/set"
+	grpDir := root + "/threads"
+	assert.NoError(t, os.MkdirAll(setDir, 0o700))
+	assert.NoError(t, os.MkdirAll(grpDir, 0o700))
+
+	set := NewThreadGroupSet(setDir, nil)
+	grp := newThreadGroup(set, "", grpDir)
 	assert.NoError(t, grp.NewThread("t1"))
 	threads := grp.Threads()
 	if !assert.Len(t, threads, 1) {
@@ -100,8 +107,14 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 }
 
 func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
-	dir := t.TempDir()
-	grp := NewThreadGroup("", dir)
+	root := t.TempDir()
+	setDir := root + "/set"
+	grpDir := root + "/threads"
+	assert.NoError(t, os.MkdirAll(setDir, 0o700))
+	assert.NoError(t, os.MkdirAll(grpDir, 0o700))
+
+	set := NewThreadGroupSet(setDir, nil)
+	grp := newThreadGroup(set, "", grpDir)
 	assert.NoError(t, grp.NewThread("t1"))
 	threads := grp.Threads()
 	if !assert.Len(t, threads, 1) {
