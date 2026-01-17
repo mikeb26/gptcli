@@ -6,7 +6,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -113,4 +118,69 @@ func threadGroupString(thrGrp *threads.ThreadGroup, header bool,
 
 func (cliCtx *CliContext) isCurArchived() bool {
 	return cliCtx.curThreadGroup == ArchiveThreadGroupName
+}
+
+func (cliCtx *CliContext) migrateOldThreadGroupFomatIfNeeded() error {
+	oldMainDir, err := getThreadsDirOld()
+	if err != nil {
+		return err
+	}
+	oldArchiveDir, err := getArchiveDirOld()
+	if err != nil {
+		return err
+	}
+	thrGrpDir, err := getThreadGroupsDir()
+	if err != nil {
+		return err
+	}
+
+	err = cliCtx.migrateOneOldThreadGroupFormat(oldMainDir, thrGrpDir,
+		MainThreadGroupName)
+	if err != nil {
+		return err
+	}
+	return cliCtx.migrateOneOldThreadGroupFormat(oldArchiveDir, thrGrpDir,
+		ArchiveThreadGroupName)
+}
+
+func (cliCtx *CliContext) migrateOneOldThreadGroupFormat(oldDir string,
+	thrGrpDir string, thrGrpName string) error {
+
+	dEntries, err := os.ReadDir(oldDir)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	for _, dEnt := range dEntries {
+		err = cliCtx.migrateOneOldThreadFormat(dEnt, oldDir, thrGrpDir,
+			thrGrpName)
+		if err != nil {
+			return err
+		}
+	}
+
+	return os.RemoveAll(oldDir)
+}
+
+func (cliCtx *CliContext) migrateOneOldThreadFormat(dEntry os.DirEntry,
+	oldDir string, thrGrpDir string, thrGrpName string) error {
+
+	oldThreadFile := filepath.Join(oldDir, dEntry.Name())
+	newThreadDir := strings.TrimSuffix(dEntry.Name(), path.Ext(dEntry.Name()))
+	newThreadDir = filepath.Join(thrGrpDir, thrGrpName, newThreadDir)
+	newThreadFile := filepath.Join(newThreadDir, threads.ThreadFileName)
+
+	content, err := os.ReadFile(oldThreadFile)
+	if err != nil {
+		return err
+	}
+	err = os.MkdirAll(newThreadDir, 0700)
+	if err != nil {
+		return err
+	}
+	err = os.WriteFile(newThreadFile, content, 0600)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

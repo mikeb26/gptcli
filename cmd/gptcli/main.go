@@ -169,6 +169,12 @@ func main() {
 	}
 	defer gcExit()
 
+	err = cliCtx.migrateOldThreadGroupFomatIfNeeded()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v: Failed to migrate existing threads to new format: %v\n", CommandName, err)
+		os.Exit(1)
+	}
+
 	err = cliCtx.load(ctx)
 	if err != nil && !cliCtx.toggles.needConfig {
 		fmt.Fprintf(os.Stderr, "%v: Failed to load: %v\n", CommandName, err)
