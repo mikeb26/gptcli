@@ -326,17 +326,17 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 			needErase = true
 			continue
 		default:
-			if cliCtx.toggles.needConfig {
-				configMain(ctx, cliCtx)
-				needRefresh = true
-				continue
-			}
 			if !upgradeChecked {
 				err := upgradeIfNeeded(ctx, cliCtx)
 				if err == io.EOF {
 					return err
 				}
 				upgradeChecked = true
+			}
+			if cliCtx.toggles.needConfig {
+				configMain(ctx, cliCtx)
+				needRefresh = true
+				continue
 			}
 
 			ch = cliCtx.rootWin.GetChar()
