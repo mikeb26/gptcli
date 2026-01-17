@@ -31,7 +31,7 @@ var (
 	ErrCouldNotWriteAPIKeyFile     = errors.New("Could not write API key file")
 	ErrCouldNotCreateThreadsDir    = errors.New("Could not create thread groups directory")
 	ErrCouldNotCreateLogsDir       = errors.New("Could not create logs directory")
-	ErrCouldNotFindHomeDir         = errors.New("Could not find user home directory")
+	ErrCouldNotFindConfigDir       = errors.New("Could not find user config directory")
 	ErrCouldNotLoadAPIKey          = errors.New("Could not load API key")
 	ErrAPIKeyNotConfigured         = errors.New("API key not configured")
 	ErrFailedToInitScreen          = errors.New("Failed to initialize screen")

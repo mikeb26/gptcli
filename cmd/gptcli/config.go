@@ -210,12 +210,12 @@ func configMain(ctx context.Context, gptCliCtx *CliContext) error {
 }
 
 func getConfigDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	configDir, err := os.UserConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrCouldNotFindHomeDir, err)
+		return "", fmt.Errorf("%w: %w", ErrCouldNotFindConfigDir, err)
 	}
 
-	return filepath.Join(homeDir, ".config", CommandName), nil
+	return filepath.Join(configDir, CommandName), nil
 }
 
 func getKeyPath(vendor string) (string, error) {
