@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -331,7 +332,10 @@ func showMenu(ctx context.Context, cliCtx *CliContext) error {
 				continue
 			}
 			if !upgradeChecked {
-				upgradeIfNeeded(ctx, cliCtx)
+				err := upgradeIfNeeded(ctx, cliCtx)
+				if err == io.EOF {
+					return err
+				}
 				upgradeChecked = true
 			}
 

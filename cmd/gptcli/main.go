@@ -8,6 +8,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"io"
 	"os"
 
 	laclopenai "github.com/cloudwego/eino-ext/libs/acl/openai"
@@ -167,19 +168,26 @@ func main() {
 			err)
 		os.Exit(1)
 	}
-	defer gcExit()
 
 	err = cliCtx.migrateOldThreadGroupFomatIfNeeded()
 	if err != nil {
+		gcExit()
 		fmt.Fprintf(os.Stderr, "%v: Failed to migrate existing threads to new format: %v\n", CommandName, err)
 		os.Exit(1)
 	}
 
 	err = cliCtx.load(ctx)
 	if err != nil && !cliCtx.toggles.needConfig {
+		gcExit()
 		fmt.Fprintf(os.Stderr, "%v: Failed to load: %v\n", CommandName, err)
 		os.Exit(1)
 	}
 
-	showMenu(ctx, cliCtx)
+	err = showMenu(ctx, cliCtx)
+	gcExit()
+
+	if err == io.EOF {
+		fmt.Fprintf(os.Stderr, "Upgrade complete. Please restart.")
+		os.Exit(1)
+	}
 }
