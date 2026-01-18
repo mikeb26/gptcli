@@ -22,8 +22,13 @@ type UIInputDialogue interface {
 	Get(userPrompt string) (string, error)
 }
 
+type UIConfirmDialogue interface {
+	Confirm(userPrompt string) error
+}
+
 type UI interface {
 	UIOptionDialogue
 	UIBoolDialogue
 	UIInputDialogue
+	UIConfirmDialogue
 }

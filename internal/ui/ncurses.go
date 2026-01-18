@@ -192,3 +192,88 @@ func (n *NcursesUI) Get(userPrompt string) (string, error) {
 	line = strings.TrimSpace(line)
 	return line, nil
 }
+
+// Confirm shows a modal dialog with the provided prompt and an "OK" label.
+// It blocks until the user presses Enter.
+func (n *NcursesUI) Confirm(userPrompt string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	trimmed := strings.TrimRight(userPrompt, "\n")
+	promptLines := strings.Split(trimmed, "\n")
+	if len(promptLines) == 0 {
+		promptLines = []string{""}
+	}
+
+	maxRunes := 0
+	for _, line := range promptLines {
+		if l := len([]rune(line)); l > maxRunes {
+			maxRunes = l
+		}
+	}
+	if okLen := len([]rune("OK")); okLen > maxRunes {
+		maxRunes = okLen
+	}
+
+	innerWidth := maxRunes + 2
+	if innerWidth < 30 {
+		innerWidth = 30
+	}
+
+	// Border + prompt lines + spacer + OK line.
+	desiredHeight := len(promptLines) + 4
+	if desiredHeight < 6 {
+		desiredHeight = 6
+	}
+
+	modal, err := n.newCenteredModal(desiredHeight, innerWidth, false /* hasCursor */, false /* hasInput */)
+	if err != nil {
+		return err
+	}
+	defer modal.Close()
+
+	win := modal.Frame.Win
+	cy, cx, ch, cw := modal.ContentArea()
+	if cw < 1 {
+		cw = 1
+	}
+	if ch < 1 {
+		ch = 1
+	}
+
+	win.Timeout(50)
+	defer win.Timeout(-1)
+
+	// Draw the border once; subsequent updates only modify the inner area.
+	_ = win.Box(0, 0)
+
+	_ = win.AttrSet(n.theme.NormalAttr())
+	for i, line := range promptLines {
+		if i >= ch {
+			break
+		}
+		printClipped(win, cy+i, cx, cw, line)
+	}
+
+	okY := cy + len(promptLines) + 1
+	if okY >= cy+ch {
+		okY = cy + ch - 1
+	}
+	win.Move(okY, cx)
+	win.HLine(okY, cx, ' ', cw)
+	printClipped(win, okY, cx, cw, "OK")
+	win.Refresh()
+
+	for {
+		chKey := win.GetChar()
+		if chKey == 0 {
+			continue
+		}
+		switch chKey {
+		case gc.KEY_ENTER, gc.KEY_RETURN:
+			return nil
+		default:
+			// Ignore other keys.
+		}
+	}
+}

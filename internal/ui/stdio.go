@@ -132,3 +132,15 @@ func (s *StdioUI) Get(userPrompt string) (string, error) {
 
 	return s.getUnlocked(userPrompt)
 }
+
+// Confirm displays a prompt followed by an "OK" acknowledgement and blocks
+// until the user presses Enter.
+func (s *StdioUI) Confirm(userPrompt string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	fmt.Fprintln(s.output, userPrompt)
+	fmt.Fprintln(s.output, "OK")
+	_, err := s.input.ReadString('\n')
+	return err
+}

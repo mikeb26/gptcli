@@ -127,3 +127,21 @@ func TestStdioUISelectBool(t *testing.T) {
 		t.Errorf("expected invalid selection message in stdout, got %q", stdout)
 	}
 }
+
+func TestStdioUIConfirm(t *testing.T) {
+	var out bytes.Buffer
+	ui := NewStdioUI().WithReader(strings.NewReader("\n")).WithWriter(&out)
+
+	err := ui.Confirm("Press enter")
+	if err != nil {
+		t.Fatalf("Confirm returned error: %v", err)
+	}
+
+	stdout := out.String()
+	if !strings.Contains(stdout, "Press enter") {
+		t.Errorf("expected stdout to contain prompt, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "OK") {
+		t.Errorf("expected stdout to contain OK, got %q", stdout)
+	}
+}

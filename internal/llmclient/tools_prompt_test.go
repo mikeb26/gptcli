@@ -36,6 +36,10 @@ func (f fakeUI) Get(_ string) (string, error) {
 	return "", nil
 }
 
+func (f fakeUI) Confirm(_ string) error {
+	return nil
+}
+
 func TestPromptRunReq_String(t *testing.T) {
 	req := &PromptRunReq{Dialogue: []*types.ThreadMessage{{Role: schema.User, Content: "hi"}}}
 	out := req.String()
