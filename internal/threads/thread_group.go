@@ -191,7 +191,8 @@ func (thrGrp *ThreadGroup) addThread(curThread *thread) {
 		panic("missing thread id")
 	}
 	if _, exists := thrGrp.threads[curThread.persisted.Id2]; exists {
-		panic("duplicate thread id")
+		panic(fmt.Sprintf("attempt to add thread id %v to group %v but it already exists",
+			curThread.persisted.Id2, thrGrp.name))
 	}
 	thrGrp.threads[curThread.persisted.Id2] = curThread
 	thrGrp.totThreads++
