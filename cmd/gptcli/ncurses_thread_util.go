@@ -6,31 +6,40 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	gc "github.com/gbin/goncurses"
-	"github.com/mikeb26/gptcli/internal/threads"
 )
 
 // drawThreadHeader renders a single-line header for the thread view.
-func drawThreadHeader(cliCtx *CliContext, thread threads.Thread) {
-	_, maxX := cliCtx.rootWin.MaxYX()
-	header := fmt.Sprintf("Thread: %s", thread.Name())
+func (tvUI *threadViewUI) drawThreadHeader(ctx context.Context) {
+	_, maxX := tvUI.cliCtx.rootWin.MaxYX()
+	header := fmt.Sprintf("Thread: %s", tvUI.thread.Name())
+	repoStatus := "<none>"
+	if tvUI.workDir != "" {
+		repoStatus2, err := tvUI.cliCtx.scmClient.RepoStatusString(ctx, tvUI.workDir)
+		if err == nil {
+			repoStatus = repoStatus2
+		}
+	}
+	header = fmt.Sprintf("%s | Repo: %s", header, repoStatus)
+
 	if len([]rune(header)) > maxX {
 		header = string([]rune(header)[:maxX])
 	}
 
 	var attr gc.Char = gc.A_NORMAL
-	if cliCtx.toggles.useColors {
+	if tvUI.cliCtx.toggles.useColors {
 		attr |= gc.ColorPair(menuColorHeader)
 	}
-	_ = cliCtx.rootWin.AttrSet(attr)
+	_ = tvUI.cliCtx.rootWin.AttrSet(attr)
 	for x := 0; x < maxX; x++ {
-		cliCtx.rootWin.MoveAddChar(0, x, gc.Char(' ')|attr)
+		tvUI.cliCtx.rootWin.MoveAddChar(0, x, gc.Char(' ')|attr)
 	}
-	_ = cliCtx.rootWin.TouchLine(0, 1)
-	cliCtx.rootWin.MovePrint(0, 0, header)
-	_ = cliCtx.rootWin.AttrSet(gc.A_NORMAL)
+	_ = tvUI.cliCtx.rootWin.TouchLine(0, 1)
+	tvUI.cliCtx.rootWin.MovePrint(0, 0, header)
+	_ = tvUI.cliCtx.rootWin.AttrSet(gc.A_NORMAL)
 }
 
 // drawNavbar renders a simple status line at the bottom of the
@@ -66,6 +75,14 @@ func drawNavbar(cliCtx *CliContext, focus threadViewFocus, isArchived bool) {
 			{text: "Tab", bold: true},
 			{text: " Send:", bold: false},
 			{text: "Ctrl-d", bold: true},
+		}...)
+	}
+	if focus == focusHistory {
+		segments = append(segments, []statusSegment{
+			{text: " Commit:", bold: false},
+			{text: "c", bold: true},
+			{text: " Diff:", bold: false},
+			{text: "d", bold: true},
 		}...)
 	}
 	segments = append(segments, []statusSegment{

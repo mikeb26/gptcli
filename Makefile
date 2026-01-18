@@ -19,7 +19,7 @@ cmd/gptcli/version.txt:
 mocks:
 	cd internal/types; go generate
 
-TESTPKGS=github.com/mikeb26/gptcli/cmd/gptcli github.com/mikeb26/gptcli/internal github.com/mikeb26/gptcli/internal/prompts github.com/mikeb26/gptcli/internal/ui github.com/mikeb26/gptcli/internal/am github.com/mikeb26/gptcli/internal/llmclient github.com/mikeb26/gptcli/internal/threads
+TESTPKGS=github.com/mikeb26/gptcli/cmd/gptcli github.com/mikeb26/gptcli/internal github.com/mikeb26/gptcli/internal/prompts github.com/mikeb26/gptcli/internal/ui github.com/mikeb26/gptcli/internal/am github.com/mikeb26/gptcli/internal/llmclient github.com/mikeb26/gptcli/internal/threads github.com/mikeb26/gptcli/internal/scm github.com/mikeb26/gptcli/internal/scm/git
 
 # Enable the race detector by default for `make test`. You can disable with:
 #   make test RACE=0

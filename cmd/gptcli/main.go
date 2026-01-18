@@ -16,6 +16,8 @@ import (
 
 	"github.com/mikeb26/gptcli/internal"
 	"github.com/mikeb26/gptcli/internal/am"
+	"github.com/mikeb26/gptcli/internal/scm"
+	"github.com/mikeb26/gptcli/internal/scm/git"
 	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/mikeb26/gptcli/internal/ui"
@@ -61,6 +63,8 @@ type CliContext struct {
 
 	threadGroupSet *threads.ThreadGroupSet
 	curThreadGroup string
+
+	scmClient scm.Client
 }
 
 func NewCliContext(ctx context.Context) (*CliContext, error) {
@@ -90,6 +94,7 @@ func NewCliContext(ctx context.Context) (*CliContext, error) {
 		threadGroupSet: nil,
 		threadViews:    make(map[string]*threadViewUI),
 		curThreadGroup: MainThreadGroupName,
+		scmClient:      git.NewClient(),
 	}
 	cliCtx.menu = newThreadMenuUI(cliCtx)
 

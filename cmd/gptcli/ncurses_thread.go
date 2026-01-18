@@ -7,13 +7,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
 	gc "github.com/gbin/goncurses"
+	"github.com/mikeb26/gptcli/internal/scm"
 	"github.com/mikeb26/gptcli/internal/threads"
+	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/mikeb26/gptcli/internal/ui"
 )
 
@@ -45,21 +48,28 @@ type threadViewUI struct {
 	inputFrame   *ui.Frame
 	historyFrame *ui.Frame
 	focusedFrame *ui.Frame
+	workDir      string
 }
 
-func lookupOrCreateThreadViewUI(cliCtx *CliContext,
-	thread threads.Thread) *threadViewUI {
+func lookupOrCreateThreadViewUI(ctx context.Context, cliCtx *CliContext,
+	thread threads.Thread, isArchivedIn bool) *threadViewUI {
 
 	tid := thread.Id()
 	if existing, ok := cliCtx.threadViews[tid]; ok && existing != nil {
 		return existing
 	}
 	tvUI := &threadViewUI{
-		cliCtx: cliCtx,
-		thread: thread,
+		cliCtx:     cliCtx,
+		thread:     thread,
+		isArchived: isArchivedIn,
 	}
 	tvUI.clearRunningState()
 	cliCtx.threadViews[tid] = tvUI
+	wd, _ := os.Getwd()
+	_, err := cliCtx.scmClient.RepoStatusString(ctx, wd)
+	if err == nil {
+		tvUI.workDir = wd
+	}
 
 	return tvUI
 }
@@ -159,14 +169,14 @@ func (tvUI *threadViewUI) closeThreadViewFrames() {
 	tvUI.focusedFrame = nil
 }
 
-func (tvUI *threadViewUI) redrawThreadView() {
+func (tvUI *threadViewUI) redrawThreadView(ctx context.Context) {
 	// First redraw everything that lives directly on the root
 	// screen (stdscr). We intentionally refresh this parent
 	// window *before* rendering the input frame's sub-window so
 	// that the frame's contents are not overwritten by a later
 	// scr.Refresh() call.
 	tvUI.cliCtx.rootWin.Erase()
-	drawThreadHeader(tvUI.cliCtx, tvUI.thread)
+	tvUI.drawThreadHeader(ctx)
 	drawThreadInputLabel(tvUI.cliCtx, tvUI.statusText)
 	drawNavbar(tvUI.cliCtx, tvUI.getFocus(), tvUI.isArchived)
 	tvUI.cliCtx.rootWin.Refresh()
@@ -232,6 +242,15 @@ func (tvUI *threadViewUI) processThreadViewKey(
 	case gc.KEY_END:
 		tvUI.focusedFrame.MoveEnd()
 		return false, true
+	case 'c':
+		if isHistory {
+			return false, tvUI.launchCommitFromThreadView(ctx)
+		} // else do not return; inputFrame needs to process 'c' as input
+	case 'd':
+		if isHistory {
+			return false, tvUI.launchDiffToolFromThreadView(ctx)
+		} // else do not return; inputFrame needs to process 'd' as
+		// input
 	case 'd' - 'a' + 1: // Ctrl-D sends the input buffer
 		if tvUI.isArchived {
 			return false, false
@@ -280,6 +299,79 @@ func (tvUI *threadViewUI) processThreadViewKey(
 	return false, false
 }
 
+func (tvUI *threadViewUI) launchDiffToolFromThreadView(ctx context.Context) (needRedraw bool) {
+	if tvUI.workDir == "" {
+		return false
+	}
+
+	// Suspend curses so the difftool can use the terminal.
+	gc.DefProgMode()
+	gc.End()
+	err := tvUI.cliCtx.scmClient.DiffTool(ctx, tvUI.workDir, scm.DiffScopeUncommitted)
+	gc.ResetProgMode()
+	gc.UpdatePanels()
+	gc.StdScr().Refresh()
+	if err != nil {
+		_ = tvUI.cliCtx.ui.Confirm(err.Error())
+	}
+
+	return true
+}
+
+func (tvUI *threadViewUI) launchCommitFromThreadView(ctx context.Context) (needRedraw bool) {
+	if tvUI.workDir == "" {
+		return false
+	}
+
+	opts := scm.CommitOptions{}
+
+	for {
+		// This uses the user's configured git editor (git commit without -m).
+		// Suspend curses so the editor can use the terminal.
+		gc.DefProgMode()
+		gc.End()
+		untracked, err := tvUI.cliCtx.scmClient.Commit(ctx, tvUI.workDir, opts)
+		gc.ResetProgMode()
+		gc.UpdatePanels()
+		gc.StdScr().Refresh()
+
+		if err == nil {
+			return true
+		}
+
+		if !errors.Is(err, scm.ErrUntrackedFiles) {
+			_ = tvUI.cliCtx.ui.Confirm(err.Error())
+			return true
+		}
+
+		// Ask whether to include each untracked file.
+		if opts.IncludeUntracked == nil {
+			opts.IncludeUntracked = make(map[string]bool)
+		}
+		for _, f := range untracked.Filename {
+			// If already decided (e.g. retry), don't ask again.
+			if _, ok := opts.IncludeUntracked[f]; ok {
+				continue
+			}
+
+			prompt := fmt.Sprintf("Include currently untracked %v in this commit?", f)
+			defaultNo := false
+			include, selErr := tvUI.cliCtx.ui.SelectBool(
+				prompt,
+				types.UIOption{Key: "y", Label: "Yes, include"},
+				types.UIOption{Key: "n", Label: "No, ignore"},
+				&defaultNo,
+			)
+			if selErr != nil {
+				_ = tvUI.cliCtx.ui.Confirm(selErr.Error())
+				return true
+			}
+			opts.IncludeUntracked[f] = include
+		}
+		// Retry.
+	}
+}
+
 // runThreadView provides an ncurses-based view for interacting with a
 // single thread. It renders the existing dialogue and allows the user
 // to enter a multi-line prompt in a 3-line input box. Ctrl-D sends the
@@ -301,7 +393,7 @@ func runThreadView(ctx context.Context, cliCtx *CliContext,
 	signal.Notify(sigCh, syscall.SIGWINCH)
 	defer signal.Stop(sigCh)
 
-	tvUI := lookupOrCreateThreadViewUI(cliCtx, thread)
+	tvUI := lookupOrCreateThreadViewUI(ctx, cliCtx, thread, isArchived)
 	err := tvUI.createThreadViewFrames()
 	if err != nil {
 		return err
@@ -315,8 +407,7 @@ func runThreadView(ctx context.Context, cliCtx *CliContext,
 	tvUI.syncHistoryFrameWithCurrentThreadState()
 
 	tvUI.focusedFrame = tvUI.inputFrame
-	tvUI.isArchived = isArchived
-	if isArchived {
+	if tvUI.isArchived {
 		tvUI.focusedFrame = tvUI.historyFrame
 	}
 	// Important: draw the thread view at least once before we service any
@@ -326,7 +417,7 @@ func runThreadView(ctx context.Context, cliCtx *CliContext,
 	//
 	// We still process async events immediately afterwards; this just ensures the
 	// user sees the thread view first.
-	tvUI.redrawThreadView()
+	tvUI.redrawThreadView(ctx)
 	needRedraw := false
 
 	for {
@@ -335,7 +426,7 @@ func runThreadView(ctx context.Context, cliCtx *CliContext,
 		}
 
 		if needRedraw {
-			tvUI.redrawThreadView()
+			tvUI.redrawThreadView(ctx)
 			needRedraw = false
 		}
 
