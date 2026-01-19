@@ -2,24 +2,24 @@ module github.com/mikeb26/gptcli
 
 go 1.24.0
 
-toolchain go1.24.11
+toolchain go1.24.12
 
-replace github.com/gbin/goncurses => github.com/mikeb26/gobin-goncurses v0.0.0-20251121204828-39be51709058
+replace github.com/rthornton128/goncurses => github.com/mikeb26/rthornton128-goncurses v0.0.0-20260119184955-bc9261688f2c
 
 require (
 	github.com/chromedp/chromedp v0.14.2
-	github.com/cloudwego/eino v0.7.19
-	github.com/cloudwego/eino-ext/components/model/claude v0.1.13
-	github.com/cloudwego/eino-ext/components/model/gemini v0.1.26
-	github.com/cloudwego/eino-ext/components/model/openai v0.1.7
-	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.12
+	github.com/cloudwego/eino v0.7.21
+	github.com/cloudwego/eino-ext/components/model/claude v0.1.14
+	github.com/cloudwego/eino-ext/components/model/gemini v0.1.28
+	github.com/cloudwego/eino-ext/components/model/openai v0.1.8
+	github.com/cloudwego/eino-ext/libs/acl/openai v0.1.13
 	github.com/famz/SetLocale v0.0.0-20140414113655-0457ad1065dd
-	github.com/gbin/goncurses v0.0.0-00010101000000-000000000000
 	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.6.0
+	github.com/rthornton128/goncurses v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/term v0.39.0
-	google.golang.org/genai v1.41.1
+	google.golang.org/genai v1.42.0
 )
 
 require (
