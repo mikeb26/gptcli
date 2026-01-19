@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	gc "github.com/gbin/goncurses"
 	"github.com/mikeb26/gptcli/internal/types"
+	gc "github.com/rthornton128/goncurses"
 )
 
 // NcursesUI implements the UI interface using a goncurses Window.

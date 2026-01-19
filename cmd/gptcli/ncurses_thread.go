@@ -13,11 +13,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	gc "github.com/gbin/goncurses"
 	"github.com/mikeb26/gptcli/internal/scm"
 	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/mikeb26/gptcli/internal/ui"
+	gc "github.com/rthornton128/goncurses"
 )
 
 const (

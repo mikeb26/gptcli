@@ -7,7 +7,7 @@ package ui
 import (
 	"fmt"
 
-	gc "github.com/gbin/goncurses"
+	gc "github.com/rthornton128/goncurses"
 )
 
 // FrameLine represents a single logical line of text within a Frame's

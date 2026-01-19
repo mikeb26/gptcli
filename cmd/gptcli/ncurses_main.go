@@ -6,8 +6,8 @@
 package main
 
 import (
-	gc "github.com/gbin/goncurses"
 	"github.com/mikeb26/gptcli/internal/threads"
+	gc "github.com/rthornton128/goncurses"
 )
 
 type threadMenuEntry struct {

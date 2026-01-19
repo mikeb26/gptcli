@@ -7,7 +7,7 @@ package ui
 import (
 	"unicode/utf8"
 
-	gc "github.com/gbin/goncurses"
+	gc "github.com/rthornton128/goncurses"
 )
 
 // ReadUTF8KeyRune is a convenience helper mirroring the behavior of

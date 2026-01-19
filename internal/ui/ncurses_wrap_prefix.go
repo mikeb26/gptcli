@@ -7,7 +7,7 @@ package ui
 import (
 	"strings"
 
-	gc "github.com/gbin/goncurses"
+	gc "github.com/rthornton128/goncurses"
 )
 
 // WrapTextWithPrefix converts a logical block of text into a slice of

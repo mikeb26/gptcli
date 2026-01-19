@@ -6,10 +6,10 @@
 package main
 
 import (
-	gc "github.com/gbin/goncurses"
 	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/mikeb26/gptcli/internal/ui"
+	gc "github.com/rthornton128/goncurses"
 )
 
 // buildHistoryLines converts the logical RenderBlocks for a thread

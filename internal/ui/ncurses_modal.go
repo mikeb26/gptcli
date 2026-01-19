@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	gc "github.com/gbin/goncurses"
 	"github.com/mikeb26/gptcli/internal/types"
+	gc "github.com/rthornton128/goncurses"
 )
 
 func clearRect(win *gc.Window, y, x, h, w int) {

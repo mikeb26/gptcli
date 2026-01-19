@@ -4,7 +4,7 @@
  */
 package ui
 
-import gc "github.com/gbin/goncurses"
+import gc "github.com/rthornton128/goncurses"
 
 // Theme configures optional styling for NcursesUI widgets.
 //

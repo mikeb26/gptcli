@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"github.com/famz/SetLocale"
-	gc "github.com/gbin/goncurses"
 	"github.com/mikeb26/gptcli/internal/types"
 	iui "github.com/mikeb26/gptcli/internal/ui"
+	gc "github.com/rthornton128/goncurses"
 	"golang.org/x/term"
 )
 

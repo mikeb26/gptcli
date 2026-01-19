@@ -9,7 +9,7 @@ import (
 	"context"
 	"fmt"
 
-	gc "github.com/gbin/goncurses"
+	gc "github.com/rthornton128/goncurses"
 )
 
 // drawThreadHeader renders a single-line header for the thread view.

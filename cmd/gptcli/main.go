@@ -12,7 +12,7 @@ import (
 	"os"
 
 	laclopenai "github.com/cloudwego/eino-ext/libs/acl/openai"
-	gc "github.com/gbin/goncurses"
+	gc "github.com/rthornton128/goncurses"
 
 	"github.com/mikeb26/gptcli/internal"
 	"github.com/mikeb26/gptcli/internal/am"

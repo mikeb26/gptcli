@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	gc "github.com/gbin/goncurses"
+	gc "github.com/rthornton128/goncurses"
 	"golang.org/x/term"
 
 	"github.com/mikeb26/gptcli/internal/types"

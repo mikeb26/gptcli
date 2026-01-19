@@ -48,7 +48,7 @@ clean:
 deps:
 	rm -rf go.mod go.sum vendor
 	go mod init github.com/mikeb26/gptcli
-	go mod edit -replace=github.com/gbin/goncurses=github.com/mikeb26/gobin-goncurses@39be5170905868a7d76f9b21df4738b37b6adaf7
+	go mod edit -replace=github.com/rthornton128/goncurses=github.com/mikeb26/rthornton128-goncurses@bc9261688f2c003b706dacc3a9437181cb864bbe
 	GOPROXY=direct go mod tidy
 	go mod vendor
 
