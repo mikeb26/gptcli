@@ -66,11 +66,11 @@ func finalizeChatOnce(thread *thread,
 // summarizeDialogue summarizes the entire chat history in order to reduce LLM
 // token costs and refocus the context window.
 func summarizeDialogue(ctx context.Context, llmClient types.AIClient,
+	sysMsg *types.ThreadMessage,
 	dialogue []*types.ThreadMessage) ([]*types.ThreadMessage, error) {
 
 	summaryDialogue := []*types.ThreadMessage{
-		{Role: types.LlmRoleSystem,
-			Content: prompts.SystemMsg},
+		sysMsg,
 	}
 
 	msg := &types.ThreadMessage{

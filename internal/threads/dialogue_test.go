@@ -21,6 +21,8 @@ func TestSummarizeDialogue(t *testing.T) {
 
 	mockClient := types.NewMockAIClient(ctrl)
 
+	sysMsg := &types.ThreadMessage{Role: types.LlmRoleSystem, Content: "system"}
+
 	initialDialogue := []*types.ThreadMessage{
 		{Role: types.LlmRoleUser, Content: "Hello!"},
 		{Role: types.LlmRoleAssistant, Content: "Hi! How can I assist you today?"},
@@ -41,9 +43,10 @@ func TestSummarizeDialogue(t *testing.T) {
 		CreateChatCompletion(gomock.Any(), gomock.Eq(initialDialogueWithSummary)).
 		Return(expectedSummaryMessage, nil).Times(1)
 
-	summaryDialogue, err := summarizeDialogue(ctx, mockClient, initialDialogue)
+	summaryDialogue, err := summarizeDialogue(ctx, mockClient, sysMsg, initialDialogue)
 
 	assert.NoError(t, err)
 	assert.Len(t, summaryDialogue, 2)
+	assert.Equal(t, sysMsg, summaryDialogue[0])
 	assert.Equal(t, expectedSummaryContent, summaryDialogue[1].Content)
 }

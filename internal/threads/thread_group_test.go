@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
 	"github.com/stretchr/testify/assert"
 )
@@ -38,13 +36,9 @@ func TestNewThreadInitializesAndRegistersThread(t *testing.T) {
 		assert.True(t, thr.CreateTime().Equal(thr.AccessTime()))
 		assert.True(t, thr.CreateTime().Equal(thr.ModTime()))
 
-		// Initial dialogue contains only the system message.
+		// Initial dialogue is empty; system message is injected at runtime.
 		d := thr.Dialogue()
-		if assert.Len(t, d, 1) {
-			msg := d[0]
-			assert.Equal(t, types.LlmRoleSystem, msg.Role)
-			assert.Equal(t, prompts.SystemMsg, msg.Content)
-		}
+		assert.Len(t, d, 0)
 	}
 
 	// NewThread does not persist to disk by itself.

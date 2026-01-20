@@ -13,8 +13,6 @@ import (
 	"sync"
 	"time"
 	"unsafe"
-
-	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
@@ -157,10 +155,7 @@ func (thrGrp *ThreadGroup) NewThread(name string) error {
 	cTime := time.Now()
 	dirNameLocal := genUniqDirName(name, cTime)
 
-	dialogue := []*types.ThreadMessage{
-		{Role: types.LlmRoleSystem,
-			Content: prompts.SystemMsg},
-	}
+	dialogue := []*types.ThreadMessage{}
 
 	curThread := &thread{
 		persisted: persistedThread{

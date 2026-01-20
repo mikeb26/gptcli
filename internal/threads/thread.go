@@ -68,7 +68,7 @@ type Thread interface {
 	RenderBlocks() []RenderBlock
 	Access() error
 	ChatOnceAsync(context.Context, types.InternalContext, string,
-		bool) (*RunningThreadState, error)
+		bool, string) (*RunningThreadState, error)
 }
 
 type thread struct {

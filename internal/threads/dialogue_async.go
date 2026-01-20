@@ -8,6 +8,7 @@ package threads
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 
@@ -85,7 +86,12 @@ func (s *RunningThreadState) Stop() {
 func (thread *thread) ChatOnceAsync(
 	ctx context.Context, ictx types.InternalContext, prompt string,
 	summarizePrior bool,
+	systemMsg string,
 ) (*RunningThreadState, error) {
+	if systemMsg == "" {
+		return nil, fmt.Errorf("system message is required")
+	}
+
 	// Record the current thread immediately so that the lifetime of this run is
 	// independent of any subsequent changes to the thread group's notion of
 	// "current thread".
@@ -120,7 +126,7 @@ func (thread *thread) ChatOnceAsync(
 	thread.mu.Unlock()
 
 	go runChatOnceAsync(
-		ctx, thread, prompt, summarizePrior,
+		ctx, thread, prompt, summarizePrior, systemMsg,
 		invocationID, progressCh,
 		state, resultCh, doneCh,
 	)
@@ -133,6 +139,7 @@ func runChatOnceAsync(
 	thread *thread,
 	prompt string,
 	summarizePrior bool,
+	systemMsg string,
 	invocationID string,
 	progressCh chan types.ProgressEvent,
 	state *RunningThreadState,
@@ -158,15 +165,25 @@ func runChatOnceAsync(
 
 	// Copy persisted dialogue so we don't mutate in-memory state while streaming.
 	thread.mu.RLock()
-	fullDialogue := make([]*types.ThreadMessage, len(thread.persisted.Dialogue))
-	copy(fullDialogue, thread.persisted.Dialogue)
+	priorDialogue := make([]*types.ThreadMessage, len(thread.persisted.Dialogue))
+	copy(priorDialogue, thread.persisted.Dialogue)
 	thread.mu.RUnlock()
-	fullDialogue = append(fullDialogue, reqMsg)
-	workingDialogue := fullDialogue
 
-	if summarizePrior && len(fullDialogue) > 2 {
-		prior := fullDialogue[:len(fullDialogue)-1]
-		summaryDialogue, sumErr := summarizeDialogue(ctx, thread.llmClient, prior)
+	// Backwards compatibility: old threads may have persisted the system message
+	// in the dialogue. We no longer persist system messages, so drop it.
+	if len(priorDialogue) > 0 && priorDialogue[0] != nil && priorDialogue[0].Role == types.LlmRoleSystem {
+		priorDialogue = priorDialogue[1:]
+	}
+
+	sysMsg := &types.ThreadMessage{Role: types.LlmRoleSystem, Content: systemMsg}
+	workingDialogue := []*types.ThreadMessage{sysMsg}
+	workingDialogue = append(workingDialogue, priorDialogue...)
+	workingDialogue = append(workingDialogue, reqMsg)
+	fullDialogue := append(priorDialogue, reqMsg)
+
+	if summarizePrior && len(workingDialogue) > 2 {
+		summaryDialogue, sumErr := summarizeDialogue(ctx, thread.llmClient,
+			sysMsg, priorDialogue)
 		if sumErr != nil {
 			resultCh <- RunningThreadResult{Reply: nil, Err: sumErr}
 			return

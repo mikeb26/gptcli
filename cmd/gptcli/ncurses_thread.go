@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
+	"github.com/mikeb26/gptcli/internal/prompts"
 	"github.com/mikeb26/gptcli/internal/scm"
 	"github.com/mikeb26/gptcli/internal/threads"
 	"github.com/mikeb26/gptcli/internal/types"
@@ -49,6 +51,23 @@ type threadViewUI struct {
 	historyFrame *ui.Frame
 	focusedFrame *ui.Frame
 	workDir      string
+}
+
+// automatically add AGENTS.md to the system prompt when present in the user's
+// repository
+func (tvUI *threadViewUI) getSystemPrompt() string {
+	if tvUI.workDir == "" {
+		return prompts.SystemMsg
+	}
+
+	// best effort
+	content, err := os.ReadFile(filepath.Join(tvUI.workDir, "AGENTS.md"))
+	if err != nil {
+		return prompts.SystemMsg
+	}
+
+	return fmt.Sprintf("%v\nThe user's repository contains an AGENTS.md with the following additional instructions:\n%v\n:",
+		prompts.SystemMsg, string(content))
 }
 
 func lookupOrCreateThreadViewUI(ctx context.Context, cliCtx *CliContext,
