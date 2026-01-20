@@ -20,7 +20,6 @@ import (
 	"github.com/cloudwego/eino/flow/agent"
 	"github.com/cloudwego/eino/flow/agent/react"
 	"github.com/cloudwego/eino/schema"
-	"github.com/google/uuid"
 	"github.com/mikeb26/gptcli/internal"
 	"github.com/mikeb26/gptcli/internal/am"
 	"github.com/mikeb26/gptcli/internal/tools"
@@ -52,25 +51,22 @@ type EINOAIClient struct {
 type invocationIDKey struct{}
 
 // GetInvocationID extracts the invocation ID from the context, if present.
-func GetInvocationID(ctx context.Context) (string, bool) {
+func GetInvocationID(ctx context.Context) string {
 	if v := ctx.Value(invocationIDKey{}); v != nil {
 		if s, ok := v.(string); ok && s != "" {
-			return s, true
+			return s
 		}
 	}
-	return "", false
+	return ""
 }
 
-// ensureInvocationID returns a context that is guaranteed to carry an
-// invocation ID, and the ID itself. If the ID is already present, it is
-// reused; otherwise, a new UUID is generated and attached to the context.
-func EnsureInvocationID(ctx context.Context) (context.Context, string) {
-	if id, ok := GetInvocationID(ctx); ok {
-		return ctx, id
-	}
-	id := uuid.NewString()
-	ctx = context.WithValue(ctx, invocationIDKey{}, id)
-	return ctx, id
+func SetInvocationID(ctx context.Context, threadId string,
+	invCount int) (context.Context, string) {
+
+	invId := fmt.Sprintf("t%v.i%v", threadId, invCount)
+	ctx = context.WithValue(ctx, invocationIDKey{}, invId)
+
+	return ctx, invId
 }
 
 func NewEINOClient(ctx context.Context, ictx types.InternalContext,
@@ -238,11 +234,6 @@ func (client *EINOAIClient) SetReasoning(
 func (client *EINOAIClient) CreateChatCompletion(ctx context.Context,
 	dialogueIn []*types.ThreadMessage) (*types.ThreadMessage, error) {
 
-	// Ensure this invocation has a correlation ID for audit/progress callbacks.
-	// If an ID is already present in the context (e.g. set by a higher-level
-	// caller), it will be reused; otherwise, a new one is generated.
-	ctx, _ = EnsureInvocationID(ctx)
-
 	dialogue := make([]*schema.Message, len(dialogueIn))
 	for ii, msg := range dialogueIn {
 		dialogue[ii] = (*schema.Message)(msg)
@@ -272,7 +263,7 @@ func (client *EINOAIClient) StreamChatCompletion(ctx context.Context,
 
 	// Ensure this invocation has a correlation ID for audit/progress callbacks.
 	// If the caller already attached an ID to ctx, we will reuse it.
-	ctx, invocationID := EnsureInvocationID(ctx)
+	invocationID := GetInvocationID(ctx)
 
 	dialogue := make([]*schema.Message, len(dialogueIn))
 	for ii, msg := range dialogueIn {

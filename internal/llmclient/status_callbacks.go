@@ -27,8 +27,8 @@ func (h *statusModelCallbacks) OnStart(
 	info *callbacks.RunInfo,
 	input *model.CallbackInput,
 ) context.Context {
-	id, ok := GetInvocationID(ctx)
-	if !ok || h.client == nil {
+	id := GetInvocationID(ctx)
+	if id == "" || h.client == nil {
 		return ctx
 	}
 
@@ -47,8 +47,8 @@ func (h *statusModelCallbacks) OnEnd(
 	info *callbacks.RunInfo,
 	output *model.CallbackOutput,
 ) context.Context {
-	id, ok := GetInvocationID(ctx)
-	if !ok || h.client == nil {
+	id := GetInvocationID(ctx)
+	if id == "" || h.client == nil {
 		return ctx
 	}
 
@@ -67,8 +67,8 @@ func (h *statusModelCallbacks) OnEndWithStreamOutput(
 	info *callbacks.RunInfo,
 	output *schema.StreamReader[*model.CallbackOutput],
 ) context.Context {
-	id, ok := GetInvocationID(ctx)
-	if !ok || h.client == nil {
+	id := GetInvocationID(ctx)
+	if id == "" || h.client == nil {
 		return ctx
 	}
 
@@ -91,8 +91,8 @@ func (h *statusToolCallbacks) OnStart(
 	info *callbacks.RunInfo,
 	input *tool.CallbackInput,
 ) context.Context {
-	id, ok := GetInvocationID(ctx)
-	if !ok || h.client == nil {
+	id := GetInvocationID(ctx)
+	if id == "" || h.client == nil {
 		return ctx
 	}
 
@@ -117,8 +117,8 @@ func (h *statusToolCallbacks) OnEnd(
 	info *callbacks.RunInfo,
 	output *tool.CallbackOutput,
 ) context.Context {
-	id, ok := GetInvocationID(ctx)
-	if !ok || h.client == nil {
+	id := GetInvocationID(ctx)
+	if id == "" || h.client == nil {
 		return ctx
 	}
 
@@ -143,8 +143,8 @@ func (h *statusToolCallbacks) OnEndWithStreamOutput(
 	info *callbacks.RunInfo,
 	output *schema.StreamReader[*tool.CallbackOutput],
 ) context.Context {
-	id, ok := GetInvocationID(ctx)
-	if !ok || h.client == nil {
+	id := GetInvocationID(ctx)
+	if id == "" || h.client == nil {
 		return ctx
 	}
 

@@ -63,9 +63,11 @@ func summarizeMessages(msgs []*schema.Message) string {
 // getInvocationIDForLog builds the textual prefix for audit log lines based on
 // the invocation ID stored in the context, if any.
 func getInvocationIDForLog(ctx context.Context) string {
-	if id, ok := GetInvocationID(ctx); ok {
+	id := GetInvocationID(ctx)
+	if id != "" {
 		return "[" + id + "] "
 	}
+
 	return ""
 }
 

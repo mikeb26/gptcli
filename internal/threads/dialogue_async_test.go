@@ -43,7 +43,7 @@ func TestChatOnceAsyncStreamsAndFinalizes(t *testing.T) {
 	thrImpl := threads[0].(*thread)
 
 	ctxBase := context.Background()
-	ctx, invocationID := llmclient.EnsureInvocationID(ctxBase)
+	ctx, invocationID := llmclient.SetInvocationID(ctxBase, thrImpl.persisted.Id, thrImpl.persisted.InvocationCount+1)
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -145,7 +145,7 @@ func TestChatOnceAsyncPropagatesStreamError(t *testing.T) {
 	thrImpl := threads[0].(*thread)
 
 	ctxBase := context.Background()
-	ctx, invocationID := llmclient.EnsureInvocationID(ctxBase)
+	ctx, invocationID := llmclient.SetInvocationID(ctxBase, thrImpl.persisted.Id, thrImpl.persisted.InvocationCount+1)
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -208,7 +208,7 @@ func TestChatOnceAsyncDropsPersistedSystemMessageForBackwardsCompatibility(t *te
 	}
 
 	ctxBase := context.Background()
-	ctx, invocationID := llmclient.EnsureInvocationID(ctxBase)
+	ctx, invocationID := llmclient.SetInvocationID(ctxBase, thrImpl.persisted.Id, thrImpl.persisted.InvocationCount+1)
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

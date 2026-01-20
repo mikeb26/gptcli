@@ -100,9 +100,13 @@ func (thread *thread) ChatOnceAsync(
 		return nil, err
 	}
 
+	thread.mu.RLock()
 	// Seed an invocation ID up-front so the UI can subscribe to progress events
 	// before the agent begins executing.
-	ctx, invocationID := llmclient.EnsureInvocationID(ctx)
+	ctx, invocationID := llmclient.SetInvocationID(ctx, thread.persisted.Id,
+		thread.persisted.InvocationCount)
+	thread.mu.RUnlock()
+
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = WithThread(ctx, thread)
 
@@ -191,8 +195,6 @@ func runChatOnceAsync(
 		workingDialogue = append(summaryDialogue, reqMsg)
 	}
 
-	// Ensure an invocation ID exists on the request context.
-	ctx, _ = llmclient.EnsureInvocationID(ctx)
 	res, err := thread.llmClient.StreamChatCompletion(ctx, workingDialogue)
 	if err != nil {
 		resultCh <- RunningThreadResult{Reply: nil, Err: err}

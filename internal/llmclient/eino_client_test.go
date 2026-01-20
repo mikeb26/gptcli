@@ -16,20 +16,18 @@ import (
 func TestInvocationID_GetAndEnsure(t *testing.T) {
 	ctx := context.Background()
 
-	id, ok := GetInvocationID(ctx)
-	assert.False(t, ok)
+	id := GetInvocationID(ctx)
 	assert.Empty(t, id)
 
-	ctx2, id2 := EnsureInvocationID(ctx)
+	ctx2, id2 := SetInvocationID(ctx, "6", 1)
 	assert.NotEmpty(t, id2)
+	assert.Equal(t, id2, GetInvocationID(ctx2))
 
-	id3, ok := GetInvocationID(ctx2)
-	assert.True(t, ok)
-	assert.Equal(t, id2, id3)
-
-	ctx3, id4 := EnsureInvocationID(ctx2)
-	assert.Equal(t, ctx2, ctx3)
-	assert.Equal(t, id2, id4)
+	ctx3, id3 := SetInvocationID(ctx2, "6", 2)
+	assert.NotEqual(t, ctx2, ctx3)
+	assert.NotEmpty(t, id3)
+	assert.Equal(t, "t6.i2", id3)
+	assert.Equal(t, id3, GetInvocationID(ctx3))
 }
 
 func TestProgress_Subscribe_LateSubscriberGetsCurrent(t *testing.T) {

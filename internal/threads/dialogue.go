@@ -29,6 +29,7 @@ func (thr *thread) setRunning(ctx context.Context,
 			thr.state)
 	}
 
+	thr.persisted.InvocationCount++
 	thr.state = ThreadStateRunning
 
 	// Create the async approver and LLM client per-thread (and only once per

@@ -48,12 +48,13 @@ func (state ThreadState) String() string {
 }
 
 type persistedThread struct {
-	Name       string                 `json:"name"`
-	CreateTime time.Time              `json:"ctime"`
-	AccessTime time.Time              `json:"atime"`
-	ModTime    time.Time              `json:"mtime"`
-	Dialogue   []*types.ThreadMessage `json:"dialogue"`
-	Id         string                 `json:"id3"`
+	Name            string                 `json:"name"`
+	CreateTime      time.Time              `json:"ctime"`
+	AccessTime      time.Time              `json:"atime"`
+	ModTime         time.Time              `json:"mtime"`
+	Dialogue        []*types.ThreadMessage `json:"dialogue"`
+	Id              string                 `json:"id3"`
+	InvocationCount int                    `json:"inv_count"`
 }
 
 type Thread interface {

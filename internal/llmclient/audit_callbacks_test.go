@@ -48,7 +48,7 @@ func TestGetInvocationIDForLog(t *testing.T) {
 	ctx := context.Background()
 	assert.Equal(t, "", getInvocationIDForLog(ctx))
 
-	ctx2, id := EnsureInvocationID(ctx)
+	ctx2, id := SetInvocationID(ctx, "t", 1)
 	assert.Equal(t, "["+id+"] ", getInvocationIDForLog(ctx2))
 }
 
@@ -63,7 +63,7 @@ func TestAuditModelCallbacks_OnStartAndEnd(t *testing.T) {
 	logger := log.New(buf, "", 0)
 	cb := &auditModelCallbacks{logger: logger}
 
-	ctx, id := EnsureInvocationID(context.Background())
+	ctx, id := SetInvocationID(context.Background(), "t", 1)
 
 	cb.OnStart(ctx, &callbacks.RunInfo{Name: "m"}, &model.CallbackInput{
 		Messages: []*schema.Message{{Role: schema.User, Content: "hello"}},
