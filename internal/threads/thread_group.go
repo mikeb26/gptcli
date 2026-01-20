@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 	"unsafe"
+
 	"github.com/mikeb26/gptcli/internal/types"
 )
 
@@ -174,7 +175,7 @@ func (thrGrp *ThreadGroup) NewThread(name string) error {
 	if err != nil {
 		return err
 	}
-	curThread.persisted.Id2 = id
+	curThread.persisted.Id = id
 
 	thrGrp.addThread(curThread)
 
@@ -182,14 +183,14 @@ func (thrGrp *ThreadGroup) NewThread(name string) error {
 }
 
 func (thrGrp *ThreadGroup) addThread(curThread *thread) {
-	if curThread.persisted.Id2 == "" {
+	if curThread.persisted.Id == "" {
 		panic("missing thread id")
 	}
-	if _, exists := thrGrp.threads[curThread.persisted.Id2]; exists {
+	if _, exists := thrGrp.threads[curThread.persisted.Id]; exists {
 		panic(fmt.Sprintf("attempt to add thread id %v to group %v but it already exists",
-			curThread.persisted.Id2, thrGrp.name))
+			curThread.persisted.Id, thrGrp.name))
 	}
-	thrGrp.threads[curThread.persisted.Id2] = curThread
+	thrGrp.threads[curThread.persisted.Id] = curThread
 	thrGrp.totThreads++
 }
 

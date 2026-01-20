@@ -53,8 +53,7 @@ type persistedThread struct {
 	AccessTime time.Time              `json:"atime"`
 	ModTime    time.Time              `json:"mtime"`
 	Dialogue   []*types.ThreadMessage `json:"dialogue"`
-	// Id2 renamed Id2 since preexisting Id2 semantics changed from cur usage
-	Id2 string
+	Id         string                 `json:"id3"`
 }
 
 type Thread interface {
@@ -102,17 +101,20 @@ func (t *thread) load(parentDir string, dirName string) error {
 	if err := json.Unmarshal(threadFileText, &t.persisted); err != nil {
 		return fmt.Errorf("Failed to parse %v: %w", fullpath, err)
 	}
-	if t.persisted.Id2 == "" {
-		id, err := t.parent.parent.newThreadId()
-		if err != nil {
-			return err
-		}
-		t.persisted.Id2 = id
-	}
 
 	t.state = ThreadStateIdle
 	t.parentDir = parentDir
 	t.dirName = dirName
+
+	if t.persisted.Id == "" {
+		id, err := t.parent.parent.newThreadId()
+		if err != nil {
+			return err
+		}
+		t.persisted.Id = id
+		// best effort save w/ new thread id
+		_ = t.save()
+	}
 
 	return nil
 }
@@ -139,7 +141,7 @@ func (t *thread) Id() string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	return t.persisted.Id2
+	return t.persisted.Id
 }
 
 // CreateTime returns the thread creation timestamp.
