@@ -30,12 +30,12 @@ func confirmQuitIfNonIdleThreads(gptCliCtx *CliContext) (bool, error) {
 	}
 
 	prompt := fmt.Sprintf(
-		"You have %d non-idle thread(s) (running or awaiting approval). Quit anyway?\n\nIf you quit now, you may lose progress/output.",
+		"You have %d non-idle thread(s) (running or awaiting approval). Quit anyway?\nIf you quit now, you may lose progress/output.",
 		nonIdle,
 	)
 	defaultQuit := false
-	trueOpt := types.UIOption{Key: "y", Label: "y"}
-	falseOpt := types.UIOption{Key: "n", Label: "n"}
+	trueOpt := types.UIOption{Key: "y", Label: "Yes, quit anyway"}
+	falseOpt := types.UIOption{Key: "n", Label: "No, I don't want to lose progress"}
 	quit, err := gptCliCtx.ui.SelectBool(prompt, trueOpt, falseOpt, &defaultQuit)
 	if err != nil {
 		return false, err
