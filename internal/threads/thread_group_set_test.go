@@ -78,3 +78,63 @@ func TestThreadGroupSet_NewThreadGroupSet_PrefixRules(t *testing.T) {
 		t.Fatalf("expected group name to remain empty string, got %q", tgs.threadGrps[0].Name())
 	}
 }
+
+func TestThreadGroupSet_NonIdleThreadCount_EmptySet(t *testing.T) {
+	root := t.TempDir()
+
+	tgs := NewThreadGroupSet(root, nil)
+	if got := tgs.NonIdleThreadCount(); got != 0 {
+		t.Fatalf("expected NonIdleThreadCount=0, got %v", got)
+	}
+}
+
+func TestThreadGroupSet_NonIdleThreadCount_SumsAcrossGroups(t *testing.T) {
+	root := t.TempDir()
+
+	tgs := NewThreadGroupSet(root, []string{"grpA", "grpB"})
+
+	// Create some threads; new threads start idle.
+	if err := tgs.NewThread("grpA", "t1"); err != nil {
+		t.Fatalf("NewThread failed: %v", err)
+	}
+	if err := tgs.NewThread("grpA", "t2"); err != nil {
+		t.Fatalf("NewThread failed: %v", err)
+	}
+	if err := tgs.NewThread("grpB", "t3"); err != nil {
+		t.Fatalf("NewThread failed: %v", err)
+	}
+
+	if got := tgs.NonIdleThreadCount(); got != 0 {
+		t.Fatalf("expected NonIdleThreadCount=0 for all-idle threads, got %v", got)
+	}
+
+	// Mark one thread in grpA as running and one thread in grpB as blocked.
+	// (Use the underlying map to avoid relying on sort order.)
+	grpA := tgs.threadGrps[0]
+	grpA.mu.RLock()
+	if len(grpA.threads) != 2 {
+		grpA.mu.RUnlock()
+		t.Fatalf("expected 2 threads in grpA, got %v", len(grpA.threads))
+	}
+	for _, thr := range grpA.threads {
+		thr.setState(ThreadStateRunning)
+		break
+	}
+	grpA.mu.RUnlock()
+
+	grpB := tgs.threadGrps[1]
+	grpB.mu.RLock()
+	if len(grpB.threads) != 1 {
+		grpB.mu.RUnlock()
+		t.Fatalf("expected 1 thread in grpB, got %v", len(grpB.threads))
+	}
+	for _, thr := range grpB.threads {
+		thr.setState(ThreadStateBlocked)
+		break
+	}
+	grpB.mu.RUnlock()
+
+	if got := tgs.NonIdleThreadCount(); got != 2 {
+		t.Fatalf("expected NonIdleThreadCount=2, got %v", got)
+	}
+}

@@ -141,7 +141,7 @@ func (tgs *ThreadGroupSet) NonIdleThreadCount() int {
 
 	count := 0
 	for _, thrGroup := range tgs.threadGrps {
-		count = thrGroup.NonIdleThreadCount()
+		count += thrGroup.NonIdleThreadCount()
 	}
 
 	return count
