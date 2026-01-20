@@ -201,13 +201,11 @@ func (f *Frame) Render(showCursor bool) {
 
 	contentY, contentX, contentH, contentW := f.contentBounds()
 	if contentH <= 0 || contentW <= 0 {
-		f.Win.Refresh()
 		return
 	}
 
 	source := f.lines
 	if len(source) == 0 {
-		f.Win.Refresh()
 		return
 	}
 
@@ -259,7 +257,6 @@ func (f *Frame) Render(showCursor bool) {
 	}
 
 	if len(display) == 0 {
-		f.Win.Refresh()
 		return
 	}
 
@@ -354,5 +351,7 @@ func (f *Frame) Render(showCursor bool) {
 		gc.StdScr().Move(yAbs, xAbs)
 	}
 
-	f.Win.Refresh()
+	// Do not flush to the physical terminal here. Higher-level code should
+	// batch updates across multiple windows/panels and call goncurses.Update()
+	// once.
 }

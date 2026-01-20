@@ -189,21 +189,41 @@ func (tvUI *threadViewUI) closeThreadViewFrames() {
 }
 
 func (tvUI *threadViewUI) redrawThreadView(ctx context.Context) {
-	// First redraw everything that lives directly on the root
-	// screen (stdscr). We intentionally refresh this parent
-	// window *before* rendering the input frame's sub-window so
-	// that the frame's contents are not overwritten by a later
-	// scr.Refresh() call.
-	tvUI.cliCtx.rootWin.Erase()
+	// Cursor visibility is global ncurses state. Modal dialogs (e.g. tool
+	// approvals) may temporarily hide the cursor and not restore it, which can
+	// leave the thread view without a visible caret after a run.
+	//
+	// Reassert our desired cursor visibility on every redraw.
+	ui.SetCursorVisible(tvUI.focusedFrame != nil && tvUI.focusedFrame.HasCursor)
+
+	// Render history and input frames first.
+	//
+	// NOTE: we intentionally do NOT erase stdscr/rootWin here.
+	// The thread view is composed of multiple panel windows (history/input)
+	// plus a few single-row regions drawn directly on stdscr (header, input
+	// label, navbar). If we erase stdscr and then stage it after panels, it can
+	// overwrite the panel windows in the virtual screen.
+	//
+	// Instead, we only repaint the specific stdscr rows we own (each helper
+	// already fills its entire row), and we stage stdscr last so that the navbar
+	// is the final thing painted.
+	tvUI.historyFrame.Render(tvUI.getFocus() == focusHistory)
+	tvUI.inputFrame.Render(tvUI.getFocus() == focusInput)
+
+	// Stage panel windows into the virtual screen in correct z-order.
+	gc.UpdatePanels()
+
+	// Draw stdscr regions last, but preserve the current terminal cursor
+	// position so we don't steal focus from whichever frame is active.
+	curY, curX := gc.StdScr().CursorYX()
 	tvUI.drawThreadHeader(ctx)
 	drawThreadInputLabel(tvUI.cliCtx, tvUI.statusText)
 	drawNavbar(tvUI.cliCtx, tvUI.getFocus(), tvUI.isArchived)
-	tvUI.cliCtx.rootWin.Refresh()
+	gc.StdScr().Move(curY, curX)
 
-	// Render history and input frames after the root screen so
-	// their contents are not overwritten.
-	tvUI.historyFrame.Render(tvUI.getFocus() == focusHistory)
-	tvUI.inputFrame.Render(tvUI.getFocus() == focusInput)
+	// Stage stdscr last (so its cursor position wins), then flush once.
+	tvUI.cliCtx.rootWin.NoutRefresh()
+	_ = gc.Update()
 }
 
 func (tvUI *threadViewUI) processThreadViewKey(
@@ -402,8 +422,8 @@ func runThreadView(ctx context.Context, cliCtx *CliContext,
 	thread threads.Thread, isArchived bool) error {
 
 	// Use the terminal cursor for caret display in the thread view.
-	_ = gc.Cursor(1)
-	defer gc.Cursor(0)
+	ui.SetCursorVisible(true)
+	defer ui.SetCursorVisible(false)
 
 	// Listen for SIGWINCH so we can adjust layout on resize while inside
 	// the thread view. This mirrors the behavior of showMenu but keeps

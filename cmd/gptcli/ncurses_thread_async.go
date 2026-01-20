@@ -68,11 +68,6 @@ func (tvUI *threadViewUI) beginAsyncChat(
 
 	tvUI.setRunningState(state)
 
-	// We intentionally do not clear the input buffer or mutate the history view
-	// until we know ChatOnceAsync has been successfully started.
-	// Preserve cursor/focus while updating the status line.
-	tvUI.redrawThreadInputLabelPreserveCursor()
-
 	return prompt, true
 }
 
@@ -143,41 +138,46 @@ func (s *threadViewAsyncChatState) statusFromProgress(ev types.ProgressEvent) st
 	return s.formatStatus(now)
 }
 
-func (tvUI *threadViewUI) tickStatus() {
+func (tvUI *threadViewUI) tickStatus() bool {
 	if tvUI.running.state == nil {
-		return
+		return false
 	}
 
 	now := time.Now()
 	if now.Sub(tvUI.running.lastStatusUpdate) < 200*time.Millisecond {
-		return
+		return false
 	}
 
+	needRedraw := false
 	tvUI.running.lastStatusUpdate = now
-	tvUI.statusText = tvUI.running.formatStatus(now)
-	tvUI.redrawThreadInputLabelPreserveCursor()
+	newStatusText := tvUI.running.formatStatus(now)
+	if tvUI.statusText != newStatusText {
+		tvUI.statusText = newStatusText
+		needRedraw = true
+	}
+
+	return needRedraw
 }
 
-func (tvUI *threadViewUI) processAsyncChat() (needRedraw bool) {
+func (tvUI *threadViewUI) processAsyncChat() bool {
 	if tvUI.running.state == nil {
 		return false
 	}
 	state := tvUI.running.state
+	contentRedraw := false
 	content := state.ContentSoFar()
 	if len(content) != tvUI.running.lastContentLen {
 		blocks := threadViewDisplayBlocks(tvUI.thread, state.Prompt)
 		tvUI.setHistoryFrameFromBlocks(blocks, content)
 		tvUI.running.lastContentLen = len(content)
-		needRedraw = true
+		contentRedraw = true
 	}
 	_, stepRedraw := tvUI.processAsyncChatEvents()
-	if stepRedraw {
-		needRedraw = true
-	}
 
 	// Keep status durations ticking even if no new progress events arrive.
-	tvUI.tickStatus()
-	return needRedraw
+	statusRedraw := tvUI.tickStatus()
+
+	return (contentRedraw || statusRedraw || stepRedraw)
 }
 
 // processAsyncChatEvents drains any currently-available async events
@@ -211,7 +211,7 @@ func (tvUI *threadViewUI) processAsyncChatEvents() (done bool, needRedraw bool) 
 				continue
 			}
 			tvUI.statusText = tvUI.running.statusFromProgress(ev)
-			tvUI.redrawThreadInputLabelPreserveCursor()
+			needRedraw = true
 		case res, ok := <-tvUI.running.resultCh:
 			if !ok {
 				tvUI.running.resultCh = nil

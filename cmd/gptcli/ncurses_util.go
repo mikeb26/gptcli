@@ -33,12 +33,6 @@ func drawStatusSegments(scr *gc.Window, y, maxX int, segments []statusSegment, u
 		baseAttr = gc.ColorPair(menuColorStatus)
 	}
 	_ = scr.AttrSet(baseAttr)
-	// Avoid mvwhline()/HLine for consistent full-row repaint during
-	// incremental updates.
-	for x := 0; x < maxX; x++ {
-		scr.MoveAddChar(y, x, gc.Char(' ')|baseAttr)
-	}
-	_ = scr.TouchLine(y, 1)
 
 	x := 0
 	for _, seg := range segments {
@@ -68,6 +62,33 @@ func drawStatusSegments(scr *gc.Window, y, maxX int, segments []statusSegment, u
 		scr.MovePrint(y, x, text)
 		x += len(runes)
 	}
+
+	// Ensure the remainder of the row keeps the base background attributes.
+	//
+	// Important: simply writing spaces (e.g. mvwaddch(' ')) is often optimized
+	// away by ncurses as trailing blanks, which means the terminal never receives
+	// any escape sequence to actually paint the background in those cells.
+	//
+	// Using clrtoeol after setting the desired attribute forces the remainder of
+	// the line to be repainted/cleared using the current rendition, which keeps
+	// the status bar background stable across incremental redraws.
+	if x < maxX {
+		ii := 0
+		atLeastOnceSpace := false
+		progAndVer := CommandName + "-" + versionText
+		progStartX := maxX - len(progAndVer)
+		_ = scr.AttrSet(baseAttr)
+		for ; x < maxX; x++ {
+			if atLeastOnceSpace && x >= progStartX {
+				scr.MoveAddChar(y, x, gc.Char(progAndVer[ii])|baseAttr)
+				ii++
+			} else {
+				scr.MoveAddChar(y, x, gc.Char(' ')|baseAttr)
+				atLeastOnceSpace = true
+			}
+		}
+	}
+	_ = scr.TouchLine(y, 1)
 }
 
 // promptForThreadNameNCurses displays a simple centered modal window asking
@@ -95,9 +116,9 @@ func showErrorRetryModal(nui *ui.NcursesUI, message string) (bool, error) {
 	// Build a compact prompt that shows the error text and asks whether
 	// to retry. NcursesUI.SelectBool handles rendering the modal and
 	// collecting the response.
-	prompt := fmt.Sprintf("Error: %s\nRetry? (y/n)", message)
-	trueOpt := types.UIOption{Key: "y", Label: "y"}
-	falseOpt := types.UIOption{Key: "n", Label: "n"}
+	prompt := fmt.Sprintf("Error: %s\nRetry?", message)
+	trueOpt := types.UIOption{Key: "y", Label: "Yes, retry"}
+	falseOpt := types.UIOption{Key: "n", Label: "No, do not retry"}
 	defaultNo := false
 
 	return nui.SelectBool(prompt, trueOpt, falseOpt, &defaultNo)

@@ -54,24 +54,6 @@ func drawThreadInputLabel(cliCtx *CliContext, statusText string) {
 	_ = cliCtx.rootWin.AttrSet(gc.A_NORMAL)
 }
 
-// redrawThreadInputLabelPreserveCursor updates the input label/status line
-// while preserving the currently-focused cursor location.
-//
-// This is used while a thread is running so periodic status/progress updates
-// don't "steal" the terminal cursor away from the focused frame.
-func (tvUI *threadViewUI) redrawThreadInputLabelPreserveCursor() {
-	// Capture the current cursor position as last placed by the focused frame
-	// (Frame.Render uses gc.StdScr().Move for cursor placement).
-	curY, curX := gc.StdScr().CursorYX()
-
-	drawThreadInputLabel(tvUI.cliCtx, tvUI.statusText)
-
-	// Restore cursor position so the user's focus doesn't flicker.
-	gc.StdScr().Move(curY, curX)
-	// Refresh stdscr/root to apply the label update and cursor restore.
-	tvUI.cliCtx.rootWin.Refresh()
-}
-
 func restoreInputFrameContent(inputFrame *ui.Frame, content string, cursorLine, cursorCol int) {
 	if inputFrame == nil {
 		return

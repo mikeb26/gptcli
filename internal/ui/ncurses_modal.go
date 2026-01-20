@@ -155,6 +155,11 @@ func (n *NcursesUI) readLineModalFrame(userPrompt string) (string, error) {
 		return "", fmt.Errorf("ncurses UI not initialized")
 	}
 
+	// Ensure input prompts show a cursor while active, then hide it when
+	// returning to non-input screens.
+	SetCursorVisible(true)
+	defer SetCursorVisible(false)
+
 	// Allow multi-line prompts by splitting on explicit newlines, so
 	// sizing reflects the actual layout.
 	trimmed := strings.TrimRight(userPrompt, "\n")
@@ -196,8 +201,6 @@ func (n *NcursesUI) readLineModalFrame(userPrompt string) (string, error) {
 	// Use a short timeout so we can remain responsive to input while
 	// rendering the modal.
 	win.Timeout(50)
-	_ = gc.Cursor(1)
-	defer gc.Cursor(0)
 
 	// Draw the border once; subsequent updates only modify the inner
 	// content area.
@@ -290,6 +293,12 @@ func (n *NcursesUI) selectFromListModalFrame(userPrompt string, items []string, 
 	if len(items) == 0 {
 		return -1, false, fmt.Errorf("no items provided")
 	}
+
+	// Ensure list-selection modals never show a terminal cursor. Cursor
+	// visibility is global ncurses state and may have been left enabled by
+	// prior input prompts.
+	SetCursorVisible(false)
+	defer SetCursorVisible(false)
 
 	total := len(items)
 
@@ -496,6 +505,10 @@ func (n *NcursesUI) selectBoolScrollablePromptModalFrame(userPrompt string,
 	if ch < 1 {
 		ch = 1
 	}
+
+	// Ensure selection modals do not display a cursor.
+	SetCursorVisible(false)
+	defer SetCursorVisible(false)
 
 	// Prompt rendering: reserve the last column for the scrollbar when we
 	// have enough width.

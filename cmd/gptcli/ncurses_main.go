@@ -7,6 +7,7 @@ package main
 
 import (
 	"github.com/mikeb26/gptcli/internal/threads"
+	"github.com/mikeb26/gptcli/internal/ui"
 	gc "github.com/rthornton128/goncurses"
 )
 
@@ -41,7 +42,7 @@ func newThreadMenuUI(cliCtxIn *CliContext) *threadMenuUI {
 func (cliCtx *CliContext) initMenuUI() {
 	gc.CBreak(true)
 	gc.Echo(false)
-	_ = gc.Cursor(0)
+	ui.SetCursorVisible(false)
 	_ = cliCtx.rootWin.Keypad(true)
 	cliCtx.rootWin.Timeout(50)
 
